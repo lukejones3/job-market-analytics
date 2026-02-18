@@ -548,32 +548,6 @@ _SOFT_SKILL_HINTS = {
     "ownership", "follow through", "follow-through",
 }
 
-_CANDIDATE_HARD_BLACKLIST = {
-    # EEO / protected-class boilerplate
-    "race","color","religion","sex","gender","gender identity","gender expression",
-    "sexual orientation","national origin","ancestry","age","disability","veteran",
-    "pregnancy","marital status","genetic information","citizenship","protected",
-    # generic HR/legal/benefits noise
-    "equal opportunity","eeo","accommodation","reasonable accommodation",
-    "background check","drug free","drug-free","benefits","benefit","insurance",
-    "pto","paid time off","401k","bonus","wellness","healthcare","vision","dental",
-    "pay range","compensation","salary range",
-    # common headings you saw
-    "required qualifications","preferred qualifications","physical requirements","abilities",
-}
-
-_EXCLUDED_SECTION_HEADERS_RE = re.compile(
-    r"(?i)("
-    r"equal opportunity|eeo|diversity|inclusion|accommodation|reasonable accommodation|"
-    r"background check|drug[- ]?free|benefits|what you(’|')ll get|perks|"
-    r"privacy|terms|disclaimer|authorization|consent|employment eligibility|"
-    r"vaccin|covid|work authorization"
-    r")"
-)
-
-_END_SECTION_RE = re.compile(r"(?i)(about the job|responsibilities|what you will do|qualifications|requirements|preferred|skills)")
-
-
 def _norm_candidate(t: str) -> str:
     t = (t or "").strip().lower()
     t = t.replace("\u00a0", " ")
@@ -586,12 +560,6 @@ def _norm_candidate(t: str) -> str:
 
 def _is_garbage_candidate(t: str) -> bool:
     if not t:
-        return True
-    if t in _CANDIDATE_HARD_BLACKLIST:
-        return True
-    if re.search(r"\b(equal opportunity|eeo|accommodation|benefits|privacy|disclaimer)\b", t):
-        return True
-
         return True
     if len(t) < 2 or len(t) > 60:
         return True
@@ -723,149 +691,6 @@ def insert_soft_skill(cur, job_id: str, soft_skill: str, normalized_text: str, c
         (job_id, soft_skill, normalized_text, confidence, src),
     )
 
-# -----------------------------
-# Candidate skill strict gates
-# -----------------------------
-_CANDIDATE_STRICT_GATES = {
-    # generic fluff words you do NOT want as "skills"
-    "attitude","passion","learning","education","knowledge","clients","client","benefits",
-    "abilities","ability","skills","skill","experience","preferred qualifications","required qualifications",
-    "strong analytical","verbal","written","grow","family support","continuing education",
-    "technologies on the job","experience is useful","skills matter",
-    "and qualifications",
-    "other requirements",
-    "desired qualifications",
-    "minimum requirements",
-    "soft skills",
-    "in writing",
-    "written communication",
-    "written communication skills",
-    "organizational skills",
-    "development opportunities",
-    "development opportunities. our broad",
-    "their families. at caci",
-    "with external organizations",
-    "including job-related skills",
-    "job-related skills",
-    "qualifications",
-    "requirements",
-    "opportunities",
-    "attitude is everything",
-    "financial",
-    "retirement",
-    "level",
-    "develop",
-    "maintain",
-    "including",
-    "and",
-    "with",
-}
-
-# Reject EEO/boilerplate and protected-class words (not skills)
-# Hard rejects: EEO/protected-class boilerplate + common geo fragments + generic junk
-_CANDIDATE_HARD_REJECT_RE = re.compile(
-    r"\b("
-    r"equal employment|eeo|affirmative action|protected class|"
-    r"race|color|religion|sex|gender|pregnan|national origin|disabilit|veteran|genetic|"
-    r"age over 40|sexual orientation|marital status|"
-    r")\b",
-    flags=re.IGNORECASE
-)
-
-_CANDIDATE_STRICT_REJECT_RE = re.compile(
-    r"(?i)\b("
-    r"equal opportunity|eeo|accommodation|drug[- ]?free|background check|"
-    r"race|color|religion|creed|sex|gender|pregnancy|marital status|"
-    r"national origin|sexual orientation|genetic information|ancestry|disability|veteran"
-    r")\b"
-)
-
-def _looks_like_tool_or_hard_skill(raw: str, norm: str) -> bool:
-    # v3: hard rejects (EEO/protected-class boilerplate)
-    if _CANDIDATE_HARD_REJECT_RE.search(norm):
-        return False
-
-    # v3: reject 2-letter tokens (IL/CA/etc)
-    if re.fullmatch(r"[a-z]{2}", norm):
-        return False
-
-    # v3: reject common country tokens
-    if re.fullmatch(r"(usa|us|u\.s\.|china|japan|india|canada|uk)", norm):
-        return False
-
-    # v3: reject 'X skills' artifact
-    if norm.endswith(" skills"):
-        return False
-
-    # length gates
-    if len(norm) < 2 or len(norm) > 40:
-        return False
-
-    # word-count gate (kills sentences)
-    if len(norm.split()) > 4:
-        return False
-
-    # kill sentence fragments / boilerplate labels
-    if "." in raw or ";" in raw:
-        return False
-    if norm.startswith(("and ", "with ", "including ")):
-        return False
-    if any(k in norm for k in ("requirement", "qualification", "opportunit", "benefit")):
-        return False
-
-    if norm in _CANDIDATE_STRICT_GATES:
-        return False
-    if _CANDIDATE_STRICT_REJECT_RE.search(norm):
-        return False
-
-    # obvious tool-ish signals
-    if re.fullmatch(r"[a-z]{2,10}\d{0,2}", norm):   # acronyms like sql, ga4, dbt, jira
-        return True
-    if any(ch in raw for ch in "+/&.-"):            # C++, A/B, Power-BI, etc.
-        return True
-    if any(ch.isdigit() for ch in raw):             # GA4, ISO27001, etc.
-        return True
-    # TitleCase / CamelCase signal
-    raw_str = raw.strip()
-    if raw_str[:1].isupper() and any(c.isupper() for c in raw_str[1:]):
-        return True
-
-    # allow a tiny curated set of hard-skill nouns (keep small!)
-    allow = {"statistics","forecasting","modeling","regression","etl","api","dashboarding","visualization"}
-    # allow common lowercase tool/platform names that often appear un-capitalized in postings
-    TOOL_ALLOW = {
-        "snowflake","databricks","airflow","dbt","redshift","bigquery","bigquery","big table",
-        "hadoop","spark","pyspark","kafka","docker","kubernetes","terraform",
-        "gitlab","github","bitbucket","jira","confluence",
-        "sagemaker","athena","glue","lambda","ec2","s3",
-        "fivetran","stitch","segment","mixpanel",
-        "looker","lookml","superset","metabase",
-        "hyperion","netsuite","workday","adaptive","anaplan","servicenow",
-        "postgres","postgresql","mysql","mssql","sqlserver","oracle",
-    }
-
-    # reject generic filler nouns that show up everywhere (avoid flooding candidates)
-    GENERIC_BLOCK = {
-        "financial","management","integrity","passion","confidence","hungry","connect",
-        "education","learning","knowledge","clients","training","retirement","benefits",
-        "salary","compensation","skills","requirements","qualifications"
-    }
-
-    if norm in allow:
-        return True
-
-    # Accept well-formed lowercase tool names in skill-ish lines
-    if norm in TOOL_ALLOW:
-        return True
-
-    # Accept single-token lowercase strings that look like tools (letters/digits/./+/#),
-    # but only if they are not generic filler.
-    if norm not in GENERIC_BLOCK and re.fullmatch(r"[a-z][a-z0-9\.\+\#\-]{2,30}", norm):
-        return True
-
-    return False
-
-
 def record_skill_candidates(cur, job_id: str, desc: str, compiled_patterns):
     """
     Extract candidate skills from likely sections/lines and upsert into skill_candidates.
@@ -882,38 +707,11 @@ def record_skill_candidates(cur, job_id: str, desc: str, compiled_patterns):
     lines = [clean_text(x) for x in desc.splitlines()]
     lines = [x for x in lines if x]
 
-
-    in_excluded_section = False
-    # --- LAST5_PATCH_v1 ---
-    # Keep only useful acronyms (otherwise TSA/FBI/etc noise floods candidates)
-    ACRONYM_ALLOW = {
-        "bi","kpi","etl","elt","api","erp","hris","wfm","ga4","seo","ppc","cro",
-        "ml","ai","nlp","aws","gcp","git","pca","glm","dax","json","sql","ui","ux"
-    }
-    ACRONYM_BLOCK = {"tsa","fbi","eeo","ada","doi","eod","eom"}
-
-
-    # detect and skip entire EEO/benefits/legal sections
-    def _toggle_excluded(line_norm: str) -> bool:
-        # Start excluded if header matches and NOT immediately a skills header
-        if _EXCLUDED_SECTION_HEADERS_RE.search(line_norm) and not re.search(r"(?i)\b(qualifications|requirements|skills)\b", line_norm):
-            return True
-        return False
-
     # Focus on likely skill-heavy lines
     skillish_lines = []
-    for ln in lines[:300]:  # cap to avoid insane scans
+    for ln in lines[:200]:  # cap to avoid insane scans
         low = normalize_for_matching(ln)
-        # enter excluded section
-        if _toggle_excluded(low):
-            in_excluded_section = True
-        # exit excluded section if we hit a major new header
-        if in_excluded_section and _END_SECTION_RE.search(low) and not _EXCLUDED_SECTION_HEADERS_RE.search(low):
-            in_excluded_section = False
-        if in_excluded_section:
-            continue
-
-        if any(k in low for k in ["requirements", "qualifications", "skills", "preferred", "must have", "nice to have", "tools", "tech", "stack", "technology"]):
+        if any(k in low for k in ["requirements", "qualifications", "skills", "preferred", "must have", "nice to have"]):
             skillish_lines.append(ln)
             continue
         if ln.strip().startswith(("-", "•")):
@@ -926,32 +724,8 @@ def record_skill_candidates(cur, job_id: str, desc: str, compiled_patterns):
         base_conf = 0.80 if pri == "required" else (0.60 if pri == "preferred" else 0.45)
 
         for raw, norm in _extract_candidate_phrases_from_line(ln):
-            # tool gate temporarily disabled (was too strict)
             if norm in ignore:
                 continue
-
-            # extra filters: strip generic / legal / geo junk
-            if re.fullmatch(r"[a-z]{1,2}", norm):  # il/ca/etc
-                continue
-            if re.fullmatch(r"(yes|no|and|or|the|a|an|our|your|their|you|we)", norm):
-                continue
-            if re.fullmatch(r"(education|learning|knowledge|clients|training|retirement|benefits|salary|compensation)", norm):
-                continue
-            if re.fullmatch(r"(gender|religion|race|creed|pregnancy|ancestry|marital status|national origin|sexual orientation|genetic information)", norm):
-                continue
-            if re.fullmatch(r"(usa|us|u\.s\.|china|japan|india|canada|uk)", norm):
-                continue
-            if norm.startswith("age over"):
-                continue
-            if norm.endswith(" skills"):
-                continue
-
-            # acronym rules (avoid TSA/FBI/etc)
-            if re.fullmatch(r"[a-z]{2,6}\d{0,2}", norm):
-                if norm in ACRONYM_BLOCK:
-                    continue
-                if norm not in ACRONYM_ALLOW:
-                    continue
 
             is_soft = _looks_like_soft_skill(norm)
             skill_type_guess = "soft" if is_soft else "hard"

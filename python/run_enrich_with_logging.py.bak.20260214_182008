@@ -1,9 +1,6 @@
 from snapshots import write_monthly_skill_snapshot
-from pathlib import Path
 from dotenv import load_dotenv
-
-# Always load .env from repo root (safe in heredocs / python -c)
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+load_dotenv()
 import sys
 from typing import Optional
 import os
@@ -121,7 +118,7 @@ def main():
         with conn.cursor(cursor_factory=DictCursor) as cur:
             # Ask enrich script how many jobs it would process (single source of truth)
             count_proc = subprocess.run(
-                [sys.executable, ENRICH_SCRIPT, "--count-only"],
+                ["python3", ENRICH_SCRIPT, "--count-only"],
                 capture_output=True,
                 text=True,
             )

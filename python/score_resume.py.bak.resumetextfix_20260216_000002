@@ -1,0 +1,902 @@
+import argparse
+import json
+import hashlib
+import os
+import re
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Tuple, Optional
+
+import psycopg2
+from psycopg2.extras import DictCursor, Json
+
+# Optional: PDF / DOCX parsing libs
+try:
+    import pdfplumber
+except Exception:
+    pdfplumber = None
+
+try:
+    import docx
+except Exception:
+    docx = None
+
+
+# -----------------------------
+# Helpers
+# -----------------------------
+
+def now_id(prefix: str) -> str:
+    return f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+def sha1_text(s: str) -> str:
+    return hashlib.sha1(s.encode("utf-8", errors="ignore")).hexdigest()
+
+def clean_text(s: str) -> str:
+    s = s.replace("\u00a0", " ")
+    s = re.sub(r"[ \t]+", " ", s)
+    return s.strip()
+
+def normalize_for_matching(s: str) -> str:
+    s = s.lower().replace("\u00a0", " ")
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+def read_resume_file(path: Path) -> Tuple[str, str]:
+    """
+    Returns (text, source_type).
+    """
+    suffix = path.suffix.lower()
+    if suffix == ".txt":
+        return path.read_text(encoding="utf-8", errors="ignore"), "txt"
+
+    if suffix == ".pdf":
+        if pdfplumber is None:
+            raise RuntimeError("pdfplumber not installed. pip install pdfplumber")
+        parts = []
+        with pdfplumber.open(str(path)) as pdf:
+            for p in pdf.pages:
+                t = p.extract_text() or ""
+                parts.append(t)
+        return "\n".join(parts), "pdf"
+
+    if suffix in (".docx",):
+        if docx is None:
+            raise RuntimeError("python-docx not installed. pip install python-docx")
+        d = docx.Document(str(path))
+        parts = [p.text for p in d.paragraphs if p.text]
+        return "\n".join(parts), "docx"
+
+    raise RuntimeError(f"Unsupported file type: {suffix}")
+
+
+# -----------------------------
+# DB access
+# -----------------------------
+
+def db_conn():
+    # You’re currently not using PG* env vars; this will fall back to libpq defaults.
+    # If you add a .env later, feel free to wire it in.
+    return psycopg2.connect(dbname=os.getenv("PGDATABASE", "job_analytics"))
+
+def fetch_skill_alias_patterns(cur) -> List[Tuple[re.Pattern, str, str]]:
+    """
+    Returns [(compiled_regex, skill_id, alias_text), ...]
+    """
+    cur.execute("""
+      SELECT sa.alias_text, sa.skill_id
+      FROM skill_aliases sa
+      WHERE sa.alias_text IS NOT NULL AND btrim(sa.alias_text) <> ''
+    """)
+    rows = cur.fetchall()
+    out = []
+    for r in rows:
+        alias = normalize_for_matching(r["alias_text"])
+        # word-boundary-ish, but safe for tokens like "node.js" (don’t use \b blindly).
+        pat = re.compile(rf"(?i)(^|[^a-z0-9])({re.escape(alias)})([^a-z0-9]|$)")
+        out.append((pat, r["skill_id"], alias))
+    return out
+
+def upsert_resume(cur, resume_id: str, user_id: Optional[str], text: str, source: str, parse_version: str):
+    t = clean_text(text)
+    h = sha1_text(normalize_for_matching(t)) if t else None
+
+    cur.execute("""
+      INSERT INTO resumes (resume_id, user_id, resume_text, resume_hash, source, parse_version, status, updated_at)
+      VALUES (%s, %s, %s, %s, %s, %s, 'parsed', now())
+      ON CONFLICT (resume_id) DO UPDATE SET
+        user_id = EXCLUDED.user_id,
+        resume_text = EXCLUDED.resume_text,
+        resume_hash = EXCLUDED.resume_hash,
+        source = EXCLUDED.source,
+        parse_version = EXCLUDED.parse_version,
+        status = 'parsed',
+        updated_at = now()
+    """, (resume_id, user_id, t, h, source, parse_version))
+
+def upsert_resume_target(cur, resume_id: str, role_id: Optional[str], location_id: Optional[str],
+                         workplace_type: str, experience_level: str):
+    cur.execute("""
+      INSERT INTO resume_targets (resume_id, target_role_id, target_location_id, target_workplace_type, target_experience_level, updated_at)
+      VALUES (%s, %s, %s, %s, %s, now())
+      ON CONFLICT (resume_id) DO UPDATE SET
+        target_role_id = EXCLUDED.target_role_id,
+        target_location_id = EXCLUDED.target_location_id,
+        target_workplace_type = EXCLUDED.target_workplace_type,
+        target_experience_level = EXCLUDED.target_experience_level,
+        updated_at = now()
+    """, (resume_id, role_id, location_id, workplace_type, experience_level))
+
+def upsert_resume_skill(cur, resume_id: str, skill_id: str, evidence: str, conf: float, source: str):
+    cur.execute("""
+      INSERT INTO resume_skills (resume_id, skill_id, evidence_text, confidence, source, updated_at)
+      VALUES (%s, %s, %s, %s, %s, now())
+      ON CONFLICT (resume_id, skill_id) DO UPDATE SET
+        confidence = GREATEST(resume_skills.confidence, EXCLUDED.confidence),
+        evidence_text = COALESCE(resume_skills.evidence_text, EXCLUDED.evidence_text),
+        source = CASE
+                  WHEN resume_skills.confidence >= EXCLUDED.confidence THEN resume_skills.source
+                  ELSE EXCLUDED.source
+                END,
+        updated_at = now()
+    """, (resume_id, skill_id, evidence[:4000] if evidence else None, float(conf), source))
+
+def create_run(cur, run_id: str, resume_id: str, params: dict):
+    # params MUST be valid JSON for jsonb column (None -> null handled by Json())
+    cur.execute(
+        """
+        INSERT INTO resume_runs (run_id, resume_id, status, params, started_at)
+        VALUES (%s, %s, 'running', %s, now())
+        ON CONFLICT (run_id) DO UPDATE SET
+            resume_id = EXCLUDED.resume_id,
+            status    = EXCLUDED.status,
+            params    = EXCLUDED.params,
+            started_at = now()
+        """,
+        (run_id, resume_id, Json(params or {})),
+    )
+
+def finish_run(cur, run_id: str, ok: bool, err: Optional[str] = None):
+    cur.execute("""
+      UPDATE resume_runs
+      SET status = %s, finished_at = now(), error = %s
+      WHERE run_id = %s
+    """, ('success' if ok else 'failed', err, run_id))
+
+def set_resume_status(cur, resume_id: str, status: str, err: Optional[str] = None):
+    cur.execute("""
+      UPDATE resumes SET status=%s, error=%s, updated_at=now()
+      WHERE resume_id=%s
+    """, (status, err, resume_id))
+
+
+# -----------------------------
+# Skill extraction from resume
+# -----------------------------
+
+SKILL_SECTION_HEADERS = [
+    "skills", "technical skills", "tools", "technologies", "tech stack", "stack", "core competencies"
+]
+
+def extract_skill_sections(text: str) -> List[str]:
+    """
+    Pull lines after a skills header until the next blank gap/header-ish line.
+    """
+    lines = [clean_text(x) for x in text.splitlines()]
+    out = []
+    in_skills = False
+    for ln in lines:
+        low = normalize_for_matching(ln)
+        if any(h == low or low.startswith(h + ":") for h in SKILL_SECTION_HEADERS):
+            in_skills = True
+            continue
+        if in_skills:
+            if low == "" or re.fullmatch(r"[A-Z \-/]{6,}", ln):  # crude “new section” signal
+                in_skills = False
+                continue
+            out.append(ln)
+    return out
+
+def split_skill_list_line(line: str) -> List[str]:
+    # Split on commas, pipes, bullets, slashes (careful w/ node.js)
+    parts = re.split(r"[,\|•·\u2022]+", line)
+    tokens = []
+    for p in parts:
+        p = clean_text(p)
+        if not p:
+            continue
+        # explode "etl/elt" style
+        if "/" in p and len(p) <= 30:
+            for sub in p.split("/"):
+                sub = clean_text(sub)
+                if sub:
+                    tokens.append(sub)
+        else:
+            tokens.append(p)
+    return tokens
+
+def resume_to_skills(cur, resume_id: str, resume_text: str, alias_patterns) -> int:
+    """
+    Writes to resume_skills. Returns count of unique skills found.
+    Confidence sources:
+      - alias regex hit in body: 0.92
+      - list/section token exact match: 0.88
+      - heuristic tool token (lowercase toolish): 0.78 (optional placeholder)
+    """
+    t_norm = normalize_for_matching(resume_text)
+
+    # (A) alias hits anywhere in text
+    found: Dict[str, Tuple[float, str, str]] = {}  # skill_id -> (conf, evidence, source)
+    for pat, sid, alias in alias_patterns:
+        m = pat.search(t_norm)
+        if m:
+            # evidence window (best effort)
+            start = max(0, m.start() - 60)
+            end = min(len(t_norm), m.end() + 60)
+            evidence = t_norm[start:end]
+            conf = 0.92
+            found[sid] = (max(found.get(sid, (0, "", ""))[0], conf), evidence, "alias")
+
+    # (B) skills section parsing (great for resumes)
+    section_lines = extract_skill_sections(resume_text)
+    for ln in section_lines:
+        for tok in split_skill_list_line(ln):
+            tok_norm = normalize_for_matching(tok)
+            # exact alias text match -> map via skill_aliases table
+            cur.execute("""
+              SELECT skill_id FROM skill_aliases
+              WHERE lower(alias_text) = %s
+              LIMIT 1
+            """, (tok_norm,))
+            r = cur.fetchone()
+            if r:
+                sid = r["skill_id"]
+                conf = 0.88
+                evidence = tok
+                prev = found.get(sid, (0, "", ""))
+                if conf > prev[0]:
+                    found[sid] = (conf, evidence, "section")
+
+    # (C) Optional heuristic toolish tokens (placeholder)
+    # This helps when alias coverage lags. Keeps confidence lower.
+    # You can tighten later with allowlists.
+    toolish = set()
+    for ln in section_lines[:40]:
+        for tok in split_skill_list_line(ln):
+            tok_norm = normalize_for_matching(tok)
+            if re.fullmatch(r"[a-z][a-z0-9\.\+\#\-]{2,30}", tok_norm):
+                toolish.add(tok_norm)
+    if toolish:
+        cur.execute("""
+          SELECT lower(alias_text) AS a, skill_id
+          FROM skill_aliases
+          WHERE lower(alias_text) = ANY(%s)
+        """, (list(toolish),))
+        for r in cur.fetchall():
+            sid = r["skill_id"]
+            conf = 0.78
+            evidence = r["a"]
+            prev = found.get(sid, (0, "", ""))
+            if conf > prev[0]:
+                found[sid] = (conf, evidence, "heuristic")
+
+    # write to DB
+    for sid, (conf, ev, src) in found.items():
+        upsert_resume_skill(cur, resume_id, sid, ev or "", float(conf), src)
+
+    return len(found)
+
+
+# -----------------------------
+# Market selection + scoring
+# -----------------------------
+
+def resolve_role_id(cur, role_name: Optional[str]) -> Optional[str]:
+    if not role_name:
+        return None
+    cur.execute("""
+      SELECT role_id FROM roles
+      WHERE lower(role_name) = lower(%s)
+      LIMIT 1
+    """, (role_name,))
+    r = cur.fetchone()
+    return r["role_id"] if r else None
+
+def resolve_location_id(cur, location_name: Optional[str]) -> Optional[str]:
+    if not location_name:
+        return None
+    cur.execute("""
+      SELECT location_id FROM locations
+      WHERE lower(location_name) = lower(%s)
+      LIMIT 1
+    """, (location_name,))
+    r = cur.fetchone()
+    return r["location_id"] if r else None
+
+
+def fetch_market_jobs(cur, role_id, location_id,
+                      workplace_type, experience_level,
+                      months_back, top_jobs):
+
+    params = []
+
+    query = '''
+      SELECT
+        jp.job_id,
+        jp.experience_level,
+        r.role_name
+      FROM job_postings jp
+      LEFT JOIN roles r ON r.role_id = jp.role_id
+      WHERE 1=1
+    '''
+
+    if role_id:
+        query += " AND jp.role_id = %s"
+        params.append(role_id)
+
+    if location_id:
+        query += " AND jp.location_id = %s"
+        params.append(location_id)
+
+    if workplace_type and workplace_type != "any":
+        query += " AND COALESCE(jp.workplace_type,'any') = %s"
+        params.append(workplace_type)
+
+    if months_back:
+        query += " AND COALESCE(jp.posted_date, jp.date_found, now()) >= now() - (%s || ' months')::interval"
+        params.append(months_back)
+
+    query += " ORDER BY COALESCE(jp.posted_date, jp.date_found, now()) DESC LIMIT %s"
+    params.append(top_jobs)
+
+    cur.execute(query, tuple(params))
+    rows = cur.fetchall()
+
+    if experience_level and experience_level != "any":
+        filtered = []
+        for r in rows:
+            raw = r.get("experience_level")
+            role_name = r.get("role_name")
+            if normalize_experience_level(raw, role_name) == experience_level:
+                filtered.append(r["job_id"])
+        return filtered
+
+    return [r["job_id"] for r in rows]
+
+def compute_skill_weights(cur, job_ids: List[str]) -> Dict[str, Tuple[float, float, float]]:
+    """
+    Returns dict: skill_id -> (req_freq, pref_freq, weight)
+    weight = 2*req_freq + 1*pref_freq
+    """
+    if not job_ids:
+        return {}
+
+    cur.execute("""
+      WITH base AS (
+        SELECT job_id, skill_id, skill_priority
+        FROM job_skills
+        WHERE job_id = ANY(%s)
+      ),
+      agg AS (
+        SELECT
+          skill_id,
+          COUNT(DISTINCT job_id) FILTER (WHERE skill_priority='required')::numeric AS req_jobs,
+          COUNT(DISTINCT job_id) FILTER (WHERE skill_priority='preferred')::numeric AS pref_jobs,
+          COUNT(DISTINCT job_id)::numeric AS any_jobs
+        FROM base
+        GROUP BY skill_id
+      )
+      SELECT
+        skill_id,
+        (req_jobs / %s::numeric) AS req_freq,
+        (pref_jobs / %s::numeric) AS pref_freq
+      FROM agg
+    """, (job_ids, len(job_ids), len(job_ids)))
+
+    weights = {}
+    for r in cur.fetchall():
+        req = float(r["req_freq"] or 0)
+        pref = float(r["pref_freq"] or 0)
+        w = 2.0 * req + 1.0 * pref
+        weights[r["skill_id"]] = (req, pref, w)
+
+    return weights
+
+def fetch_resume_skill_ids(cur, resume_id: str) -> List[str]:
+    cur.execute("""
+      SELECT skill_id FROM resume_skills
+      WHERE resume_id = %s
+    """, (resume_id,))
+    return [r["skill_id"] for r in cur.fetchall()]
+
+def job_match_scores(cur, job_ids: List[str], resume_skill_ids: List[str], weights: Dict[str, Tuple[float,float,float]]) -> List[Tuple[str, float]]:
+    """
+    match(job) = sum(weight(skill) for skills in job ∩ resume)
+    """
+    if not job_ids or not resume_skill_ids or not weights:
+        return []
+
+    cur.execute("""
+      SELECT js.job_id, js.skill_id
+      FROM job_skills js
+      WHERE js.job_id = ANY(%s)
+        AND js.skill_id = ANY(%s)
+    """, (job_ids, resume_skill_ids))
+
+    scores: Dict[str, float] = {}
+    for r in cur.fetchall():
+        sid = r["skill_id"]
+        w = weights.get(sid, (0,0,0))[2]
+        scores[r["job_id"]] = scores.get(r["job_id"], 0.0) + float(w)
+
+    out = list(scores.items())
+    out.sort(key=lambda x: x[1], reverse=True)
+    return out
+
+
+
+def normalize_experience_level(raw, role_name):
+    text = f"{raw or ''} {role_name or ''}".lower()
+
+    if any(k in text for k in ["senior", "sr.", "lead", "principal"]):
+        return "senior"
+    if any(k in text for k in ["mid", "ii", "iii"]):
+        return "mid"
+    if any(k in text for k in ["associate", "analyst i"]):
+        return "associate"
+    if any(k in text for k in ["junior", "jr.", "entry"]):
+        return "entry"
+
+    return "any"
+def percentile_from_distribution(x: float, dist: List[float]) -> Optional[float]:
+    if not dist:
+        return None
+    dist_sorted = sorted(dist)
+    # pct of values <= x
+    k = 0
+    for v in dist_sorted:
+        if v <= x:
+            k += 1
+        else:
+            break
+    return round(100.0 * (k / len(dist_sorted)), 2)
+
+def compute_salary_estimate(cur, top_job_ids: List[str]) -> Tuple[Optional[float], Optional[float]]:
+    if not top_job_ids:
+        return (None, None)
+    cur.execute("""
+      SELECT salary_min, salary_max
+      FROM job_postings
+      WHERE job_id = ANY(%s)
+        AND (salary_min IS NOT NULL OR salary_max IS NOT NULL)
+    """, (top_job_ids,))
+    mins = []
+    maxs = []
+    for r in cur.fetchall():
+        if r["salary_min"] is not None:
+            mins.append(float(r["salary_min"]))
+        if r["salary_max"] is not None:
+            maxs.append(float(r["salary_max"]))
+
+    if not mins and not maxs:
+        return (None, None)
+
+    def trim_mean(vals: List[float]) -> Optional[float]:
+        if not vals:
+            return None
+        vals = sorted(vals)
+        n = len(vals)
+        lo = int(n * 0.10)
+        hi = int(n * 0.90)
+        core = vals[lo:hi] if hi > lo else vals
+        return sum(core) / len(core) if core else None
+
+    return (trim_mean(mins), trim_mean(maxs))
+
+def compute_honesty_match(cur, top_job_ids: List[str]) -> Optional[int]:
+    if not top_job_ids:
+        return None
+    cur.execute("""
+      SELECT AVG(jh.honesty_score)::numeric
+      FROM job_honesty jh
+      WHERE jh.job_id = ANY(%s)
+        AND jh.honesty_score IS NOT NULL
+    """, (top_job_ids,))
+    r = cur.fetchone()
+    if not r or r[0] is None:
+        return None
+    return int(round(float(r[0])))
+
+def write_scores(cur, resume_id: str, run_id: str, market_fit: int, percentile: Optional[float],
+                 sal_min: Optional[float], sal_max: Optional[float], honesty_match: Optional[int],
+                 matched_jobs_count: int, top_jobs_considered: int,
+                 plausibility_penalty: int = 0,
+                 confidence_score: int = 100,
+                 confidence_flags=None):
+    """
+    Writes one row into resume_scores for (resume_id, run_id).
+    Must match resume_scores schema exactly.
+    """
+    if confidence_flags is None:
+        confidence_flags = []
+
+    cur.execute("""
+      INSERT INTO resume_scores (
+        resume_id, run_id,
+        market_fit_score, market_percentile,
+        salary_est_min, salary_est_max,
+        honesty_match_score,
+        matched_jobs_count, top_jobs_considered,
+        plausibility_penalty, confidence_score, confidence_flags
+      )
+      VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+      ON CONFLICT (resume_id, run_id) DO UPDATE SET
+        market_fit_score      = EXCLUDED.market_fit_score,
+        market_percentile     = EXCLUDED.market_percentile,
+        salary_est_min        = EXCLUDED.salary_est_min,
+        salary_est_max        = EXCLUDED.salary_est_max,
+        honesty_match_score   = EXCLUDED.honesty_match_score,
+        matched_jobs_count    = EXCLUDED.matched_jobs_count,
+        top_jobs_considered   = EXCLUDED.top_jobs_considered,
+        plausibility_penalty  = EXCLUDED.plausibility_penalty,
+        confidence_score      = EXCLUDED.confidence_score,
+        confidence_flags      = EXCLUDED.confidence_flags,
+        created_at            = now()
+    """, (
+        resume_id, run_id,
+        market_fit, percentile,
+        sal_min, sal_max,
+        honesty_match,
+        matched_jobs_count, top_jobs_considered,
+        plausibility_penalty, confidence_score, Json(confidence_flags)
+    ))
+def write_gaps(cur, resume_id: str, run_id: str, resume_skill_ids: set, weights: Dict[str, Tuple[float,float,float]], limit_n: int = 25):
+    missing = []
+    for sid, (req, pref, w) in weights.items():
+        if sid in resume_skill_ids:
+            continue
+        missing.append((sid, req, pref, w))
+    missing.sort(key=lambda x: x[3], reverse=True)
+
+    # choose gap_type based on req/pref dominance
+    for sid, req, pref, w in missing[:limit_n]:
+        if req >= 0.20:
+            gap_type = "missing_required"
+        elif pref >= 0.20:
+            gap_type = "missing_preferred"
+        else:
+            gap_type = "low_signal"
+
+        why = f"Appears in market: required={req:.0%}, preferred={pref:.0%}"
+        cur.execute("""
+          INSERT INTO resume_skill_gaps (resume_id, run_id, skill_id, gap_type, impact_score, req_freq, pref_freq, why)
+          VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+          ON CONFLICT (resume_id, run_id, skill_id, gap_type) DO NOTHING
+        """, (resume_id, run_id, sid, gap_type, float(w), float(req), float(pref), why))
+
+def write_job_matches(cur, resume_id: str, run_id: str, matches: List[Tuple[str,float]], top_n: int = 50):
+    if not matches:
+        return
+    job_ids = [j for j,_ in matches[:top_n]]
+    # pull job details + honesty
+    cur.execute("""
+      SELECT
+        jp.job_id,
+        jp.salary_min, jp.salary_max,
+        jp.workplace_type, jp.experience_level,
+        jh.honesty_score
+      FROM job_postings jp
+      LEFT JOIN job_honesty jh ON jh.job_id = jp.job_id
+      WHERE jp.job_id = ANY(%s)
+    """, (job_ids,))
+    meta = {r["job_id"]: r for r in cur.fetchall()}
+
+    for job_id, score in matches[:top_n]:
+        m = meta.get(job_id)
+        cur.execute("""
+          INSERT INTO resume_job_matches (
+            resume_id, run_id, job_id, match_score,
+            honesty_score, salary_min, salary_max, workplace_type, experience_level
+          ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+          ON CONFLICT (resume_id, run_id, job_id) DO UPDATE SET
+            match_score = EXCLUDED.match_score,
+            honesty_score = EXCLUDED.honesty_score,
+            salary_min = EXCLUDED.salary_min,
+            salary_max = EXCLUDED.salary_max,
+            workplace_type = EXCLUDED.workplace_type,
+            experience_level = EXCLUDED.experience_level
+        """, (
+            resume_id, run_id, job_id, float(score),
+            (int(m["honesty_score"]) if m and m["honesty_score"] is not None else None),
+            (m["salary_min"] if m else None),
+            (m["salary_max"] if m else None),
+            (m["workplace_type"] if m else None),
+            (m["experience_level"] if m else None),
+        ))
+
+
+def compute_plausibility_penalty(resume_text: str, resume_skill_names: list, target_level: str):
+    """
+    Plausibility penalty: how 'off' is the target level vs what the resume signals.
+    This is intentionally heuristic (fast + deterministic).
+    Returns: (penalty_int, flags_list)
+    """
+    txt = (resume_text or "").lower()
+    skills = [(" ".join(x.lower().split())) for x in (resume_skill_names or [])]
+
+    flags = []
+    pen = 0
+
+    # Quick signals from text
+    has_intern = any(k in txt for k in ["intern", "internship", "student"])
+    has_senior_title = any(k in txt for k in [" senior ", " sr ", " lead ", " principal ", " staff "])
+
+    # Senior-stack-ish skills (degenerate list, tweak freely)
+    senior_stack = {
+        "kubernetes","k8s","terraform","aws","gcp","azure",
+        "kafka","spark","databricks","snowflake",
+        "microservices","distributed systems","airflow","dbt",
+        "mlops","docker","helm","ci/cd","kinesis","redshift"
+    }
+    senior_hits = 0
+    for sk in skills:
+        for token in senior_stack:
+            if token in sk:
+                senior_hits += 1
+                break
+
+    # Target-level rules
+    lvl = (target_level or "any").lower().strip()
+
+    # If user targets entry but resume screams senior
+    if lvl == "entry":
+        if has_senior_title:
+            pen += 8
+            flags.append("resume_senior_title_but_target_entry")
+        if senior_hits >= 3:
+            pen += 8
+            flags.append("senior_stack_signal_for_entry_target")
+        if not has_intern and "years" in txt and any(x in txt for x in ["10+","8+","7+","6+","5+"]):
+            pen += 6
+            flags.append("high_years_signal_for_entry_target")
+
+    # If user targets senior but resume has strong entry signals
+    if lvl == "senior":
+        if has_intern:
+            pen += 10
+            flags.append("intern_signal_but_target_senior")
+        # Lack of any senior words could be weak-signal; small nudge
+        if not has_senior_title and senior_hits == 0:
+            pen += 6
+            flags.append("low_senior_signal_for_senior_target")
+
+    # Any-level: no penalty
+    pen = max(0, min(int(pen), 25))
+    return pen, flags
+
+
+def compute_confidence_score(resume_text: str, skills_found: int, market_jobs: int, matched_jobs: int,
+                             sal_min, sal_max):
+    """
+    Confidence = how trustworthy the output is (data sufficiency + extraction quality proxy).
+    Returns: (score_int 0-100, flags_list)
+    """
+    flags = []
+    score = 100
+
+    # Skills extraction weakness
+    if skills_found <= 5:
+        score -= 25
+        flags.append("low_skills_extracted")
+    elif skills_found <= 8:
+        score -= 12
+        flags.append("modest_skills_extracted")
+
+    # Market size weakness
+    if market_jobs < 50:
+        score -= 25
+        flags.append("small_market_sample")
+    elif market_jobs < 150:
+        score -= 10
+        flags.append("medium_market_sample")
+
+    # Match coverage weakness
+    if market_jobs > 0:
+        coverage = matched_jobs / float(market_jobs)
+        if coverage < 0.20:
+            score -= 20
+            flags.append("low_market_match_coverage")
+        elif coverage < 0.50:
+            score -= 8
+            flags.append("medium_market_match_coverage")
+
+    # Salary estimate availability
+    if sal_min is None and sal_max is None:
+        score -= 10
+        flags.append("salary_estimate_missing")
+
+    score = max(0, min(int(round(score)), 100))
+    return score, flags
+
+
+def write_run_flag(cur, resume_id: str, run_id: str, flag_type: str, flag: str, value=None):
+    cur.execute("""
+      INSERT INTO resume_run_flags (resume_id, run_id, flag_type, flag, value)
+      VALUES (%s,%s,%s,%s,%s)
+      ON CONFLICT (resume_id, run_id, flag_type, flag) DO UPDATE SET
+        value = EXCLUDED.value
+    """, (resume_id, run_id, flag_type, flag, value))
+
+
+
+def score_resume(resume_id: str, role_id: Optional[str], location_id: Optional[str],
+                 workplace_type: str, experience_level: str,
+                 months_back: int, top_jobs: int):
+
+    run_id = now_id("resume")
+    params = {
+        "months_back": months_back,
+        "top_jobs": top_jobs,
+        "workplace_type": workplace_type,
+        "experience_level": experience_level,
+        "role_id": role_id,
+        "location_id": location_id,
+    }
+
+    with db_conn() as conn:
+        conn.autocommit = False
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            create_run(cur, run_id, resume_id, params)
+            conn.commit()
+
+        try:
+            with conn.cursor(cursor_factory=DictCursor) as cur:
+                # targets
+                upsert_resume_target(cur, resume_id, role_id, location_id, workplace_type, experience_level)
+
+                # skills already extracted and stored; fetch them
+                resume_skill_ids = fetch_resume_skill_ids(cur, resume_id)
+                resume_set = set(resume_skill_ids)
+
+                # market jobs
+                market_job_ids = fetch_market_jobs(cur, role_id, location_id, workplace_type, experience_level, months_back, top_jobs)
+
+                # weights
+                weights = compute_skill_weights(cur, market_job_ids)
+
+                # coverage
+                denom = sum(w for (_req,_pref,w) in weights.values()) or 0.0
+                numer = sum(weights[sid][2] for sid in resume_set if sid in weights) if denom > 0 else 0.0
+                market_fit = int(round(100.0 * (numer / denom))) if denom > 0 else 0
+
+                # job matches
+                matches = job_match_scores(cur, market_job_ids, resume_skill_ids, weights)
+                top_match_job_ids = [j for j,_ in matches[:50]]
+
+                # honesty match
+                honesty_match = compute_honesty_match(cur, top_match_job_ids)
+
+                # salary estimate
+                sal_min, sal_max = compute_salary_estimate(cur, top_match_job_ids)
+
+                # percentile (optional: vs other scored resumes for same target)
+                cur.execute("""
+                  SELECT market_fit_score
+                  FROM resume_scores rs
+                  JOIN resume_targets rt ON rt.resume_id = rs.resume_id
+                  WHERE rt.target_role_id IS NOT DISTINCT FROM %s
+                    AND rt.target_location_id IS NOT DISTINCT FROM %s
+                    AND COALESCE(rt.target_workplace_type,'any') = %s
+                    AND COALESCE(rt.target_experience_level,'any') = %s
+                """, (role_id, location_id, workplace_type, experience_level))
+                dist = [float(r["market_fit_score"]) for r in cur.fetchall()]
+                pct = percentile_from_distribution(float(market_fit), dist) if dist else None
+
+                # ----------------------------
+                # Plausibility + Confidence
+                # ----------------------------
+                cur.execute("""
+                  SELECT s.skill_name
+                  FROM resume_skills rs
+                  JOIN skills s ON s.skill_id = rs.skill_id
+                  WHERE rs.resume_id=%s
+                """, (resume_id,))
+                resume_skill_names = [r["skill_name"] for r in cur.fetchall()]
+
+                pl_pen, pl_flags = compute_plausibility_penalty(resume_text, resume_skill_names, experience_level)
+                for f in pl_flags:
+                    write_run_flag(cur, resume_id, run_id, "plausibility", f, None)
+
+                conf_score, conf_flags = compute_confidence_score(
+                    resume_text=resume_text,
+                    skills_found=len(resume_skill_ids),
+                    market_jobs=len(market_job_ids),
+                    matched_jobs=len(matches),
+                    sal_min=sal_min, sal_max=sal_max
+                )
+                for f in conf_flags:
+                    write_run_flag(cur, resume_id, run_id, "confidence", f, None)
+
+                # write outputs
+                # clear old run artifacts for this run id (should be none, but safe)
+                cur.execute("DELETE FROM resume_skill_gaps WHERE resume_id=%s AND run_id=%s", (resume_id, run_id))
+                cur.execute("DELETE FROM resume_job_matches WHERE resume_id=%s AND run_id=%s", (resume_id, run_id))
+
+                write_scores(cur, resume_id, run_id, market_fit, pct, sal_min, sal_max, honesty_match,
+                             matched_jobs_count=len(matches), top_jobs_considered=len(market_job_ids))
+                write_gaps(cur, resume_id, run_id, resume_set, weights, limit_n=25)
+                write_job_matches(cur, resume_id, run_id, matches, top_n=50)
+
+                set_resume_status(cur, resume_id, "scored", None)
+                finish_run(cur, run_id, True, None)
+                conn.commit()
+
+                return run_id, market_fit, pct, honesty_match, sal_min, sal_max, len(matches), len(market_job_ids)
+
+        except Exception as e:
+            with conn.cursor(cursor_factory=DictCursor) as cur:
+                set_resume_status(cur, resume_id, "failed", str(e))
+                finish_run(cur, run_id, False, str(e))
+                conn.commit()
+            raise
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--file", required=True, help="Path to resume (pdf/docx/txt)")
+    ap.add_argument("--resume-id", default=None, help="Optional resume_id (defaults to resume_YYYYMMDD_HHMMSS)")
+    ap.add_argument("--user-id", default=None)
+    ap.add_argument("--role", default=None, help="Target role name (must exist in roles.role_name)")
+    ap.add_argument("--location", default=None, help="Target location name (must exist in locations.location_name)")
+    ap.add_argument("--workplace", default="any", choices=["any","remote","hybrid","onsite"])
+    ap.add_argument("--level", default="any", choices=["any","entry","associate","mid","senior"])
+    ap.add_argument("--months-back", type=int, default=6)
+    ap.add_argument("--top-jobs", type=int, default=500)
+    args = ap.parse_args()
+
+    path = Path(args.file).expanduser().resolve()
+    resume_text, src = read_resume_file(path)
+    resume_id = args.resume_id or now_id("resume_upload")
+    parse_version = "v1"
+
+    with db_conn() as conn:
+        conn.autocommit = False
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            # upsert resume
+            upsert_resume(cur, resume_id, args.user_id, resume_text, src, parse_version)
+
+            # resolve targets
+            role_id = resolve_role_id(cur, args.role) if args.role else None
+            location_id = resolve_location_id(cur, args.location) if args.location else None
+
+            # extract skills
+            alias_patterns = fetch_skill_alias_patterns(cur)
+            nskills = resume_to_skills(cur, resume_id, resume_text, alias_patterns)
+
+            conn.commit()
+
+    # score it
+    with db_conn() as conn:
+        with conn.cursor(cursor_factory=DictCursor) as cur:
+            role_id = resolve_role_id(cur, args.role) if args.role else None
+            location_id = resolve_location_id(cur, args.location) if args.location else None
+
+    run_id, fit, pct, honesty, smin, smax, nmatch, mkt = score_resume(
+        resume_id, role_id, location_id, args.workplace, args.level, args.months_back, args.top_jobs
+    )
+
+    print("\n✅ Resume scored")
+    print("resume_id:", resume_id)
+    print("run_id:", run_id)
+    print("skills_found:", nskills)
+    print("market_jobs:", mkt)
+    print("matched_jobs:", nmatch)
+    print("market_fit_score:", fit)
+    print("market_percentile:", pct)
+    print("honesty_match_score:", honesty)
+    print("salary_est_min/max:", smin, smax)
+
+
+if __name__ == "__main__":
+    main()

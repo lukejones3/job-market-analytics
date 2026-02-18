@@ -926,7 +926,8 @@ def record_skill_candidates(cur, job_id: str, desc: str, compiled_patterns):
         base_conf = 0.80 if pri == "required" else (0.60 if pri == "preferred" else 0.45)
 
         for raw, norm in _extract_candidate_phrases_from_line(ln):
-            # tool gate temporarily disabled (was too strict)
+            if not _looks_like_tool_or_hard_skill(raw, norm):
+                continue
             if norm in ignore:
                 continue
 

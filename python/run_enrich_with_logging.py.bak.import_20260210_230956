@@ -1,10 +1,4 @@
-from snapshots import write_monthly_skill_snapshot
-from pathlib import Path
-from dotenv import load_dotenv
-
-# Always load .env from repo root (safe in heredocs / python -c)
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
-import sys
+from python.snapshots import write_monthly_skill_snapshot
 from typing import Optional
 import os
 import re
@@ -121,7 +115,7 @@ def main():
         with conn.cursor(cursor_factory=DictCursor) as cur:
             # Ask enrich script how many jobs it would process (single source of truth)
             count_proc = subprocess.run(
-                [sys.executable, ENRICH_SCRIPT, "--count-only"],
+                ["python3", ENRICH_SCRIPT, "--count-only"],
                 capture_output=True,
                 text=True,
             )
@@ -134,7 +128,7 @@ def main():
             log_run_start(cur, run_id, jobs_seen)
         # Run the actual enrich script
         proc = subprocess.run(
-            [sys.executable, ENRICH_SCRIPT],
+            ["python3", ENRICH_SCRIPT],
             capture_output=True,
             text=True
         )
@@ -144,11 +138,11 @@ def main():
         if proc.returncode == 0:
             with conn.cursor(cursor_factory=DictCursor) as cur:
                 log_run_success(cur, run_id, jobs_updated, skills_inserted, errors_count)
-                # Write monthly skill-demand snapshot (post-enrich)
-                snap_rows = write_monthly_skill_snapshot(cur, run_id)
-            conn.commit()
             print(stdout, end="")
+            # Write monthly skill-demand snapshot (post-enrich)
+            snap_rows = write_monthly_skill_snapshot(cur, run_id)
             print("[pipeline] monthly snapshot rows upserted={}".format(snap_rows))
+
             print(f"[pipeline] run_id={run_id} status=success jobs_seen={jobs_seen} jobs_updated={jobs_updated} skills_inserted={skills_inserted}")
         else:
             errors_count += 1

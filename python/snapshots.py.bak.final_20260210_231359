@@ -1,4 +1,5 @@
 from typing import Optional
+from psycopg2.extras import DictCursor
 
 def write_monthly_skill_snapshot(cur, run_id: str) -> int:
     """

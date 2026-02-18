@@ -1,0 +1,461 @@
+BEGIN;
+
+-- ------------------------------------------------------------
+-- 0) Tables to define "senior stack" and scope signatures
+-- ------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS skill_groups (
+  group_id   text PRIMARY KEY,
+  group_name text NOT NULL,
+  note       text
+);
+
+CREATE TABLE IF NOT EXISTS skill_group_members (
+  group_id text NOT NULL REFERENCES skill_groups(group_id) ON DELETE CASCADE,
+  skill_id text NOT NULL REFERENCES skills(skill_id) ON DELETE CASCADE,
+  PRIMARY KEY (group_id, skill_id)
+);
+
+-- weights drive "seniority signature"
+-- level_bucket: entry|associate|mid|senior|unknown|any
+CREATE TABLE IF NOT EXISTS skill_group_weights (
+  group_id      text NOT NULL REFERENCES skill_groups(group_id) ON DELETE CASCADE,
+  level_bucket  text NOT NULL,
+  weight        numeric NOT NULL DEFAULT 1.0,
+  PRIMARY KEY (group_id, level_bucket)
+);
+
+-- ------------------------------------------------------------
+-- 1) Seed groups (edit these freely)
+-- ------------------------------------------------------------
+
+INSERT INTO skill_groups (group_id, group_name, note) VALUES
+  ('G_DE_CORE',   'Data Engineering Core',     'Pipelines, warehousing, orchestration'),
+  ('G_CLOUD_INF', 'Cloud / Infra',             'Cloud + infra tooling'),
+  ('G_ML_DS',     'ML / Data Science',         'Modeling, ML, advanced stats'),
+  ('G_BI_STACK',  'BI / Analytics Stack',      'BI tools & semantic layer'),
+  ('G_SW_ENG',    'Software Engineering',      'General SW eng tooling (git, CI/CD, etc)')
+ON CONFLICT (group_id) DO NOTHING;
+
+-- ------------------------------------------------------------
+-- 2) Membership (best-effort auto from skills.skill_name)
+--     IMPORTANT: this only inserts skills that already exist in your canonical skills.
+--     Add more once you canonize new skills (Airflow, dbt, etc).
+-- ------------------------------------------------------------
+
+-- Data Eng Core
+INSERT INTO skill_group_members (group_id, skill_id)
+SELECT 'G_DE_CORE', s.skill_id
+FROM skills s
+WHERE lower(s.skill_name) IN (
+  'sql','python','etl devolopment','cube design'  -- adjust to your canon spellings
+)
+ON CONFLICT DO NOTHING;
+
+-- Cloud / Infra
+INSERT INTO skill_group_members (group_id, skill_id)
+SELECT 'G_CLOUD_INF', s.skill_id
+FROM skills s
+WHERE lower(s.skill_name) IN (
+  'erp systems','sap bw/hana'  -- placeholders until cloud skills exist in canon
+)
+ON CONFLICT DO NOTHING;
+
+-- ML / DS
+INSERT INTO skill_group_members (group_id, skill_id)
+SELECT 'G_ML_DS', s.skill_id
+FROM skills s
+WHERE lower(s.skill_name) IN (
+  'multivariate modeling','r','sas'
+)
+ON CONFLICT DO NOTHING;
+
+-- BI / Analytics Stack
+INSERT INTO skill_group_members (group_id, skill_id)
+SELECT 'G_BI_STACK', s.skill_id
+FROM skills s
+WHERE lower(s.skill_name) IN (
+  'tableau','looker','power bi','sigma','periscope'
+)
+ON CONFLICT DO NOTHING;
+
+-- SW Eng (you may not have these in canon yet; leave empty for now)
+-- INSERT INTO skill_group_members ... (git, docker, etc) later
+
+-- ------------------------------------------------------------
+-- 3) Weights (THIS is where it gets disgusting)
+--    Higher weight = more "senior stack" signal.
+-- ------------------------------------------------------------
+
+-- Default "any" weights
+INSERT INTO skill_group_weights (group_id, level_bucket, weight) VALUES
+  ('G_DE_CORE',   'any', 1.3),
+  ('G_CLOUD_INF', 'any', 1.6),
+  ('G_ML_DS',     'any', 1.7),
+  ('G_BI_STACK',  'any', 1.1),
+  ('G_SW_ENG',    'any', 1.4)
+ON CONFLICT DO NOTHING;
+
+-- Entry-level sensitivity boosters (make entry postings pay for senior stacks)
+INSERT INTO skill_group_weights (group_id, level_bucket, weight) VALUES
+  ('G_CLOUD_INF', 'entry', 2.0),
+  ('G_ML_DS',     'entry', 2.1),
+  ('G_SW_ENG',    'entry', 1.9)
+ON CONFLICT DO NOTHING;
+
+-- ------------------------------------------------------------
+-- 4) Plausibility penalty function
+--    Uses REQUIRED skills as primary signal; preferred is weaker.
+-- ------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION _honesty_plausibility_penalty(job_id_in text)
+RETURNS TABLE(penalty int, flags jsonb)
+LANGUAGE sql
+AS $$
+WITH lvl AS (
+  SELECT
+    jp.job_id,
+    COALESCE(jp.experience_level, 'unknown') AS experience_level,
+    CASE
+      WHEN COALESCE(jp.experience_level,'') IN ('entry') THEN 'entry'
+      WHEN COALESCE(jp.experience_level,'') IN ('associate','junior') THEN 'associate'
+      WHEN COALESCE(jp.experience_level,'') IN ('mid','intermediate') THEN 'mid'
+      WHEN COALESCE(jp.experience_level,'') IN ('senior','lead','principal','staff') THEN 'senior'
+      ELSE 'unknown'
+    END AS level_bucket
+  FROM job_postings jp
+  WHERE jp.job_id = job_id_in
+),
+req AS (
+  SELECT
+    js.job_id,
+    COUNT(*) FILTER (WHERE js.skill_priority = 'required') AS required_skills,
+    COUNT(*) FILTER (WHERE js.skill_priority = 'preferred') AS preferred_skills
+  FROM job_skills js
+  WHERE js.job_id = job_id_in
+  GROUP BY js.job_id
+),
+grp AS (
+  SELECT
+    js.job_id,
+    sg.group_id,
+    COUNT(*) FILTER (WHERE js.skill_priority = 'required')  AS req_in_group,
+    COUNT(*) FILTER (WHERE js.skill_priority = 'preferred') AS pref_in_group
+  FROM job_skills js
+  JOIN skill_group_members sgm ON sgm.skill_id = js.skill_id
+  JOIN skill_groups sg ON sg.group_id = sgm.group_id
+  WHERE js.job_id = job_id_in
+  GROUP BY 1,2
+),
+weighted AS (
+  SELECT
+    g.job_id,
+    SUM(
+      (g.req_in_group * COALESCE(w_lvl.weight, w_any.weight, 1.0))
+      + (g.pref_in_group * 0.35 * COALESCE(w_lvl.weight, w_any.weight, 1.0))
+    ) AS seniority_points,
+    SUM(g.req_in_group) AS req_group_hits,
+    SUM(g.pref_in_group) AS pref_group_hits,
+    MAX(CASE WHEN g.group_id='G_CLOUD_INF' THEN g.req_in_group ELSE 0 END) AS req_cloud,
+    MAX(CASE WHEN g.group_id='G_ML_DS'     THEN g.req_in_group ELSE 0 END) AS req_ml,
+    MAX(CASE WHEN g.group_id='G_DE_CORE'   THEN g.req_in_group ELSE 0 END) AS req_de
+  FROM grp g
+  JOIN lvl l ON l.job_id = g.job_id
+  LEFT JOIN skill_group_weights w_any ON w_any.group_id=g.group_id AND w_any.level_bucket='any'
+  LEFT JOIN skill_group_weights w_lvl ON w_lvl.group_id=g.group_id AND w_lvl.level_bucket=l.level_bucket
+  GROUP BY 1
+),
+calc AS (
+  SELECT
+    l.job_id,
+    l.level_bucket,
+    COALESCE(r.required_skills,0) AS required_skills,
+    COALESCE(r.preferred_skills,0) AS preferred_skills,
+    COALESCE(w.seniority_points,0)::numeric AS seniority_points,
+    COALESCE(w.req_group_hits,0) AS req_group_hits,
+    COALESCE(w.pref_group_hits,0) AS pref_group_hits,
+    COALESCE(w.req_cloud,0) AS req_cloud,
+    COALESCE(w.req_ml,0) AS req_ml,
+    COALESCE(w.req_de,0) AS req_de
+  FROM lvl l
+  LEFT JOIN req r ON r.job_id = l.job_id
+  LEFT JOIN weighted w ON w.job_id = l.job_id
+),
+pen AS (
+  SELECT
+    c.job_id,
+    -- NASTY RULESET:
+    (
+      CASE
+        -- entry: seniority_points thresholding
+        WHEN c.level_bucket='entry' AND c.seniority_points >= 7.5 THEN 22
+        WHEN c.level_bucket='entry' AND c.seniority_points >= 5.5 THEN 14
+        WHEN c.level_bucket='entry' AND c.seniority_points >= 4.0 THEN 8
+        -- associate
+        WHEN c.level_bucket='associate' AND c.seniority_points >= 8.5 THEN 14
+        WHEN c.level_bucket='associate' AND c.seniority_points >= 6.5 THEN 8
+        -- mid
+        WHEN c.level_bucket='mid' AND c.seniority_points >= 10.0 THEN 8
+        ELSE 0
+      END
+      -- “full-stack scope” smell: lots of required skills regardless of grouping
+      + CASE
+          WHEN c.level_bucket='entry' AND c.required_skills >= 12 THEN 10
+          WHEN c.level_bucket='entry' AND c.required_skills >= 9  THEN 6
+          WHEN c.level_bucket IN ('associate','mid') AND c.required_skills >= 14 THEN 6
+          ELSE 0
+        END
+      -- “cross-discipline ask” smell: DE + ML + Cloud required in same entry posting
+      + CASE
+          WHEN c.level_bucket='entry' AND c.req_de >= 1 AND c.req_ml >= 1 AND c.req_cloud >= 1 THEN 10
+          WHEN c.level_bucket='entry' AND c.req_ml >= 2 THEN 6
+          ELSE 0
+        END
+    )::int AS penalty,
+    (
+      '[]'::jsonb
+      || CASE WHEN c.level_bucket='entry' AND c.seniority_points >= 5.5 THEN to_jsonb('entry_senior_stack') ELSE '[]'::jsonb END
+      || CASE WHEN c.level_bucket='entry' AND c.required_skills >= 9 THEN to_jsonb('entry_fullstack_scope') ELSE '[]'::jsonb END
+      || CASE WHEN c.level_bucket='entry' AND c.req_de >= 1 AND c.req_ml >= 1 AND c.req_cloud >= 1 THEN to_jsonb('entry_cross_discipline_stack') ELSE '[]'::jsonb END
+      || CASE WHEN c.level_bucket='associate' AND c.seniority_points >= 8.5 THEN to_jsonb('associate_senior_stack') ELSE '[]'::jsonb END
+    ) AS flags
+  FROM calc c
+)
+SELECT
+  LEAST(penalty, 25)::int AS penalty,
+  flags
+FROM pen;
+$$;
+
+-- ------------------------------------------------------------
+-- 5) Extend job_honesty table to store plausibility penalty
+-- ------------------------------------------------------------
+
+ALTER TABLE job_honesty
+ADD COLUMN IF NOT EXISTS plausibility_penalty int;
+
+-- ------------------------------------------------------------
+-- 6) Patch refresh_job_honesty() to incorporate plausibility
+--     (recreate function with extra column + flags)
+-- ------------------------------------------------------------
+
+-- Recreate refresh_job_honesty with plausibility integrated:
+-- NOTE: this assumes your existing refresh_job_honesty exists. We replace it.
+CREATE OR REPLACE FUNCTION refresh_job_honesty(run_id_in text DEFAULT NULL, months_back int DEFAULT 6)
+RETURNS TABLE(scored_count int)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  run_id text := COALESCE(run_id_in, 'honesty_' || to_char(now(),'YYYYMMDD_HH24MISS'));
+BEGIN
+  WITH base AS (
+    SELECT
+      jp.job_id,
+      COALESCE(jp.description_text, '') AS txt,
+      COALESCE(jp.experience_level, 'unknown') AS experience_level,
+      COALESCE(jp.workplace_type, 'unknown') AS workplace_type,
+      jp.salary_min,
+      jp.salary_max,
+      jp.salary_period,
+      jp.posted_date,
+      jp.ingested_at,
+      r.role_name,
+      c.company_name
+    FROM job_postings jp
+    LEFT JOIN roles r ON r.role_id = jp.role_id
+    LEFT JOIN companies c ON c.company_id = jp.company_id
+    WHERE COALESCE(jp.posted_date::timestamptz, jp.ingested_at, now())
+          >= date_trunc('month', now()) - (months_back || ' months')::interval
+  ),
+  req AS (
+    SELECT
+      js.job_id,
+      COUNT(*) FILTER (WHERE js.skill_priority = 'required') AS required_skills,
+      COUNT(*) FILTER (WHERE js.skill_priority = 'preferred') AS preferred_skills
+    FROM job_skills js
+    GROUP BY js.job_id
+  ),
+  scored AS (
+    SELECT
+      b.*,
+      COALESCE(rq.required_skills, 0) AS required_skills,
+      COALESCE(rq.preferred_skills, 0) AS preferred_skills
+    FROM base b
+    LEFT JOIN req rq ON rq.job_id = b.job_id
+  ),
+  calc AS (
+    SELECT
+      s.job_id,
+
+      -- ---------------- Pay penalty ----------------
+      (
+        CASE WHEN s.salary_min IS NULL AND s.salary_max IS NULL THEN 25 ELSE 0 END
+        + CASE
+            WHEN s.salary_min IS NOT NULL AND s.salary_max IS NOT NULL
+                 AND s.salary_min > 0
+                 AND (s.salary_max / s.salary_min) >= 2.5
+            THEN 10 ELSE 0
+          END
+        + CASE WHEN s.txt ~* '\b(doe|competitive|commensurate)\b' THEN 10 ELSE 0 END
+        + CASE WHEN (s.salary_min IS NOT NULL OR s.salary_max IS NOT NULL)
+                    AND (s.salary_period IS NULL OR s.salary_period = '')
+               THEN 5 ELSE 0 END
+      )::int AS pay_penalty,
+
+      -- ---------------- Scope penalty ----------------
+      (
+        CASE
+          WHEN s.experience_level = 'entry' AND s.required_skills >= 14 THEN 25
+          WHEN s.experience_level = 'entry' AND s.required_skills >= 10 THEN 15
+          ELSE 0
+        END
+        + CASE WHEN s.txt ~* '\b\d+\+\s*(years|yrs)\b' THEN 10 ELSE 0 END
+        + CASE
+            WHEN (s.txt ~* '\bon[- ]call\b')
+             AND (s.txt ~* '\blean team\b')
+             AND (s.txt ~* '\bfast[- ]paced\b')
+            THEN 10 ELSE 0
+          END
+      )::int AS scope_penalty,
+
+      -- ---------------- Consistency penalty ----------------
+      (
+        CASE
+          WHEN s.experience_level = 'entry'
+           AND COALESCE(s.role_name,'') ~* '\b(senior|sr\.|lead|principal|staff)\b'
+          THEN 8 ELSE 0
+        END
+        + CASE
+            WHEN s.workplace_type = 'remote'
+             AND s.txt ~* '\b(on[- ]?site|onsite|in office)\b'
+          THEN 10 ELSE 0
+        END
+      )::int AS consistency_penalty,
+
+      -- ---------------- EEO dominance penalty ----------------
+      (
+        CASE
+          WHEN s.txt ~* 'equal opportunity employer'
+           AND length(s.txt) > 4000
+           AND (length(regexp_replace(s.txt, '(?is).*?(equal opportunity employer.*)$', '\1'))::numeric / length(s.txt)) > 0.40
+          THEN 3 ELSE 0
+        END
+      )::int AS eeo_penalty,
+
+      -- ---------------- Vague penalty + flags ----------------
+      (SELECT penalty FROM _honesty_vague_penalty(s.txt))::int AS vague_penalty,
+      (SELECT flags   FROM _honesty_vague_penalty(s.txt))      AS vague_flags,
+
+      -- ---------------- NEW: Skill-to-level plausibility ----------------
+      (SELECT penalty FROM _honesty_plausibility_penalty(s.job_id))::int AS plausibility_penalty,
+      (SELECT flags   FROM _honesty_plausibility_penalty(s.job_id))      AS plausibility_flags,
+
+      -- carry-through
+      s.txt,
+      s.experience_level,
+      s.workplace_type,
+      s.salary_min, s.salary_max, s.salary_period,
+      s.role_name,
+      s.required_skills
+    FROM scored s
+  ),
+  final AS (
+    SELECT
+      c.job_id,
+      c.pay_penalty,
+      c.vague_penalty,
+      LEAST(c.scope_penalty, 25)::int AS scope_penalty,
+      LEAST(c.consistency_penalty, 15)::int AS consistency_penalty,
+      LEAST(c.eeo_penalty, 10)::int AS eeo_penalty,
+      LEAST(c.plausibility_penalty, 25)::int AS plausibility_penalty,
+
+      GREATEST(
+        0,
+        100
+        - c.pay_penalty
+        - c.vague_penalty
+        - LEAST(c.scope_penalty, 25)
+        - LEAST(c.consistency_penalty, 15)
+        - LEAST(c.eeo_penalty, 10)
+        - LEAST(c.plausibility_penalty, 25)
+      )::int AS honesty_score,
+
+      (
+        c.vague_flags
+        || c.plausibility_flags
+        || CASE WHEN c.salary_min IS NULL AND c.salary_max IS NULL THEN to_jsonb('no_salary') ELSE '[]'::jsonb END
+        || CASE WHEN c.txt ~* '\b(doe|competitive|commensurate)\b' THEN to_jsonb('doe_competitive') ELSE '[]'::jsonb END
+        || CASE WHEN (c.salary_min IS NOT NULL OR c.salary_max IS NOT NULL) AND (c.salary_period IS NULL OR c.salary_period = '') THEN to_jsonb('salary_missing_period') ELSE '[]'::jsonb END
+        || CASE WHEN c.salary_min IS NOT NULL AND c.salary_max IS NOT NULL AND c.salary_min > 0 AND (c.salary_max / c.salary_min) >= 2.5 THEN to_jsonb('salary_too_wide') ELSE '[]'::jsonb END
+        || CASE WHEN c.experience_level = 'entry' AND c.required_skills >= 10 THEN to_jsonb('entry_heavy_requirements') ELSE '[]'::jsonb END
+        || CASE WHEN c.txt ~* '\b\d+\+\s*(years|yrs)\b' THEN to_jsonb('years_requirement') ELSE '[]'::jsonb END
+        || CASE WHEN (c.txt ~* '\bon[- ]call\b') AND (c.txt ~* '\blean team\b') AND (c.txt ~* '\bfast[- ]paced\b') THEN to_jsonb('oncall_lean_fastpaced') ELSE '[]'::jsonb END
+        || CASE WHEN c.experience_level = 'entry' AND COALESCE(c.role_name,'') ~* '\b(senior|sr\.|lead|principal|staff)\b' THEN to_jsonb('entry_title_senior') ELSE '[]'::jsonb END
+        || CASE WHEN c.workplace_type = 'remote' AND c.txt ~* '\b(on[- ]?site|onsite|in office)\b' THEN to_jsonb('remote_but_onsite_language') ELSE '[]'::jsonb END
+        || CASE WHEN c.eeo_penalty > 0 THEN to_jsonb('eeo_dominates_posting') ELSE '[]'::jsonb END
+      ) AS flags
+    FROM calc c
+  )
+  INSERT INTO job_honesty (
+    job_id, honesty_score,
+    pay_penalty, vague_penalty, scope_penalty, consistency_penalty, eeo_penalty,
+    plausibility_penalty,
+    flags, run_id,
+    updated_at, created_at
+  )
+  SELECT
+    f.job_id, f.honesty_score,
+    f.pay_penalty, f.vague_penalty, f.scope_penalty, f.consistency_penalty, f.eeo_penalty,
+    f.plausibility_penalty,
+    f.flags, run_id,
+    now(), now()
+  FROM final f
+  ON CONFLICT (job_id) DO UPDATE SET
+    honesty_score         = EXCLUDED.honesty_score,
+    pay_penalty           = EXCLUDED.pay_penalty,
+    vague_penalty         = EXCLUDED.vague_penalty,
+    scope_penalty         = EXCLUDED.scope_penalty,
+    consistency_penalty   = EXCLUDED.consistency_penalty,
+    eeo_penalty           = EXCLUDED.eeo_penalty,
+    plausibility_penalty  = EXCLUDED.plausibility_penalty,
+    flags                 = EXCLUDED.flags,
+    run_id                = EXCLUDED.run_id,
+    updated_at            = now();
+
+  GET DIAGNOSTICS scored_count = ROW_COUNT;
+  RETURN QUERY SELECT scored_count;
+END;
+$$;
+
+-- ------------------------------------------------------------
+-- 7) Update view to expose plausibility
+-- ------------------------------------------------------------
+
+CREATE OR REPLACE VIEW job_honesty_latest AS
+SELECT
+  jp.job_id,
+  c.company_name,
+  r.role_name,
+  jp.workplace_type,
+  jp.experience_level,
+  jp.salary_min,
+  jp.salary_max,
+  jp.salary_period,
+  jp.posted_date,
+  jp.job_url,
+  jh.honesty_score,
+  jh.pay_penalty,
+  jh.vague_penalty,
+  jh.scope_penalty,
+  jh.consistency_penalty,
+  jh.eeo_penalty,
+  jh.plausibility_penalty,
+  jh.flags,
+  jh.updated_at,
+  jh.run_id
+FROM job_postings jp
+LEFT JOIN companies c ON c.company_id = jp.company_id
+LEFT JOIN roles r ON r.role_id = jp.role_id
+LEFT JOIN job_honesty jh ON jh.job_id = jp.job_id;
+
+COMMIT;

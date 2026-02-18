@@ -8,24 +8,6 @@ import psycopg2
 from psycopg2.extras import DictCursor
 
 
-
-# ---- Company noise tokens (LinkedIn / dump delimiters that should never become company names) ----
-COMPANY_NOISE_TOKENS = {
-    "===job start===",
-    "===job end===",
-    "responses managed off linkedin",
-    "responses managed off linkedin.",
-    "responses handled off linkedin",
-    "responses handled off linkedin.",
-    "responses managed off linkedin\n",
-    "responses managed off linkedin\r",
-}
-def _is_company_noise(x: str) -> bool:
-    if not x:
-        return True
-    t = " ".join(x.strip().lower().split())
-    return t in COMPANY_NOISE_TOKENS
-
 DUMP_PATH = os.getenv("JOB_DUMP_PATH", "data/job_dump.txt")
 
 

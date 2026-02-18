@@ -893,6 +893,81 @@ def record_skill_candidates(cur, job_id: str, desc: str, compiled_patterns):
     ACRONYM_BLOCK = {"tsa","fbi","eeo","ada","doi","eod","eom"}
 
 
+
+    # --- LASTMILE_PATCH_v1 ---
+    STATES_BLOCK = {
+        'alabama',
+        'alaska',
+        'arizona',
+        'arkansas',
+        'california',
+        'colorado',
+        'connecticut',
+        'delaware',
+        'florida',
+        'georgia',
+        'hawaii',
+        'idaho',
+        'illinois',
+        'indiana',
+        'iowa',
+        'kansas',
+        'kentucky',
+        'louisiana',
+        'maine',
+        'maryland',
+        'massachusetts',
+        'michigan',
+        'minnesota',
+        'mississippi',
+        'missouri',
+        'montana',
+        'nebraska',
+        'nevada',
+        'new hampshire',
+        'new jersey',
+        'new mexico',
+        'new york',
+        'north carolina',
+        'north dakota',
+        'ohio',
+        'oklahoma',
+        'oregon',
+        'pennsylvania',
+        'rhode island',
+        'south carolina',
+        'south dakota',
+        'tennessee',
+        'texas',
+        'utah',
+        'vermont',
+        'virginia',
+        'washington',
+        'west virginia',
+        'wisconsin',
+        'wyoming'
+    }
+    BRAND_BLOCK = {
+        'skyscanner',
+        'ryanair',
+        'flipkart',
+        'wayfair',
+        'backstage',
+        'lancaster',
+        'sargent-disc'
+    }
+
+
+    STOP_PHRASES = {
+        # boilerplate fragments
+        "but not limited to","and abilities","additional skills & qualifications",
+        "industry requirements","requirements gathering","geographic location",
+        "non-technical audiences","and real-world application",
+        "working with over","hands-on collaborators",
+        # generic fluff
+        "strong analytical","excellent communication","written",
+        "execution","passion","collect","develop","formulate","analyze",
+    }
     # detect and skip entire EEO/benefits/legal sections
     def _toggle_excluded(line_norm: str) -> bool:
         # Start excluded if header matches and NOT immediately a skills header
@@ -947,11 +1022,95 @@ def record_skill_candidates(cur, job_id: str, desc: str, compiled_patterns):
                 continue
 
             # acronym rules (avoid TSA/FBI/etc)
+            # --- LAST MILE FILTERS ---
+            # kill US state names + obvious brands
+            if norm in STATES_BLOCK:
+                continue
+            if norm in BRAND_BLOCK:
+                continue
+
+            # kill domain-like tokens (booking.com, etc) unless TOOL_ALLOW later accepts them
+            if re.search(r"\b[a-z0-9-]+\.(com|io|ai|net|org)\b", raw.lower()):
+                continue
+
+            # kill category/header fragments
+            if norm.startswith("category:"):
+                continue
+
+            # kill slash boilerplate
+            if norm in ("qualifications/requirements", "skills/abilities"):
+                continue
+            # also kill any "x/y" where both sides are generic headers
+            if "/" in norm:
+                left, right = [x.strip() for x in norm.split("/", 1)]
+                if left in {"skills","skill","qualification","qualifications","requirement","requirements","abilities"} \
+                   and right in {"skills","skill","qualification","qualifications","requirement","requirements","abilities"}:
+                    continue
+            # --- END LAST MILE FILTERS ---
+
             if re.fullmatch(r"[a-z]{2,6}\d{0,2}", norm):
                 if norm in ACRONYM_BLOCK:
                     continue
                 if norm not in ACRONYM_ALLOW:
                     continue
+
+
+            # --- SMART ACCEPTANCE GATE ---
+            # Reject anything with digits (almost always junk fragments)
+            if re.search(r"\d", norm):
+                continue
+
+            # Normalize a few boilerplate prefixes
+            if norm.startswith(("and ", "or ", "with ", "to ")):
+                continue
+
+            if norm in STOP_PHRASES:
+                continue
+
+            # Allowlist acronyms/tools first
+            if re.fullmatch(r"[a-z]{2,6}\d{0,2}", norm):
+                if norm in ACRONYM_BLOCK:
+                    continue
+                if norm not in ACRONYM_ALLOW:
+                    continue
+                # allowed acronym passes
+            else:
+                # Non-acronyms must look skill/tool-like
+                raw_str = raw.strip()
+
+                toolish_char = bool(re.search(r"[\/\+\#\.]", raw_str))
+                # TitleCase alone creates brand noise (Wayfair/Flipkart/etc).
+                # Only treat as 'tool-like' if CamelCase (internal capital) OR passes tool checks.
+                titlecaseish = raw_str[:1].isupper() and any(c.isupper() for c in raw_str[1:])
+                multiword = (" " in norm)
+
+                # kill ultra-generic single words
+                if not multiword and len(norm) < 4:
+                    continue
+
+                generic_single = {
+                    "written","execution","develop","collect","formulate","analyze",
+                    "passion","knowledge","education","learning","clients","training",
+                    "retirement","benefits","salary","compensation"
+                }
+                if not multiword and norm in generic_single:
+                    continue
+
+                # allow known tools (from TOOL_ALLOW in _looks_like_tool_or_hard_skill)
+                if not (toolish_char or titlecaseish or multiword or _looks_like_tool_or_hard_skill(raw_str, norm)):
+                    continue
+
+                # allow certain multiword endings that are usually real skills
+                if multiword and not (
+                    norm.endswith(("modeling","forecasting","regression","machine learning","data engineering","data analytics"))
+                    or "analysis" in norm
+                    or "etl" in norm
+                    or "dashboard" in norm
+                ):
+                    # still let it pass if it looks like a tool
+                    if not _looks_like_tool_or_hard_skill(raw_str, norm):
+                        continue
+            # --- END SMART ACCEPTANCE GATE ---
 
             is_soft = _looks_like_soft_skill(norm)
             skill_type_guess = "soft" if is_soft else "hard"
@@ -1029,6 +1188,93 @@ def infer_section_priority(header_line: str) -> Optional[str]:
     return None
 
 
+# -----------------------------
+# Job skill-section extraction (used to avoid AI false positives like "help of AI")
+# -----------------------------
+JOB_SKILL_SECTION_HEADERS = {
+    "skills",
+    "technical skills",
+    "required skills",
+    "core skills",
+    "qualifications",
+    "required qualifications",
+    "preferred qualifications",
+    "requirements",
+    "what you will have",
+    "what you'll have",
+    "what you bring",
+    "what you'll bring",
+    "what we are looking for",
+    "what we're looking for",
+}
+
+# Common non-skill headers that should end a skill block
+JOB_NONSKILL_SECTION_HEADERS = {
+    "responsibilities",
+    "what you will do",
+    "what you'll do",
+    "job description",
+    "about the job",
+    "about the role",
+    "about you",
+    "about us",
+    "benefits",
+    "compensation",
+    "pay range",
+    "equal opportunity",
+    "eeo",
+    "privacy",
+    "how to apply",
+    "location",
+}
+
+def _is_headerish_line(raw_line: str) -> bool:
+    # ALL CAPS-ish line often indicates a new section
+    ln = raw_line.strip()
+    if not ln:
+        return False
+    if re.fullmatch(r"[A-Z0-9 \-\/&(),.]{6,}", ln) and sum(c.isalpha() for c in ln) >= 4:
+        return True
+    return False
+
+def extract_job_skill_section_lines(desc: str) -> list[str]:
+    """
+    Extract only the lines that appear under skill/qualification/requirement headers.
+    Used to restrict ambiguous short aliases like 'ai' to skills sections only.
+    """
+    lines_raw = desc.splitlines()
+    lines = [clean_text(x) for x in lines_raw]
+    out = []
+    in_block = False
+
+    for raw, ln in zip(lines_raw, lines):
+        low = normalize_for_matching(ln)
+        if not low:
+            # allow blank lines, but if we're in_block, a long blank gap ends it
+            if in_block:
+                # single blank line is common within lists; don't immediately end
+                continue
+            else:
+                continue
+
+        # start block
+        if any(low == h or low.startswith(h + ":") for h in JOB_SKILL_SECTION_HEADERS):
+            in_block = True
+            continue
+
+        # end block
+        if in_block:
+            if any(low == h or low.startswith(h + ":") for h in JOB_NONSKILL_SECTION_HEADERS):
+                in_block = False
+                continue
+            if _is_headerish_line(raw):
+                in_block = False
+                continue
+
+            out.append(ln)
+
+    return out
+
 def extract_skill_priorities(
     desc: str, compiled_patterns: List[Tuple[re.Pattern, str, str]]
 ) -> Dict[str, str]:
@@ -1055,352 +1301,45 @@ def extract_skill_priorities(
 
         for pat, skill_id, _alias in compiled_patterns:
             if pat.search(t):
+    """
+    Returns: {skill_id: skill_priority}
+    Default: required
+    Strongest wins: required > preferred > nice-to-have
+
+    ai_section_only: the short alias "ai" is only counted if it appears inside a skill/qual/req section block.
+    """
+    priority_rank = {"required": 3, "preferred": 2, "nice-to-have": 1}
+
+    # full text lines (for normal skills)
+    lines = [clean_text(x) for x in desc.splitlines()]
+    lines = [x for x in lines if x]
+
+    # skill-section-only lines (to prevent "help of AI" etc.)
+    section_lines = extract_job_skill_section_lines(desc)
+    section_set = set(section_lines)
+
+    current_section = None
+    out: Dict[str, str] = {}
+
+    for line in lines:
+        new_section = infer_section_priority(line)
+        if new_section:
+            current_section = new_section
+
+        line_priority = detect_priority_from_line(line)
+        t = normalize_for_matching(line)
+
+        for pat, skill_id, _alias in compiled_patterns:
+            # Only restrict the ambiguous short alias "ai"
+            if _alias == "ai":
+                if line not in section_set:
+                    continue
+
+            if pat.search(t):
                 p = line_priority or current_section or "required"
                 if skill_id not in out:
                     out[skill_id] = p
                 else:
                     if priority_rank.get(p, 0) > priority_rank.get(out[skill_id], 0):
                         out[skill_id] = p
-
     return out
-
-
-# -----------------------------
-# DB helpers
-# -----------------------------
-
-
-def get_conn():
-    return psycopg2.connect(
-        host=os.getenv("PGHOST", "localhost"),
-        port=int(os.getenv("PGPORT", "5432")),
-        dbname=os.getenv("PGDATABASE", "job_analytics"),
-        user=os.getenv("PGUSER"),
-        password=os.getenv("PGPASSWORD"),
-    )
-
-
-def next_id(cur, table: str, id_col: str, prefix: str, width: int) -> str:
-    cur.execute(
-        f"SELECT {id_col} FROM {table} WHERE {id_col} LIKE %s ORDER BY {id_col} DESC LIMIT 1",
-        (f"{prefix}%",),
-    )
-    row = cur.fetchone()
-    if not row:
-        n = 1
-    else:
-        last = row[0] if not isinstance(row, dict) else row[id_col]
-        n = int(re.sub(r"\D", "", last)) + 1
-    return f"{prefix}{n:0{width}d}"
-
-
-def upsert_company(cur, company_name: str) -> str:
-    cur.execute(
-        "SELECT company_id FROM companies WHERE lower(company_name)=lower(%s) LIMIT 1",
-        (company_name,),
-    )
-    row = cur.fetchone()
-    if row:
-        return row[0]
-    new_id = next_id(cur, "companies", "company_id", "C", 3)
-    cur.execute(
-        "INSERT INTO companies (company_id, company_name) VALUES (%s, %s)",
-        (new_id, company_name),
-    )
-    return new_id
-
-
-def upsert_role(cur, role_name: str) -> str:
-    cur.execute(
-        "SELECT role_id FROM roles WHERE lower(role_name)=lower(%s) LIMIT 1",
-        (role_name,),
-    )
-    row = cur.fetchone()
-    if row:
-        return row[0]
-    new_id = next_id(cur, "roles", "role_id", "R", 3)
-    archetype = infer_role_archetype(role_name)
-    cur.execute(
-        "INSERT INTO roles (role_id, role_name, role_archetype) VALUES (%s, %s, %s)",
-        (new_id, role_name, archetype),
-    )
-    return new_id
-
-
-def upsert_location(cur, location: str, state: Optional[str]) -> str:
-    cur.execute(
-        """
-        SELECT location_id
-        FROM locations
-        WHERE lower(location)=lower(%s)
-          AND ( (state IS NULL AND %s IS NULL) OR (state=%s) )
-        LIMIT 1
-        """,
-        (location, state, state),
-    )
-    row = cur.fetchone()
-    if row:
-        return row[0]
-    new_id = next_id(cur, "locations", "location_id", "L", 3)
-    cur.execute(
-        "INSERT INTO locations (location_id, location, state) VALUES (%s, %s, %s)",
-        (new_id, location, state),
-    )
-    return new_id
-
-
-def next_job_skill_id(cur) -> str:
-    """
-    Your format: JS0001 (4 digits)
-    """
-    prefix = "JS"
-    cur.execute(
-        "SELECT job_skills_id FROM job_skills WHERE job_skills_id LIKE %s ORDER BY job_skills_id DESC LIMIT 1",
-        (f"{prefix}%",),
-    )
-    row = cur.fetchone()
-    if not row:
-        n = 1
-    else:
-        last = row[0] if not isinstance(row, dict) else row["job_skills_id"]
-        n = int(re.sub(r"\D", "", last)) + 1
-    return f"{prefix}{n:04d}"
-
-
-def insert_or_update_job_skills(
-    cur, job_id: str, skill_priority_map: Dict[str, str]
-) -> Tuple[int, int]:
-    """
-    Upgrades priorities when we find a stronger signal later:
-      required > preferred > nice-to-have
-    """
-    if not skill_priority_map:
-        return 0, 0
-
-    priority_rank = {"required": 3, "preferred": 2, "nice-to-have": 1}
-
-    cur.execute(
-        "SELECT skill_id, skill_priority FROM job_skills WHERE job_id=%s", (job_id,)
-    )
-    existing_rows = cur.fetchall()
-
-    existing: Dict[str, Optional[str]] = {}
-    for r in existing_rows:
-        sid = r[0] if not isinstance(r, dict) else r["skill_id"]
-        pri = r[1] if not isinstance(r, dict) else r["skill_priority"]
-        existing[sid] = pri
-
-    inserted = 0
-    updated = 0
-
-    for sid, pri in skill_priority_map.items():
-        if sid not in existing:
-            js_id = next_job_skill_id(cur)
-            cur.execute(
-                """
-                INSERT INTO job_skills (job_skills_id, job_id, skill_id, skill_priority)
-                VALUES (%s, %s, %s, %s)
-                """,
-                (js_id, job_id, sid, pri),
-            )
-            inserted += 1
-        else:
-            cur_pri = (existing.get(sid) or "").strip() if existing.get(sid) else ""
-            if priority_rank.get(pri, 0) > priority_rank.get(cur_pri, 0):
-                cur.execute(
-                    """
-                    UPDATE job_skills
-                    SET skill_priority=%s
-                    WHERE job_id=%s AND skill_id=%s
-                    """,
-                    (pri, job_id, sid),
-                )
-                updated += 1
-
-    return inserted, updated
-
-
-# -----------------------------
-# Main
-# -----------------------------
-
-
-def _build_jobs_query(rescan_skills: bool) -> str:
-    """
-    Default behavior: only process jobs missing structured fields OR jobs with zero skills.
-
-    rescan_skills=True:
-      - also include jobs even if they already have skills (useful after adding new aliases).
-      - still constrained to description_text NOT NULL.
-    """
-    # If rescan_skills is enabled, we don't need to gate on "no skills" to include,
-    # but we still want to avoid scanning ALL jobs if you only want fields.
-    # Here: include jobs missing fields OR (rescan_skills True).
-    # This means "rescan_skills" effectively includes all jobs with descriptions,
-    # which is intended for occasional refresh runs.
-    skills_clause = (
-        "OR NOT EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id)"
-        if not rescan_skills
-        else "OR TRUE"
-    )
-
-    return f"""
-        SELECT jp.job_id, jp.description_text, jp.company_id, c.company_name AS existing_company_name, jp.role_id, jp.location_id,
-               jp.workplace_type, jp.salary_min, jp.salary_max, jp.salary_period,
-               jp.experience_level
-        FROM job_postings jp
-        LEFT JOIN companies c ON jp.company_id = c.company_id
-        WHERE jp.description_text IS NOT NULL
-          AND COALESCE(jp.status,'') <> 'legacy_no_desc'
-          AND (
-                jp.company_id IS NULL
-             OR jp.role_id IS NULL
-             OR jp.location_id IS NULL
-             OR jp.workplace_type IS NULL
-             OR jp.salary_min IS NULL
-             OR jp.salary_max IS NULL
-             OR jp.salary_period IS NULL
-             OR jp.experience_level IS NULL
-             {skills_clause}
-          )
-        ORDER BY jp.job_id
-    """
-
-
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--count-only",
-        action="store_true",
-        help="Print count of jobs that would be processed (same selection logic) and exit.",
-    )
-    parser.add_argument(
-        "--rescan-skills",
-        action="store_true",
-        help="Also rescan skills for jobs that already have some skills (use after adding new aliases).",
-    )
-    args = parser.parse_args()
-
-    conn = get_conn()
-    conn.autocommit = False
-
-    try:
-        with conn.cursor(cursor_factory=DictCursor) as cur:
-            compiled_patterns = load_skill_alias_patterns(cur)
-
-            cur.execute(_build_jobs_query(args.rescan_skills))
-            jobs = cur.fetchall()
-
-            if args.count_only:
-                print(len(jobs))
-                conn.rollback()
-                return
-
-            updated_jobs = 0
-            inserted_job_skills = 0
-            updated_job_skills = 0
-
-            for job in jobs:
-                job_id = job["job_id"]
-                desc = job["description_text"] or ""
-                if not desc.strip():
-                    continue
-
-                extracted = extract_title_company_location_from_description(desc)
-                title_hint = extracted.get("title")
-
-                # parse salary/workplace
-                smin, smax, period = parse_salary_range(desc)
-                workplace = parse_workplace_type(desc)
-
-                # infer experience (more conservative; returns None if uncertain)
-                exp_level = infer_experience_level(desc, title_hint=title_hint)
-
-                # upsert dimensions if missing
-                company_id = job["company_id"]
-                existing_company_name = job.get("existing_company_name") if isinstance(job, dict) else None
-                if company_id and existing_company_name and is_bad_company_name(existing_company_name):
-                    company_id = None
-
-                if (not company_id) and extracted["company"]:
-                    company_id = upsert_company(cur, extracted["company"])
-
-                role_id = job["role_id"]
-                if (not role_id) and extracted["title"]:
-                    role_id = upsert_role(cur, extracted["title"])
-
-                location_id = job["location_id"]
-                if (not location_id) and extracted["location"]:
-                    location_id = upsert_location(
-                        cur, extracted["location"], extracted["state"]
-                    )
-
-                # update job_postings only for fields we actually found / inferred
-                fields = []
-                params = []
-
-                if company_id and company_id != job["company_id"]:
-                    fields.append("company_id=%s")
-                    params.append(company_id)
-                if role_id and role_id != job["role_id"]:
-                    fields.append("role_id=%s")
-                    params.append(role_id)
-                if location_id and location_id != job["location_id"]:
-                    fields.append("location_id=%s")
-                    params.append(location_id)
-
-                if workplace and workplace != job["workplace_type"]:
-                    fields.append("workplace_type=%s")
-                    params.append(workplace)
-
-                if smin is not None and smin != job["salary_min"]:
-                    fields.append("salary_min=%s")
-                    params.append(smin)
-                if smax is not None and smax != job["salary_max"]:
-                    fields.append("salary_max=%s")
-                    params.append(smax)
-                if period is not None and period != job["salary_period"]:
-                    fields.append("salary_period=%s")
-                    params.append(period)
-
-                if exp_level is not None and exp_level != job["experience_level"]:
-                    fields.append("experience_level=%s")
-                    params.append(exp_level)
-
-                if fields:
-                    params.append(job_id)
-                    cur.execute(
-                        f"UPDATE job_postings SET {', '.join(fields)} WHERE job_id=%s",
-                        tuple(params),
-                    )
-                    updated_jobs += 1
-                    print(f"Updated {job_id}: {', '.join([f.split('=')[0] for f in fields])}")
-
-                # skill extraction + priority classification + insert/update
-                skill_priority_map = extract_skill_priorities(desc, compiled_patterns)
-                # NEW: capture candidate skills + soft skills
-                record_skill_candidates(cur, job_id, desc, compiled_patterns)
-                ins, upd = insert_or_update_job_skills(cur, job_id, skill_priority_map)
-                if ins:
-                    inserted_job_skills += ins
-                    print(f"Inserted {ins} job_skills rows for {job_id}")
-                if upd:
-                    updated_job_skills += upd
-                    print(f"Upgraded {upd} job_skills priorities for {job_id}")
-
-            conn.commit()
-            print("\nDone.")
-            print(f"Updated job_postings rows: {updated_jobs}")
-            print(f"Inserted job_skills rows: {inserted_job_skills}")
-            print(f"Updated (upgraded) job_skills rows: {updated_job_skills}")
-
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
-if __name__ == "__main__":
-    main()
-

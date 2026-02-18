@@ -832,35 +832,7 @@ def _looks_like_tool_or_hard_skill(raw: str, norm: str) -> bool:
 
     # allow a tiny curated set of hard-skill nouns (keep small!)
     allow = {"statistics","forecasting","modeling","regression","etl","api","dashboarding","visualization"}
-    # allow common lowercase tool/platform names that often appear un-capitalized in postings
-    TOOL_ALLOW = {
-        "snowflake","databricks","airflow","dbt","redshift","bigquery","bigquery","big table",
-        "hadoop","spark","pyspark","kafka","docker","kubernetes","terraform",
-        "gitlab","github","bitbucket","jira","confluence",
-        "sagemaker","athena","glue","lambda","ec2","s3",
-        "fivetran","stitch","segment","mixpanel",
-        "looker","lookml","superset","metabase",
-        "hyperion","netsuite","workday","adaptive","anaplan","servicenow",
-        "postgres","postgresql","mysql","mssql","sqlserver","oracle",
-    }
-
-    # reject generic filler nouns that show up everywhere (avoid flooding candidates)
-    GENERIC_BLOCK = {
-        "financial","management","integrity","passion","confidence","hungry","connect",
-        "education","learning","knowledge","clients","training","retirement","benefits",
-        "salary","compensation","skills","requirements","qualifications"
-    }
-
     if norm in allow:
-        return True
-
-    # Accept well-formed lowercase tool names in skill-ish lines
-    if norm in TOOL_ALLOW:
-        return True
-
-    # Accept single-token lowercase strings that look like tools (letters/digits/./+/#),
-    # but only if they are not generic filler.
-    if norm not in GENERIC_BLOCK and re.fullmatch(r"[a-z][a-z0-9\.\+\#\-]{2,30}", norm):
         return True
 
     return False
@@ -926,7 +898,8 @@ def record_skill_candidates(cur, job_id: str, desc: str, compiled_patterns):
         base_conf = 0.80 if pri == "required" else (0.60 if pri == "preferred" else 0.45)
 
         for raw, norm in _extract_candidate_phrases_from_line(ln):
-            # tool gate temporarily disabled (was too strict)
+            if not _looks_like_tool_or_hard_skill(raw, norm):
+                continue
             if norm in ignore:
                 continue
 

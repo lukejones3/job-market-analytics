@@ -1,30 +1,11 @@
 import os
 import re
-import hashlib
 from datetime import date
-from typing import List
+from typing import List, Tuple
 
 import psycopg2
 from psycopg2.extras import DictCursor
 
-
-
-# ---- Company noise tokens (LinkedIn / dump delimiters that should never become company names) ----
-COMPANY_NOISE_TOKENS = {
-    "===job start===",
-    "===job end===",
-    "responses managed off linkedin",
-    "responses managed off linkedin.",
-    "responses handled off linkedin",
-    "responses handled off linkedin.",
-    "responses managed off linkedin\n",
-    "responses managed off linkedin\r",
-}
-def _is_company_noise(x: str) -> bool:
-    if not x:
-        return True
-    t = " ".join(x.strip().lower().split())
-    return t in COMPANY_NOISE_TOKENS
 
 DUMP_PATH = os.getenv("JOB_DUMP_PATH", "data/job_dump.txt")
 
@@ -45,26 +26,9 @@ def extract_jobs_from_dump(raw: str) -> List[str]:
     Tolerates extra whitespace.
     """
     jobs = re.findall(r"===JOB START===\s*(.*?)\s*===JOB END===", raw, flags=re.S)
+    # strip outer whitespace, drop empties
     jobs = [j.strip() for j in jobs if j and j.strip()]
     return jobs
-
-
-def normalize_desc_for_hash(desc: str) -> str:
-    """
-    Stable normalization for dedup hashing:
-      - normalize NBSP
-      - normalize horizontal whitespace
-      - normalize newlines
-    """
-    d = desc.replace("\u00a0", " ")
-    d = re.sub(r"[ \t]+", " ", d)
-    d = re.sub(r"\r\n?", "\n", d)
-    d = re.sub(r"\n{3,}", "\n\n", d)  # collapse huge blank blocks
-    return d.strip()
-
-
-def sha256_text(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def next_job_id(cur) -> str:
@@ -83,24 +47,25 @@ def next_job_id(cur) -> str:
     return f"J{n:04d}"
 
 
-def job_already_exists(cur, desc_hash: str) -> bool:
+def job_already_exists(cur, desc: str) -> bool:
     """
-    Skip duplicates by desc_hash.
+    Skip duplicates by exact description_text match.
+    (Simple + safe. You can upgrade to hashes later.)
     """
     cur.execute(
-        "SELECT 1 FROM job_postings WHERE desc_hash = %s LIMIT 1",
-        (desc_hash,),
+        "SELECT 1 FROM job_postings WHERE description_text = %s LIMIT 1",
+        (desc,),
     )
     return cur.fetchone() is not None
 
 
-def insert_job(cur, job_id: str, desc: str, desc_hash: str) -> None:
+def insert_job(cur, job_id: str, desc: str) -> None:
     cur.execute(
         """
-        INSERT INTO job_postings (job_id, source, date_found, status, description_text, desc_hash, ingested_at)
-        VALUES (%s, %s, %s, %s, %s, %s, NOW())
+        INSERT INTO job_postings (job_id, source, date_found, status, description_text)
+        VALUES (%s, %s, %s, %s, %s)
         """,
-        (job_id, "manual_dump", date.today(), "new", desc, desc_hash),
+        (job_id, "manual_dump", date.today(), "new", desc),
     )
 
 
@@ -124,15 +89,12 @@ def main():
     try:
         with conn.cursor(cursor_factory=DictCursor) as cur:
             for idx, desc in enumerate(jobs, start=1):
-                norm = normalize_desc_for_hash(desc)
-                h = sha256_text(norm)
-
-                if job_already_exists(cur, h):
+                if job_already_exists(cur, desc):
                     skipped_duplicates += 1
                     continue
 
                 job_id = next_job_id(cur)
-                insert_job(cur, job_id, desc, h)
+                insert_job(cur, job_id, desc)
                 inserted_ids.append(job_id)
                 print(f"[OK] Inserted Job {idx} -> {job_id}")
 
@@ -159,3 +121,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

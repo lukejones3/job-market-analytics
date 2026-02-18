@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+set -euo pipefail
+DUMP_FILE="data/job_dump.txt"
+
+echo "Paste ONE job now. Type a single line: END  (then press Enter)"
+echo "-----------------------------------------------------------"
+
+job="$(
+  awk '
+    $0 == "END" { exit }
+    { print }
+  '
+)"
+
+# empty guard
+if [[ -z "${job//[[:space:]]/}" ]]; then
+  echo "No content pasted. Nothing written."
+  exit 0
+fi
+
+{
+  echo "===JOB START==="
+  printf "%s\n" "$job"
+  echo "===JOB END==="
+  echo
+} >> "$DUMP_FILE"
+
+echo "✅ Added job to $DUMP_FILE"

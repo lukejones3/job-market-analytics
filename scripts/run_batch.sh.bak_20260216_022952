@@ -1,0 +1,48 @@
+cd ~/github/job-market-analytics
+
+# 1) backup the current script (just in case)
+cp scripts/run_batch.sh "scripts/run_batch.sh.bak_$(date +%Y%m%d_%H%M%S)"
+
+# 2) overwrite with a corrected version
+cat > scripts/run_batch.sh <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO="${HOME}/github/job-market-analytics"
+DUMP="${REPO}/data/job_dump.txt"
+ARCHIVE_DIR="${REPO}/data/archives"
+TS="$(date +%Y%m%d_%H%M%S)"
+
+mkdir -p "$ARCHIVE_DIR"
+
+# 0) sanity: if dump file empty, bail
+if [[ ! -s "$DUMP" ]]; then
+  echo "Nothing to ingest: $DUMP is empty."
+  exit 0
+fi
+
+cd "$REPO"
+
+echo "🧾 Ingesting from: $DUMP"
+python -u python/ingest_job_dump.py
+
+echo "🧠 Enriching postings (rescan skills)..."
+python -u python/enrich_job_postings.py --rescan-skills
+
+# If we got here, ingest+enrich succeeded. Now archive and clear.
+ARCHIVE_FILE="${ARCHIVE_DIR}/job_dump_${TS}.txt"
+cp "$DUMP" "$ARCHIVE_FILE"
+gzip -f "$ARCHIVE_FILE"
+
+: > "$DUMP"
+
+echo "✅ Batch complete."
+echo "✅ Archived to: ${ARCHIVE_FILE}.gz"
+echo "✅ Cleared: $DUMP"
+SH
+
+# 3) make executable
+chmod +x scripts/run_batch.sh
+
+# 4) run it
+./scripts/run_batch.sh

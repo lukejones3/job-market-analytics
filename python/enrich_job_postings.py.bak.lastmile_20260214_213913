@@ -893,6 +893,17 @@ def record_skill_candidates(cur, job_id: str, desc: str, compiled_patterns):
     ACRONYM_BLOCK = {"tsa","fbi","eeo","ada","doi","eod","eom"}
 
 
+
+    STOP_PHRASES = {
+        # boilerplate fragments
+        "but not limited to","and abilities","additional skills & qualifications",
+        "industry requirements","requirements gathering","geographic location",
+        "non-technical audiences","and real-world application",
+        "working with over","hands-on collaborators",
+        # generic fluff
+        "strong analytical","excellent communication","written",
+        "execution","passion","collect","develop","formulate","analyze",
+    }
     # detect and skip entire EEO/benefits/legal sections
     def _toggle_excluded(line_norm: str) -> bool:
         # Start excluded if header matches and NOT immediately a skills header
@@ -952,6 +963,62 @@ def record_skill_candidates(cur, job_id: str, desc: str, compiled_patterns):
                     continue
                 if norm not in ACRONYM_ALLOW:
                     continue
+
+
+            # --- SMART ACCEPTANCE GATE ---
+            # Reject anything with digits (almost always junk fragments)
+            if re.search(r"\d", norm):
+                continue
+
+            # Normalize a few boilerplate prefixes
+            if norm.startswith(("and ", "or ", "with ", "to ")):
+                continue
+
+            if norm in STOP_PHRASES:
+                continue
+
+            # Allowlist acronyms/tools first
+            if re.fullmatch(r"[a-z]{2,6}\d{0,2}", norm):
+                if norm in ACRONYM_BLOCK:
+                    continue
+                if norm not in ACRONYM_ALLOW:
+                    continue
+                # allowed acronym passes
+            else:
+                # Non-acronyms must look skill/tool-like
+                raw_str = raw.strip()
+
+                toolish_char = bool(re.search(r"[\/\+\#\.]", raw_str))
+                titlecaseish = raw_str[:1].isupper()
+                multiword = (" " in norm)
+
+                # kill ultra-generic single words
+                if not multiword and len(norm) < 4:
+                    continue
+
+                generic_single = {
+                    "written","execution","develop","collect","formulate","analyze",
+                    "passion","knowledge","education","learning","clients","training",
+                    "retirement","benefits","salary","compensation"
+                }
+                if not multiword and norm in generic_single:
+                    continue
+
+                # allow known tools (from TOOL_ALLOW in _looks_like_tool_or_hard_skill)
+                if not (toolish_char or titlecaseish or multiword or _looks_like_tool_or_hard_skill(raw_str, norm)):
+                    continue
+
+                # allow certain multiword endings that are usually real skills
+                if multiword and not (
+                    norm.endswith(("modeling","forecasting","regression","machine learning","data engineering","data analytics"))
+                    or "analysis" in norm
+                    or "etl" in norm
+                    or "dashboard" in norm
+                ):
+                    # still let it pass if it looks like a tool
+                    if not _looks_like_tool_or_hard_skill(raw_str, norm):
+                        continue
+            # --- END SMART ACCEPTANCE GATE ---
 
             is_soft = _looks_like_soft_skill(norm)
             skill_type_guess = "soft" if is_soft else "hard"
