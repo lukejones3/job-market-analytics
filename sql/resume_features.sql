@@ -1,17 +1,10 @@
 BEGIN;
 
--- ============================
--- A) Add columns to resume_scores
--- ============================
-
 ALTER TABLE resume_scores
   ADD COLUMN IF NOT EXISTS plausibility_penalty int,
   ADD COLUMN IF NOT EXISTS confidence_score int,
   ADD COLUMN IF NOT EXISTS confidence_flags jsonb;
 
--- ============================
--- B) Market skill stats table (cached per run)
--- ============================
 
 CREATE TABLE IF NOT EXISTS resume_market_skill_stats (
   resume_id      text NOT NULL REFERENCES resumes(resume_id) ON DELETE CASCADE,
@@ -32,9 +25,6 @@ CREATE TABLE IF NOT EXISTS resume_market_skill_stats (
 CREATE INDEX IF NOT EXISTS idx_rms_run_roi  ON resume_market_skill_stats(run_id, roi_score DESC);
 CREATE INDEX IF NOT EXISTS idx_rms_run_dem  ON resume_market_skill_stats(run_id, demand_score DESC);
 
--- ============================
--- C) Optional: store per-run flags for plausibility/confidence
--- ============================
 
 CREATE TABLE IF NOT EXISTS resume_run_flags (
   resume_id   text NOT NULL REFERENCES resumes(resume_id) ON DELETE CASCADE,
