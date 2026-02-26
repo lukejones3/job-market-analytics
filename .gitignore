@@ -209,4 +209,13 @@ __marimo__/
 # Project data (do not commit)
 data/
 backups/
-*.sql
+
+# dbt artifacts (safe to ignore)
+dbt/**/target/
+dbt/**/logs/
+
+# keep dbt SQL models tracked (so DO NOT ignore *.sql)
+# Local scratch / backups
+*.bak
+*.bak_*
+*.BACKUP*
