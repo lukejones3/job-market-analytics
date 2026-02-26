@@ -1,0 +1,5 @@
+select
+  company_id,
+  nullif(trim(company_name), '') as company_name,
+  nullif(trim(company_type), '') as company_type
+from {{ source('job_analytics','companies') }}

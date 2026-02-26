@@ -1,0 +1,6 @@
+selectors:
+  - name: core_pipeline
+    definition:
+      method: fqn
+      value: job_analytics_dbt
+      children: true

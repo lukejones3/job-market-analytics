@@ -1,0 +1,15 @@
+version: 2
+
+sources:
+  - name: job_analytics
+    schema: public
+    tables:
+      - name: job_postings
+      - name: job_skills
+      - name: skills
+      - name: roles
+      - name: companies
+      - name: locations
+      - name: pipeline_runs
+      - name: pipeline_errors
+      # add other raw tables later as needed

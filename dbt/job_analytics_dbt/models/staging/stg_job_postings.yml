@@ -1,0 +1,20 @@
+version: 2
+
+models:
+  - name: stg_job_postings
+    columns:
+      - name: job_id
+        tests:
+          - not_null
+          - unique
+
+      - name: pay_period
+        tests:
+          - accepted_values:
+              values: ['year', 'hour']
+              quote: true
+
+    tests:
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "salary_max_annual is null or salary_max_annual >= 10000"

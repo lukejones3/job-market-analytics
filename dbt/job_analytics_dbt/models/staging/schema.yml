@@ -1,0 +1,45 @@
+version: 2
+
+models:
+  - name: stg_job_skills
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [job_id, skill_id]
+    columns:
+      - name: job_skills_id
+        tests: [not_null, unique]
+      - name: job_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_job_postings')
+              field: job_id
+      - name: skill_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_skills')
+              field: skill_id
+      - name: skill_priority
+        tests:
+          - accepted_values:
+              values: ['required','preferred','nice-to-have']
+              quote: true
+
+  - name: stg_skills
+    columns:
+      - name: skill_id
+        tests: [not_null, unique]
+      - name: skill_name
+        tests: [not_null]
+
+  - name: stg_roles
+    columns:
+      - name: role_id
+        tests: [not_null, unique]
+
+  - name: stg_companies
+    columns:
+      - name: company_id
+        tests: [not_null, unique]
+

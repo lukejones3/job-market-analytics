@@ -1,0 +1,58 @@
+version: 2
+
+models:
+  - name: dim_skills
+    columns:
+      - name: skill_id
+        tests: [not_null, unique]
+      - name: skill_name
+        tests: [not_null]
+
+  - name: dim_roles
+    columns:
+      - name: role_id
+        tests: [not_null, unique]
+
+  - name: dim_companies
+    columns:
+      - name: company_id
+        tests: [not_null, unique]
+
+  - name: fct_jobs
+    columns:
+      - name: job_id
+        tests: [not_null, unique]
+      - name: pay_period
+        tests:
+          - accepted_values:
+              values: ['year','hour']
+              quote: true
+
+  - name: bridge_job_skills
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [job_id, skill_id]
+    columns:
+      - name: job_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('fct_jobs')
+              field: job_id
+      - name: skill_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_skills')
+              field: skill_id
+      - name: skill_priority
+        tests:
+          - accepted_values:
+              values: ['required','preferred','nice-to-have']
+              quote: true
+
+  - name: mart_skill_demand
+    columns:
+      - name: experience_level
+      - name: workplace_type
+      - name: skill_name
