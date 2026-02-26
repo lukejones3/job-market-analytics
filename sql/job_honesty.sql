@@ -1,34 +1,21 @@
 BEGIN;
-
--- ------------------------------------------------------------
--- 0) Tables to define "senior stack" and scope signatures
--- ------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS skill_groups (
   group_id   text PRIMARY KEY,
   group_name text NOT NULL,
   note       text
 );
-
 CREATE TABLE IF NOT EXISTS skill_group_members (
   group_id text NOT NULL REFERENCES skill_groups(group_id) ON DELETE CASCADE,
   skill_id text NOT NULL REFERENCES skills(skill_id) ON DELETE CASCADE,
   PRIMARY KEY (group_id, skill_id)
 );
 
--- weights drive "seniority signature"
--- level_bucket: entry|associate|mid|senior|unknown|any
 CREATE TABLE IF NOT EXISTS skill_group_weights (
   group_id      text NOT NULL REFERENCES skill_groups(group_id) ON DELETE CASCADE,
   level_bucket  text NOT NULL,
   weight        numeric NOT NULL DEFAULT 1.0,
   PRIMARY KEY (group_id, level_bucket)
 );
-
--- ------------------------------------------------------------
--- 1) Seed groups (edit these freely)
--- ------------------------------------------------------------
-
 INSERT INTO skill_groups (group_id, group_name, note) VALUES
   ('G_DE_CORE',   'Data Engineering Core',     'Pipelines, warehousing, orchestration'),
   ('G_CLOUD_INF', 'Cloud / Infra',             'Cloud + infra tooling'),
@@ -37,18 +24,13 @@ INSERT INTO skill_groups (group_id, group_name, note) VALUES
   ('G_SW_ENG',    'Software Engineering',      'General SW eng tooling (git, CI/CD, etc)')
 ON CONFLICT (group_id) DO NOTHING;
 
--- ------------------------------------------------------------
--- 2) Membership (best-effort auto from skills.skill_name)
---     IMPORTANT: this only inserts skills that already exist in your canonical skills.
---     Add more once you canonize new skills (Airflow, dbt, etc).
--- ------------------------------------------------------------
 
 -- Data Eng Core
 INSERT INTO skill_group_members (group_id, skill_id)
 SELECT 'G_DE_CORE', s.skill_id
 FROM skills s
 WHERE lower(s.skill_name) IN (
-  'sql','python','etl devolopment','cube design'  -- adjust to your canon spellings
+  'sql','python','etl devolopment','cube design' 
 )
 ON CONFLICT DO NOTHING;
 
@@ -57,7 +39,7 @@ INSERT INTO skill_group_members (group_id, skill_id)
 SELECT 'G_CLOUD_INF', s.skill_id
 FROM skills s
 WHERE lower(s.skill_name) IN (
-  'erp systems','sap bw/hana'  -- placeholders until cloud skills exist in canon
+  'erp systems','sap bw/hana' 
 )
 ON CONFLICT DO NOTHING;
 
@@ -79,14 +61,6 @@ WHERE lower(s.skill_name) IN (
 )
 ON CONFLICT DO NOTHING;
 
--- SW Eng (you may not have these in canon yet; leave empty for now)
--- INSERT INTO skill_group_members ... (git, docker, etc) later
-
--- ------------------------------------------------------------
--- 3) Weights (THIS is where it gets disgusting)
---    Higher weight = more "senior stack" signal.
--- ------------------------------------------------------------
-
 -- Default "any" weights
 INSERT INTO skill_group_weights (group_id, level_bucket, weight) VALUES
   ('G_DE_CORE',   'any', 1.3),
@@ -96,17 +70,11 @@ INSERT INTO skill_group_weights (group_id, level_bucket, weight) VALUES
   ('G_SW_ENG',    'any', 1.4)
 ON CONFLICT DO NOTHING;
 
--- Entry-level sensitivity boosters (make entry postings pay for senior stacks)
 INSERT INTO skill_group_weights (group_id, level_bucket, weight) VALUES
   ('G_CLOUD_INF', 'entry', 2.0),
   ('G_ML_DS',     'entry', 2.1),
   ('G_SW_ENG',    'entry', 1.9)
 ON CONFLICT DO NOTHING;
-
--- ------------------------------------------------------------
--- 4) Plausibility penalty function
---    Uses REQUIRED skills as primary signal; preferred is weaker.
--- ------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION _honesty_plausibility_penalty(job_id_in text)
 RETURNS TABLE(penalty int, flags jsonb)
@@ -184,7 +152,7 @@ calc AS (
 pen AS (
   SELECT
     c.job_id,
-    -- NASTY RULESET:
+  
     (
       CASE
         -- entry: seniority_points thresholding
@@ -198,14 +166,14 @@ pen AS (
         WHEN c.level_bucket='mid' AND c.seniority_points >= 10.0 THEN 8
         ELSE 0
       END
-      -- “full-stack scope” smell: lots of required skills regardless of grouping
+    
       + CASE
           WHEN c.level_bucket='entry' AND c.required_skills >= 12 THEN 10
           WHEN c.level_bucket='entry' AND c.required_skills >= 9  THEN 6
           WHEN c.level_bucket IN ('associate','mid') AND c.required_skills >= 14 THEN 6
           ELSE 0
         END
-      -- “cross-discipline ask” smell: DE + ML + Cloud required in same entry posting
+     
       + CASE
           WHEN c.level_bucket='entry' AND c.req_de >= 1 AND c.req_ml >= 1 AND c.req_cloud >= 1 THEN 10
           WHEN c.level_bucket='entry' AND c.req_ml >= 2 THEN 6
@@ -227,20 +195,9 @@ SELECT
 FROM pen;
 $$;
 
--- ------------------------------------------------------------
--- 5) Extend job_honesty table to store plausibility penalty
--- ------------------------------------------------------------
-
 ALTER TABLE job_honesty
 ADD COLUMN IF NOT EXISTS plausibility_penalty int;
 
--- ------------------------------------------------------------
--- 6) Patch refresh_job_honesty() to incorporate plausibility
---     (recreate function with extra column + flags)
--- ------------------------------------------------------------
-
--- Recreate refresh_job_honesty with plausibility integrated:
--- NOTE: this assumes your existing refresh_job_honesty exists. We replace it.
 CREATE OR REPLACE FUNCTION refresh_job_honesty(run_id_in text DEFAULT NULL, months_back int DEFAULT 6)
 RETURNS TABLE(scored_count int)
 LANGUAGE plpgsql
