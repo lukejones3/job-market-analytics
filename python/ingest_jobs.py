@@ -732,6 +732,28 @@ def _stage_discovered_company(ats_source: str, token: str) -> None:
         pass  # never block ingestion
 
 
+
+def _infer_exp_from_title(title: str):
+    """Infer experience level from title alone. Used for Adzuna records."""
+    if not title:
+        return None
+    t = title.lower()
+    if any(x in t for x in ["intern", "internship", "new grad", "new graduate",
+                              "entry level", "entry-level", "junior", " jr "]):
+        return "entry"
+    if "associate" in t:
+        return "associate"
+    if " iii" in t or t.endswith(" iii"):
+        return "senior"
+    if " ii" in t or t.endswith(" ii"):
+        return "mid"
+    if any(x in t for x in ["senior", " sr ", "sr.", "lead", "principal",
+                              "staff", "manager", "director", "head of",
+                              "vp ", "vice president"]):
+        return "senior"
+    return None
+
+
 def fetch_greenhouse(company_name: str, board_token: str) -> List[RawJob]:
     """
     Pull all jobs from a Greenhouse board.
@@ -1055,6 +1077,7 @@ def ingest_job(cur, job: RawJob) -> bool:
 
     # data_tier: 1=full signal (GH/Lever/manual), 2=market coverage (Adzuna)
     data_tier = 2 if job.source == "adzuna" else 1
+    adzuna_exp_level = _infer_exp_from_title(job.title) if job.source == "adzuna" else None
 
     cur.execute(
         """
@@ -1076,9 +1099,10 @@ def ingest_job(cur, job: RawJob) -> bool:
             ingestion_source,
             source_id,
             description_quality,
-            data_tier
+            data_tier,
+            experience_level
         ) VALUES (
-            %s, %s, %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         ON CONFLICT (job_id) DO NOTHING
         """,
@@ -1099,6 +1123,7 @@ def ingest_job(cur, job: RawJob) -> bool:
             job.source_id,
             desc_quality,
             data_tier,
+            adzuna_exp_level,
         )
     )
 

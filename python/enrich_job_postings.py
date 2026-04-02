@@ -2,7 +2,6 @@
 import hashlib
 import os
 import re
-import string
 import argparse
 from pathlib import Path
 from decimal import Decimal
@@ -724,7 +723,6 @@ def _extract_years_experience_requirements(desc: str) -> Optional[int]:
 
     return min(candidates) if candidates else None
 
-    t = normalize_for_matching((title_hint or '') + ' ' + (desc or ''))
 def infer_experience_level(desc: str, title_hint: Optional[str] = None) -> Optional[str]:
     """
     Levels: entry, associate, mid, senior
@@ -739,10 +737,15 @@ def infer_experience_level(desc: str, title_hint: Optional[str] = None) -> Optio
         tt = normalize_for_matching(title_hint)
         if re.search(r"\b(intern|internship)\b", tt):
             return "entry"
-        if re.search(r"\b(entry[- ]level|junior|jr\.?)\b", tt):
+        if re.search(r"\b(entry[- ]level|junior|jr\.?|new\s*grad|new\s*graduate)\b", tt):
             return "entry"
         if re.search(r"\b(associate)\b", tt):
             return "associate"
+        # Roman numeral suffixes — II=mid, III+=senior
+        if re.search(r"\biii\b", tt):
+            return "senior"
+        if re.search(r"\bii\b", tt):
+            return "mid"
         if re.search(r"\b(senior|sr\.?|lead|principal|staff)\b", tt):
             return "senior"
         if re.search(r"\b(manager|director|head of|vp|vice president)\b", tt):
@@ -945,41 +948,6 @@ def build_skill_patterns_anywhere(canon_to_skill_id: Dict[str, str],
 
     return list(dedup.values())
 
-def build_skill_patterns(skill_aliases: Dict[str, List[str]]) -> List[Tuple[re.Pattern, str, str]]:
-    """
-    Returns list of (pattern, canonical, alias_string) sorted longest alias first.
-    AI is handled specially (standalone token only).
-    """
-    compiled: List[Tuple[re.Pattern, str, str]] = []
-
-    for canon, aliases in skill_aliases.items():
-        if _canon_norm(canon) in {normalize_for_matching(x) for x in BANNED_CANON_SKILLS}:
-            continue
-
-        for a in aliases:
-            a = clean_text(a)
-            if not a:
-                continue
-
-            if canon == "AI":
-                # standalone token, not part of words (avoid "ai-assisted", "paid", etc.)
-                pat = re.compile(r"(?<![a-z0-9])ai(?![a-z0-9])", flags=re.IGNORECASE)
-                compiled.append((pat, canon, "ai"))
-                continue
-
-            esc = re.escape(a)
-            esc = esc.replace(r"\ ", r"\s+")
-            esc = esc.replace(r"\/", r"\s*/\s*")
-            esc = esc.replace(r"\-", r"\s*-\s*")
-            # word boundaries for alphanum
-            prefix = r"\b" if re.match(r"^[A-Za-z0-9]", a) else ""
-            suffix = r"\b" if re.match(r".*[A-Za-z0-9]$", a) else ""
-            pat = re.compile(prefix + esc + suffix, flags=re.IGNORECASE)
-            compiled.append((pat, canon, a.lower()))
-
-    compiled.sort(key=lambda x: len(x[2]), reverse=True)
-    return compiled
-
 def infer_priority_from_context(line: str, current_section: Optional[str]) -> str:
     """
     Priority rules:
@@ -1179,16 +1147,11 @@ def get_conn():
         password=os.getenv("PGPASSWORD"),
     )
 
-def md5_id(prefix: str, raw: str, n: int = 10) -> str:
-    import hashlib
-    h = hashlib.md5((raw or "").encode("utf-8")).hexdigest()[:n]
-    return f"{prefix}{h}"
-
 def upsert_company(cur, company_name: str, company_type: Optional[str] = None) -> Optional[str]:
     company_name = clean_text(company_name)
     if not company_name:
         return None
-    company_id = md5_id("C", company_name)
+    company_id = _md5_id("C", company_name)
 
     # only write company_type if it's valid
     ct = (company_type or "").strip().lower() or None
@@ -1223,7 +1186,7 @@ def upsert_role(cur, role_name: str, role_archetype: Optional[str] = None) -> Op
     role_name = clean_text(role_name)
     if not role_name:
         return None
-    role_id = md5_id("R", role_name)
+    role_id = _md5_id("R", role_name)
 
     ra = (role_archetype or "").strip().lower() or None
     if ra and 'ROLE_ARCHETYPES' in globals() and ra not in ROLE_ARCHETYPES:
@@ -1259,7 +1222,7 @@ def upsert_location(cur, location: str, state: Optional[str]) -> Optional[str]:
         st = None
     if not location and not st:
         return None
-    location_id = md5_id("L", f"{location}|{st or ''}")
+    location_id = _md5_id("L", f"{location}|{st or ''}")
 
     cur.execute(
         """
@@ -1289,7 +1252,7 @@ def ensure_skill_ids(cur) -> Dict[str, str]:
     for canon in sorted(ALLOWED_CANON_SKILLS):
         if canon in canon_to_id:
             continue
-        sid = md5_id("S", canon)
+        sid = _md5_id("S", canon)
         cur.execute(
             """
             INSERT INTO skills (skill_id, skill_name)
@@ -1337,7 +1300,7 @@ def insert_job_skills(cur, job_id: str,
         inserted += 1
 
     return inserted
-def parse_dimensions(desc: str, cur) -> ParsedJob:
+def parse_dimensions(desc: str) -> ParsedJob:
     dims = extract_title_company_location_from_description(desc or "")
 
     pj = ParsedJob()
@@ -1383,14 +1346,21 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                    jp.company_id, jp.role_id, jp.location_id,
                    jp.workplace_type, jp.employment_type, jp.experience_level,
                    jp.salary_min, jp.salary_max, jp.salary_period,
+                   COALESCE(jp.data_tier, 1) AS data_tier,
                    EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id) AS has_skills
             FROM job_postings jp
             WHERE jp.description_text IS NOT NULL AND length(jp.description_text) > 0
               AND (
+                -- Tier 1: full NLP enrichment needed
+                (COALESCE(jp.data_tier,1) = 1 AND (
                    jp.company_id IS NULL OR jp.role_id IS NULL OR jp.location_id IS NULL
                 OR jp.workplace_type IS NULL OR jp.employment_type IS NULL OR jp.experience_level IS NULL
                 OR jp.salary_min IS NULL OR jp.salary_max IS NULL OR jp.salary_period IS NULL
                 OR NOT EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id)
+                ))
+                OR
+                -- Tier 2: only experience_level inference needed
+                (COALESCE(jp.data_tier,1) = 2 AND jp.experience_level IS NULL)
               )
             ORDER BY jp.ingested_at DESC
             LIMIT %s
@@ -1423,7 +1393,7 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
         job_id = job["job_id"]
         desc = job["description_text"] or ""
 
-        pj = parse_dimensions(desc, cur)
+        pj = parse_dimensions(desc)
 
         fields = []
         params = []
@@ -1462,9 +1432,9 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
         if pj.salary_period is not None and job["salary_period"] is None:
             fields.append("salary_period=%s"); params.append(pj.salary_period)
 
-        # Skills
+        # Skills — skip for short descriptions (Adzuna partial records)
         ins = 0
-        should_scan_skills = rescan_skills or (not job["has_skills"])
+        should_scan_skills = (rescan_skills or not job["has_skills"]) and len(desc) > 500
         if should_scan_skills:
             canon_to_priority = extract_skills_allowlist(desc, patterns)
             ins = insert_job_skills(
