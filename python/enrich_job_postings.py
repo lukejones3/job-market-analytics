@@ -415,6 +415,8 @@ def _infer_period_from_context(text: str, start: int, end: int) -> Optional[str]
         return "hour"
     if re.search(r"\b(per\s*month|/mo|monthly)\b", window):
         return "month"
+    if re.search(r"\busd\b", window):
+        return "year"
     return None
 
 def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal], Optional[str]]:
@@ -481,7 +483,7 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
 
         # (B) “Salary range $81,600 - $102,000 per year”
         m = re.search(
-            rf"(salary\s+range|pay\s+range|base\s+pay\s+range|compensation)\D{{0,40}}(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)\s*{dash}\s*(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)",
+            rf"(salary\s+range|pay\s+range|pay\s+band|base\s+pay\s+range|compensation\s+range|compensation)\D{{0,40}}(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)\s*{dash}\s*(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)",
             tline,
             flags=re.IGNORECASE,
         )
@@ -1427,21 +1429,21 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
         params = []
 
         # Company
-        if pj.company:
+        if pj.company and job["company_id"] is None:
             cid = upsert_company(cur, pj.company, pj.company_type)
-            if cid and cid != job["company_id"]:
+            if cid:
                 fields.append("company_id=%s"); params.append(cid)
 
         # Role
-        if pj.title:
+        if pj.title and job["role_id"] is None:
             rid = upsert_role(cur, pj.title, pj.role_archetype)
-            if rid and rid != job["role_id"]:
+            if rid:
                 fields.append("role_id=%s"); params.append(rid)
 
         # Location
-        if pj.location or pj.state:
+        if (pj.location or pj.state) and job["location_id"] is None:
             lid = upsert_location(cur, pj.location or "", pj.state)
-            if lid and lid != job["location_id"]:
+            if lid:
                 fields.append("location_id=%s"); params.append(lid)
 
         # Workplace + employment + experience

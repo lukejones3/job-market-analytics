@@ -219,3 +219,5 @@ dbt/**/logs/
 *.bak
 *.bak_*
 *.BACKUP*
+logs/
+logs/

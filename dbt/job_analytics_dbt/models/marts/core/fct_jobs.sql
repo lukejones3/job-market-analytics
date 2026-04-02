@@ -3,6 +3,8 @@ select
   jp.ingested_at,
   jp.date_found,
   jp.source,
+  jp.ingestion_source,
+  jp.data_tier,
 
   jp.experience_level,
   jp.workplace_type,

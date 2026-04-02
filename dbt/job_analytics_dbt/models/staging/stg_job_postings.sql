@@ -14,6 +14,8 @@ typed as (
     location_id,
     experience_level,
     workplace_type,
+    ingestion_source,
+    coalesce(data_tier, case when ingestion_source = 'adzuna' then 2 else 1 end) as data_tier,
 
     -- legacy/raw salary fields (what you currently DO have)
     salary_min,
@@ -66,6 +68,8 @@ final as (
     location_id,
     experience_level,
     workplace_type,
+    ingestion_source,
+    data_tier,
 
     -- keep original fields for traceability
     salary_min as salary_min_original,

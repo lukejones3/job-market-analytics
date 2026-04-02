@@ -3,8 +3,11 @@ with jobs as (
     job_id,
     experience_level,
     workplace_type,
-    salary_max_annual
+    salary_max_annual,
+    data_tier,
+    ingestion_source
   from {{ ref('fct_jobs') }}
+  where data_tier = 1  -- Tier 1 only: full descriptions with skill extraction
 ),
 skill_jobs as (
   select
