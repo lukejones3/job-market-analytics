@@ -1223,6 +1223,9 @@ def log_pipeline_run(cur, run_id: str, source: str, inserted: int,
         _add("records_inserted",   inserted)
         _add("records_skipped",    skipped)
         _add("records_failed",     errors)
+        _add("jobs_inserted",      inserted)
+        _add("jobs_skipped",       skipped)
+        _add("jobs_errored",       errors)
         _add("started_at",         "now()")
         _add("finished_at",        "now()")
         _add("created_at",         "now()")
@@ -1250,7 +1253,10 @@ def log_pipeline_run(cur, run_id: str, source: str, inserted: int,
 
     except Exception as e:
         log.warning(f"Could not write to pipeline_runs: {e}")
-        cur.connection.rollback()
+        try:
+            cur.connection.rollback()
+        except Exception:
+            pass
 
 # ============================================================
 # MAIN PIPELINE
