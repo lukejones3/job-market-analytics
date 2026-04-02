@@ -919,7 +919,7 @@ def fetch_all_lever() -> List[RawJob]:
 # SOURCE: ADZUNA
 # ============================================================
 
-def fetch_adzuna(search_term: str, page: int = 1) -> List[RawJob]:
+def fetch_adzuna(search_term: str, page: int = 1, discover_mode: bool = False) -> List[RawJob]:
     """
     Pull jobs from Adzuna API.
     Returns partial descriptions — used as discovery layer for salary/location signals.
@@ -965,9 +965,11 @@ def fetch_adzuna(search_term: str, page: int = 1) -> List[RawJob]:
             continue
 
         # Discovery — follow redirect_url to find ATS source
-        redirect_url = j.get("redirect_url", "")
-        if redirect_url:
-            discover_from_redirect_url(redirect_url)
+        # Only runs during nightly cron (--discover flag), not manual runs
+        if discover_mode:
+            redirect_url = j.get("redirect_url", "")
+            if redirect_url:
+                discover_from_redirect_url(redirect_url)
 
         # Salary
         salary_min    = j.get("salary_min")
@@ -995,12 +997,12 @@ def fetch_adzuna(search_term: str, page: int = 1) -> List[RawJob]:
     return jobs
 
 
-def fetch_all_adzuna() -> List[RawJob]:
+def fetch_all_adzuna(discover_mode: bool = False) -> List[RawJob]:
     all_jobs = []
     for role in TARGET_ROLES:
         log.info(f"  Adzuna searching: '{role}'")
         for page in range(1, ADZUNA_MAX_PAGES + 1):
-            jobs = fetch_adzuna(role, page=page)
+            jobs = fetch_adzuna(role, page=page, discover_mode=discover_mode)
             if not jobs:
                 break
             all_jobs.extend(jobs)
@@ -1254,7 +1256,7 @@ def log_pipeline_run(cur, run_id: str, source: str, inserted: int,
 # MAIN PIPELINE
 # ============================================================
 
-def run_ingestion(source: str, apply: bool) -> None:
+def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None:
     run_id = f"ingest_{source}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     log.info(f"Starting ingestion run: {run_id} | apply={apply}")
 
@@ -1271,7 +1273,7 @@ def run_ingestion(source: str, apply: bool) -> None:
 
     if source in ("adzuna", "all"):
         log.info("Fetching from Adzuna...")
-        all_jobs.extend(fetch_all_adzuna())
+        all_jobs.extend(fetch_all_adzuna(discover_mode=discover_mode))
 
     log.info(f"Total fetched across all sources: {len(all_jobs)}")
 
@@ -1368,9 +1370,10 @@ def main():
         action="store_true",
         help="Write to DB. Without this flag, runs as dry-run."
     )
+    ap.add_argument("--discover", action="store_true", help="Follow Adzuna redirects to discover new companies (slow)")
     args = ap.parse_args()
 
-    run_ingestion(source=args.source, apply=args.apply)
+    run_ingestion(source=args.source, apply=args.apply, discover_mode=args.discover)
 
 
 if __name__ == "__main__":
