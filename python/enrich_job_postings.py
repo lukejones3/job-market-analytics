@@ -265,6 +265,12 @@ ALLOWED_CANON_SKILLS = {
     "SSRS",
     "SSAS",
     "MicroStrategy",
+    "Large Language Models",
+    "Marketo",
+    "Data Modeling",
+    "Statistical Modeling",
+    "Agentic Systems",
+    "AWS Bedrock",
 }
 
 # Canonical skills that are too generic/noisy for your goal — banned even if present in data.
@@ -373,6 +379,12 @@ FALLBACK_ALIASES: Dict[str, List[str]] = {
     "Regression": ["regression", "linear regression", "logistic regression"],
     "Power Automate": ["power automate", "ms power automate"],
     "MicroStrategy": ["microstrategy", "mstr"],
+    "Large Language Models": ["large language models", "llm", "llms", "large language model"],
+    "Marketo": ["marketo"],
+    "Data Modeling": ["data modeling", "data modelling", "dimensional modeling", "dimensional modelling"],
+    "Statistical Modeling": ["statistical modeling", "statistical modelling", "statistical models"],
+    "Agentic Systems": ["agentic systems", "agentic ai", "ai agents", "autonomous agents"],
+    "AWS Bedrock": ["aws bedrock", "bedrock", "amazon bedrock"],
 }
 
 def load_existing_skill_ids(cur) -> Dict[str, str]:
