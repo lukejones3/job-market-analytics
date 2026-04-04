@@ -19,6 +19,7 @@ with jobs as (
     on jp.job_id = fj.job_id
   where fj.salary_max_annual is not null
     and fj.salary_max_annual between 30000 and 500000
+    and COALESCE(fj.data_quality, 'ok') = 'ok'
 ),
 
 with_location as (

@@ -5,6 +5,7 @@ select
   jp.source,
   jp.ingestion_source,
   jp.data_tier,
+  jp.data_quality,
 
   jp.experience_level,
   jp.workplace_type,

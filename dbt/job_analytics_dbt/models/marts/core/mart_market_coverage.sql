@@ -11,6 +11,7 @@ with jobs as (
     fj.experience_level,
     fj.workplace_type,
     fj.salary_max_annual,
+    fj.data_quality,
     date_trunc('month', fj.ingested_at) as month_start
   from {{ ref('fct_jobs') }} fj
 ),
@@ -30,6 +31,7 @@ aggregated as (
       / nullif(count(distinct job_id), 0) * 100
     , 1)                                                               as salary_disclosure_pct
   from jobs
+  where COALESCE(data_quality, 'ok') = 'ok'
   group by 1,2,3,4,5
 )
 

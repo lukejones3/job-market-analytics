@@ -5,9 +5,11 @@ with jobs as (
     workplace_type,
     salary_max_annual,
     data_tier,
-    ingestion_source
+    ingestion_source,
+    data_quality
   from {{ ref('fct_jobs') }}
   where data_tier = 1  -- Tier 1 only: full descriptions with skill extraction
+    and COALESCE(data_quality, 'ok') = 'ok'
 ),
 skill_jobs as (
   select
