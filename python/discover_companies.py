@@ -102,7 +102,13 @@ TARGET_ROLE_PHRASES = [
     r"head of analytics", r"head of data",
     r"data specialist", r"analytics specialist",
     r"analytics consultant", r"data product manager",
-    r"ai analyst",
+    r"ai analyst", r"quantitative developer",
+    r"staff data engineer", r"staff analytics engineer",
+    r"staff machine learning engineer",
+    r"machine learning scientist", r"applied researcher",
+    r"ai researcher", r"founding data scientist",
+    r"data science lead", r"growth data analyst",
+    r"decision analyst", r"ai/ml engineer",
 ]
 
 ROLE_BLOCKLIST = [
