@@ -9,6 +9,7 @@ with jobs as (
     data_quality
   from {{ ref('fct_jobs') }}
   where data_tier = 1  -- Tier 1 only: full descriptions with skill extraction
+    and COALESCE(data_quality, 'ok') = 'ok'  -- Tier 1 only: full descriptions with skill extraction
     and COALESCE(data_quality, 'ok') = 'ok'
 ),
 skill_jobs as (

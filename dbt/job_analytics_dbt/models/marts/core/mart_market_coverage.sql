@@ -31,7 +31,8 @@ aggregated as (
       / nullif(count(distinct job_id), 0) * 100
     , 1)                                                               as salary_disclosure_pct
   from jobs
-  where COALESCE(data_quality, 'ok') = 'ok'
+  where data_tier IN (1,2)
+    and COALESCE(data_quality, 'ok') = 'ok'
   group by 1,2,3,4,5
 )
 
