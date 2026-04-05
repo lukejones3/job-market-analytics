@@ -1,158 +1,128 @@
 # Job Market Analytics
 
-This project treats the job market as a structured dataset and builds a reproducible pipeline to ingest, normalize, enrich, and analyze real job postings across analytics, business intelligence, and operations-adjacent roles.
+An independent data pipeline and market intelligence platform tracking real-time hiring trends across data, analytics, and machine learning roles.
 
-Rather than treating job search as a manual or anecdotal process, this system models labor demand as queryable data and tracks trends across skills, experience levels, compensation ranges, and role requirements.
+The system ingests job postings nightly from Greenhouse and Lever ATS APIs across 165+ actively hiring companies, enriches each posting through a multi-pass NLP pipeline, and produces structured labor market intelligence covering skill demand, salary signals, and job posting quality.
 
-The long-term vision is to transform raw job postings into structured, decision-ready labor market intelligence.
-
----
-
-## Why I Built This
-
-Most job search tools are optimized for browsing, not analysis.
-
-I wanted to answer questions like:
-
-- Which skills consistently correlate with higher compensation  
-- How requirements change across entry → associate → mid → senior roles  
-- How frequently core analytics tools (SQL, Excel, BI tools, Python) appear in real postings  
-- How labor demand signals evolve as the dataset grows  
-
-This project started as a personal job tracking system and evolved into a structured data pipeline designed to scale ingestion, improve reliability, and enable repeatable market analysis.
+**Q1 2026 Data & Analytics Job Market Report** — published April 2026. Based on 950 fully enriched job postings across 159 companies.
 
 ---
 
-## System Philosophy
+## What This Builds
 
-This project is intentionally designed to be:
+A longitudinal dataset of data and analytics job postings with:
 
-- **Platform-safe** — No scraping or automated site extraction  
-- **Deterministic** — Manual capture, automated downstream processing  
-- **Auditable** — Pipeline logging and error tracking built in  
-- **Extensible** — New enrichment logic and analytics layers can be added without breaking ingestion  
+- Skill extraction against a curated allowlist of 90+ canonical skills with alias matching
+- Salary parsing from structured and unstructured text fields
+- Experience level inference from title patterns and years-of-experience language
+- A proprietary **Honesty Score** (0–100) measuring salary transparency, scope realism, and skill-to-level plausibility for each posting
+- Company-level transparency benchmarking across salary disclosure rates and requirement realism
 
 ---
 
-## Architecture Overview
+## Architecture
+```
+Greenhouse API ──┐
+Lever API ───────┼──▶ ingest_jobs.py ──▶ PostgreSQL ──▶ enrich_job_postings.py ──▶ dbt ──▶ Power BI
+Adzuna API ──────┘                                            │
+                                                              ▼
+                                                    refresh_job_honesty()
+```
 
-The system has evolved from manual job tracking into a pipeline-style ingestion and enrichment architecture.
+**Ingestion** — `python/ingest_jobs.py` queries all tracked company job boards nightly, deduplicates via content hash, and inserts net-new postings. Supports Greenhouse, Lever, and Adzuna sources.
 
-### Current Flow
+**Enrichment** — `python/enrich_job_postings.py` runs a two-pass NLP pipeline extracting skills, parsing salary, inferring experience level, and classifying workplace type.
 
-Manual Safe Capture
-→ Batch Dump Ingestion
-→ PostgreSQL Storage
-→ Python Enrichment + Parsing
-→ Skill Extraction + Classification
-→ Pipeline Logging + Error Tracking
-→ BI Visualization + Insight Generation
+**Honesty Scoring** — `sql/job_honesty.sql` defines a PostgreSQL function scoring each posting across five penalty dimensions: salary transparency, scope realism, skill-to-level plausibility, internal consistency, and EEO boilerplate dominance.
+
+**Transformation** — dbt models in `dbt/job_analytics_dbt/` produce staging views, fact tables, dimension tables, and analytics marts.
+
+**Infrastructure** — DigitalOcean Ubuntu server with nightly cron pipeline, automated daily backups, and 7-day retention.
+
 ---
 
 ## Data Model
 
-The dataset is built using normalized relational tables to maintain referential integrity and enable clean downstream analytics.
+**Core tables:** `job_postings`, `companies`, `roles`, `skills`, `job_skills`, `locations`
 
-### Core Domain Tables
+**Pipeline observability:** `pipeline_runs`, `pipeline_errors`
 
-- `job_postings`
-- `companies`
-- `roles`
-- `skills`
-- `job_skills` (bridge table)
+**Intelligence layer:** `job_honesty`, `discovered_companies`, `skill_candidates`
 
-### Pipeline Observability Tables
-
-- `pipeline_runs`  
-  Tracks ingestion/enrichment execution metrics and outcomes  
-
-- `pipeline_errors`  
-  Captures stage-level failures for debugging and reliability monitoring  
+**dbt marts:** `mart_skill_demand`, `mart_salary_benchmarks`, `mart_market_coverage`
 
 ---
 
-## Ingestion Strategy (Intentional Design Decision)
+## Data Tiers
 
-I intentionally avoided scraping or automated site extraction.
-
-Instead:
-
-- Job descriptions are manually captured (copy-safe, platform-safe)  
-- Batch ingestion scripts parse structured dump files  
-- Automation happens downstream (cleaning, enrichment, classification)  
-
-This ensures:
-
-- Platform compliance  
-- Low operational risk  
-- High data quality control  
-- Easy debugging and reproducibility  
+| Tier | Source | Description | Used For |
+|------|--------|-------------|----------|
+| 1 | Greenhouse, Lever | Full descriptions, skill extraction, honesty scoring | All analytics |
+| 2 | Adzuna | Structured salary, market breadth | Salary benchmarks, market coverage |
+| 3 | Manual captures | LinkedIn snapshots, no posted date | Reference only |
 
 ---
 
-## Enrichment & Automation Layer
+## Key Findings (Q1 2026)
 
-Python enrichment scripts automatically:
-
-- Extract company, role, and location signals  
-- Infer experience level from text patterns  
-- Classify skill priority (required vs preferred)  
-- Parse salary ranges while filtering false positives (ex: “1–2 years” ≠ salary)  
-- Populate bridge tables linking jobs → skills  
-
-The enrichment layer is designed to be modular and continuously improved as new parsing edge cases are discovered.
-
----
-
-## Pipeline Reliability & Observability
-
-The system includes production-style pipeline safety features:
-
-- Run-level logging (`pipeline_runs`)  
-- Stage-level error capture (`pipeline_errors`)  
-- Batch ingestion with duplicate protection  
-- Delimiter-based ingestion format for safe manual capture  
-- Scheduled database backups for disaster recovery  
+- Python appears in 64.8% of tech company data job postings — ahead of SQL at 55.6%
+- Machine Learning skills carry a +10.2% salary premium vs dataset baseline
+- 48.3% of Tier 1 postings disclose no salary information
+- Large Language Models appear in 23.7% of postings with a +13.4% salary premium
+- Power BI correlates with a -28.4% salary penalty vs baseline
+- Airbnb and Waymo hire 90% and 85% senior respectively — almost no junior pipeline
 
 ---
 
 ## Tech Stack
 
-- Python  
-- PostgreSQL  
-- SQL  
-- Power BI  
-- Git / GitHub  
+- **Python** — ingestion, enrichment, discovery scripts
+- **PostgreSQL 16** — primary data store (DigitalOcean, Ubuntu 24.04)
+- **dbt** — transformation layer (13 models)
+- **SQL** — honesty scoring functions, analytics queries
+- **Power BI** — reporting and visualization
+- **Git / GitHub** — version control
 
 ---
 
-## Roadmap
-
-### Near Term
-
-- Monthly skill demand snapshot tables  
-- Public Dataset v1 release  
-- First production-style dashboard (skill demand + salary + experience segmentation)  
-
-### Mid Term
-
-- Skill demand trend modeling over time  
-- Compensation band movement tracking  
-- Demand shift detection by role category  
-
-### Long Term Vision
-
-Transform this dataset into a continuously updated labor market intelligence layer capable of supporting:
-
-- Candidate decision tooling  
-- Workforce planning insights  
-- Skills-to-compensation benchmarking  
-- Market demand forecasting  
+## Nightly Pipeline (UTC)
+```
+06:00  pg_dump backup + 7-day retention cleanup
+07:00  ingest_jobs.py --apply --discover
+07:30  refresh_job_honesty()
+08:00  discover_companies.py --apply --source refresh
+```
 
 ---
 
-## Status
+## Repository Structure
+```
+python/
+  ingest_jobs.py              # Multi-source job ingestion
+  enrich_job_postings.py      # NLP enrichment pipeline
+  discover_companies.py       # Company discovery and refresh
+  discover_skills.py          # Skill candidate discovery via co-occurrence
+  morning_check.py            # Daily pipeline health check
 
-Active build phase.
+sql/
+  job_honesty.sql             # Honesty scoring function and schema
+  skill_intel.sql             # Skill intelligence queries
 
-The dataset and automation pipeline are expanding weekly as ingestion volume increases and new reliability and observability features are added.
+dbt/job_analytics_dbt/
+  models/staging/             # Source-aligned staging views
+  models/marts/core/          # Fact tables, dimensions, analytics marts
+```
+
+---
+
+## License
+
+Copyright (c) 2026 Luke Jones. All rights reserved.
+
+This source code is made available for viewing and educational purposes only. Commercial use, redistribution, or derivative works require explicit written permission from the copyright holder.
+
+Contact: jones31luke@gmail.com
+
+---
+
+*Nightly ingestion active. Dataset grows automatically. Q2 2026 report forthcoming.*
