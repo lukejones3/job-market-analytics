@@ -12,3 +12,4 @@ sources:
       - name: locations
       - name: pipeline_runs
       - name: pipeline_errors
+      - name: discovered_companies
