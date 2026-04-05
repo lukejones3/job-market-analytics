@@ -882,6 +882,23 @@ def fetch_lever(company_name: str, company_slug: str) -> List[RawJob]:
 
         description = "\n\n".join(p for p in desc_parts if p).strip()
 
+        # Salary from Lever structured salaryRange field
+        salary_range = j.get("salaryRange") or {}
+        lever_salary_min = None
+        lever_salary_max = None
+        lever_salary_period = None
+        if salary_range:
+            currency = salary_range.get("currency", "USD")
+            interval = salary_range.get("interval", "")
+            if currency == "USD" and "year" in interval:
+                raw_min = salary_range.get("min")
+                raw_max = salary_range.get("max")
+                if raw_min and float(raw_min) > 1000:
+                    lever_salary_min = float(raw_min)
+                if raw_max and float(raw_max) > 1000:
+                    lever_salary_max = float(raw_max)
+                lever_salary_period = "year"
+
         jobs.append(RawJob(
             source="lever",
             source_id=j.get("id", ""),
@@ -895,6 +912,9 @@ def fetch_lever(company_name: str, company_slug: str) -> List[RawJob]:
             posted_date=datetime.fromtimestamp(
                 j["createdAt"] / 1000, tz=timezone.utc
             ).strftime("%Y-%m-%d") if j.get("createdAt") else None,
+            salary_min=lever_salary_min,
+            salary_max=lever_salary_max,
+            salary_period=lever_salary_period,
             metadata={"slug": company_slug, "team": categories.get("team", "")},
         ))
 
