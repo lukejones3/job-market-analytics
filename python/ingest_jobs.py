@@ -1417,6 +1417,22 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
             seen.add(key)
             deduped.append(job)
 
+    # Secondary dedup for Ashby — same company+title can have multiple IDs
+    # (Ashby posts same role for different locations/hiring managers)
+    ashby_seen = set()
+    deduped_final = []
+    for job in deduped:
+        if job.source == "ashby":
+            ashby_key = (job.company.lower().strip(), job.title.lower().strip())
+            if ashby_key in ashby_seen:
+                continue
+            ashby_seen.add(ashby_key)
+        deduped_final.append(job)
+
+    if len(deduped_final) < len(deduped):
+        log.info(f"Ashby title dedup removed {len(deduped) - len(deduped_final)} duplicate postings")
+    deduped = deduped_final
+
     log.info(f"After batch dedup: {len(deduped)} jobs")
 
     if not apply:
