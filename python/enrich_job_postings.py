@@ -577,7 +577,11 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
             # sanity
             if p1n == "year" and min(v1, v2) < Decimal("15000"):
                 continue
+            if p1n == "year" and max(v1, v2) > Decimal("1000000"):
+                continue
             if p1n == "hour" and min(v1, v2) < Decimal("7"):
+                continue
+            if p1n == "hour" and max(v1, v2) > Decimal("500"):
                 continue
 
             return min(v1, v2), max(v1, v2), p1n
@@ -609,7 +613,11 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
             lo, hi = min(smin, smax), max(smin, smax)
             if period == "year" and lo < Decimal("15000"):
                 continue
+            if period == "year" and hi > Decimal("1000000"):
+                continue
             if period == "hour" and lo < Decimal("7"):
+                continue
+            if period == "hour" and hi > Decimal("500"):
                 continue
 
             return lo, hi, period
