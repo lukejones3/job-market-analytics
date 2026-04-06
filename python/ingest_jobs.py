@@ -1370,6 +1370,26 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
     conn.commit()
     log.info(f"Ingestion complete — inserted: {inserted} | skipped: {skipped} | errors: {errors}")
 
+    # ---- Annualize Lever salary fields (salary_min/max -> salary_min/max_annual) ----
+    try:
+        cur.execute("""
+            UPDATE job_postings
+            SET salary_min_annual = salary_min,
+                salary_max_annual = salary_max
+            WHERE ingestion_source = 'lever'
+            AND salary_min IS NOT NULL
+            AND salary_max IS NOT NULL
+            AND salary_period = 'year'
+            AND salary_min_annual IS NULL
+        """)
+        annualized = cur.rowcount
+        if annualized > 0:
+            log.info(f"Annualized salary for {annualized} Lever records")
+        conn.commit()
+    except Exception as e:
+        log.warning(f"Lever salary annualization failed: {e}")
+        conn.rollback()
+
     # ---- Pipeline logging in a SEPARATE transaction so it can never roll back job data ----
     try:
         log_pipeline_run(cur, run_id, source, inserted, skipped, errors)
