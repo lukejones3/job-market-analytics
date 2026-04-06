@@ -929,7 +929,7 @@ def fetch_ashby(company_name: str, company_slug: str) -> List[RawJob]:
     Docs: https://developers.ashbyhq.com/docs/job-postings-api
     """
     url = f"https://api.ashbyhq.com/posting-api/job-board/{company_slug}"
-    data = _get(url)
+    data = _get(url, timeout=20)
     _throttle()
 
     if not data or not isinstance(data.get("jobs"), list):
@@ -942,7 +942,7 @@ def fetch_ashby(company_name: str, company_slug: str) -> List[RawJob]:
             continue
 
         # Location
-        address = j.get("address", {}).get("postalAddress", {})
+        address = (j.get("address") or {}).get("postalAddress", {})
         location = _clean(
             j.get("location", "") or
             address.get("addressLocality", "") or ""
