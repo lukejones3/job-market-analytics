@@ -922,6 +922,99 @@ def fetch_lever(company_name: str, company_slug: str) -> List[RawJob]:
     return jobs
 
 
+def fetch_ashby(company_name: str, company_slug: str) -> List[RawJob]:
+    """
+    Pull all published jobs from an Ashby job board.
+    No auth required. Full descriptions returned.
+    Docs: https://developers.ashbyhq.com/docs/job-postings-api
+    """
+    url = f"https://api.ashbyhq.com/posting-api/job-board/{company_slug}"
+    data = _get(url)
+    _throttle()
+
+    if not data or not isinstance(data.get("jobs"), list):
+        return []
+
+    jobs = []
+    for j in data["jobs"]:
+        title = _clean(j.get("title", ""))
+        if not title or not _is_target_role(title):
+            continue
+
+        # Location
+        address = j.get("address", {}).get("postalAddress", {})
+        location = _clean(
+            j.get("location", "") or
+            address.get("addressLocality", "") or ""
+        )
+        state = address.get("addressRegion", "")
+        country = address.get("addressCountry", "")
+        if location and state:
+            location = f"{location}, {state}"
+
+        # Workplace type
+        workplace_type = None
+        wt = (j.get("workplaceType") or "").lower()
+        if j.get("isRemote") or "remote" in wt:
+            workplace_type = "remote"
+        elif "hybrid" in wt:
+            workplace_type = "hybrid"
+        elif "onsite" in wt or "on_site" in wt:
+            workplace_type = "onsite"
+
+        # US filter
+        if country and country not in ("United States", "US", ""):
+            if not workplace_type == "remote":
+                continue
+        if not _is_us_location(location, workplace_type == "remote"):
+            if country not in ("United States", "US", "") and not j.get("isRemote"):
+                continue
+
+        # Description
+        desc = j.get("descriptionPlain", "") or _strip_html(j.get("descriptionHtml", ""))
+        desc = _clean(desc) if desc else ""
+
+        # Posted date
+        posted = None
+        if j.get("publishedAt"):
+            try:
+                posted = j["publishedAt"][:10]
+            except Exception:
+                pass
+
+        jobs.append(RawJob(
+            source="ashby",
+            source_id=j.get("id", ""),
+            title=title,
+            company=company_name,
+            location=location,
+            description=desc,
+            job_url=j.get("jobUrl", "") or j.get("applyUrl", ""),
+            workplace_type=workplace_type,
+            employment_type="full-time" if j.get("employmentType") == "FullTime" else None,
+            posted_date=posted,
+            metadata={"slug": company_slug, "department": j.get("department", "")},
+        ))
+
+    log.info(f"  Ashby [{company_name}]: {len(jobs)} target roles found")
+    return jobs
+
+
+def fetch_all_ashby() -> List[RawJob]:
+    companies = load_companies_from_db("ashby")
+    if not companies:
+        return []
+    jobs = []
+    for company_name, slug in companies:
+        try:
+            fetched = fetch_ashby(company_name, slug)
+            jobs.extend(fetched)
+        except Exception as e:
+            log.warning(f"  Ashby [{company_name}] error: {e}")
+    log.info(f"Ashby total: {len(jobs)} jobs")
+    return jobs
+
+
 def fetch_all_lever() -> List[RawJob]:
     companies = load_companies_from_db("lever")
     if not companies:
@@ -1301,6 +1394,10 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
         log.info("Fetching from Lever...")
         all_jobs.extend(fetch_all_lever())
 
+    if source in ("ashby", "all"):
+        log.info("Fetching from Ashby...")
+        all_jobs.extend(fetch_all_ashby())
+
     if source in ("adzuna", "all"):
         log.info("Fetching from Adzuna...")
         all_jobs.extend(fetch_all_adzuna(discover_mode=discover_mode))
@@ -1411,7 +1508,7 @@ def main():
     ap = argparse.ArgumentParser(description="Multi-source job ingestion pipeline.")
     ap.add_argument(
         "--source",
-        choices=["greenhouse", "lever", "adzuna", "all"],
+        choices=["greenhouse", "lever", "adzuna", "ashby", "all"],
         default="all",
         help="Which source to pull from (default: all)"
     )
