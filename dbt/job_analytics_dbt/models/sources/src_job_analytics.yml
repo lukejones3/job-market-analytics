@@ -13,4 +13,5 @@ sources:
       - name: pipeline_runs
       - name: pipeline_errors
       - name: discovered_companies
+      - name: company_headcount
       # add other raw tables later as needed
