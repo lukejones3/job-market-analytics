@@ -63,12 +63,39 @@ def main():
     for row in overlaps:
         name = row["company_name"]
         sources = row["sources"]
-        # Find highest priority source
-        best = min(sources, key=lambda s: PRIORITY.get(s, 99))
+
+        # Find the best source that actually has active roles
+        # Priority: greenhouse > lever > ashby
+        # Only use a source if it has active_roles > 0
+        cur.execute("""
+            SELECT ats_source, active_roles
+            FROM discovered_companies
+            WHERE lower(company_name) = lower(%s)
+            AND ats_source IN ('greenhouse', 'lever', 'ashby')
+            AND enabled = true
+            ORDER BY active_roles DESC
+        """, (name,))
+        source_roles = {r["ats_source"]: r["active_roles"] for r in cur.fetchall()}
+
+        # Find highest priority source WITH active roles
+        best = None
+        for src in ["greenhouse", "lever", "ashby"]:
+            if src in source_roles and source_roles[src] > 0:
+                best = src
+                break
+
+        # If no source has active roles, keep highest priority anyway
+        if best is None:
+            best = min(sources, key=lambda s: PRIORITY.get(s, 99))
+
         disable = [s for s in sources if s != best]
-        print(f"  {name:<25} sources={sources} → keep={best}, disable={disable}")
-        for s in disable:
-            to_disable.append((name, s))
+        if disable:
+            roles_info = {s: source_roles.get(s, 0) for s in sources}
+            print(f"  {name:<25} roles={roles_info} → keep={best}, disable={disable}")
+            for s in disable:
+                to_disable.append((name, s))
+        else:
+            print(f"  {name:<25} → no change needed")
 
     if not to_disable:
         print("\n✅ Nothing to disable")
