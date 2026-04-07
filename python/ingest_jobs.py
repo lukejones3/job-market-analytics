@@ -1417,20 +1417,38 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
             seen.add(key)
             deduped.append(job)
 
-    # Secondary dedup for Ashby — same company+title can have multiple IDs
-    # (Ashby posts same role for different locations/hiring managers)
-    ashby_seen = set()
+    # Cross-source dedup — same company + title + location should not be inserted twice
+    # regardless of which ATS source it came from.
+    # Location logic:
+    #   - Remote roles: location normalized to "remote" (source doesn't matter)
+    #   - Onsite/hybrid: use first word of location to capture city-level dedup
+    #   - Unknown location: use "unknown"
+    def _norm_location(job) -> str:
+        if job.workplace_type == "remote":
+            return "remote"
+        loc = (job.location or "").strip().lower()
+        if not loc or loc in ("united states", "us", "usa", ""):
+            return "unknown"
+        # Take first segment before comma as city approximation
+        return loc.split(",")[0].strip()
+
+    cross_seen = set()
     deduped_final = []
     for job in deduped:
-        if job.source == "ashby":
-            ashby_key = (job.company.lower().strip(), job.title.lower().strip())
-            if ashby_key in ashby_seen:
-                continue
-            ashby_seen.add(ashby_key)
+        loc_key = _norm_location(job)
+        cross_key = (
+            job.company.lower().strip(),
+            job.title.lower().strip(),
+            loc_key
+        )
+        if cross_key in cross_seen:
+            continue
+        cross_seen.add(cross_key)
         deduped_final.append(job)
 
-    if len(deduped_final) < len(deduped):
-        log.info(f"Ashby title dedup removed {len(deduped) - len(deduped_final)} duplicate postings")
+    removed = len(deduped) - len(deduped_final)
+    if removed > 0:
+        log.info(f"Cross-source title+location dedup removed {removed} duplicate postings")
     deduped = deduped_final
 
     log.info(f"After batch dedup: {len(deduped)} jobs")
