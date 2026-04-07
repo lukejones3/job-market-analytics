@@ -588,7 +588,7 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
 
         # (B) “Salary range $81,600 - $102,000 per year”
         m = re.search(
-            rf"(salary\s+range|pay\s+range|pay\s+band|base\s+pay\s+range|compensation\s+range|compensation)\D{{0,40}}(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)\s*{dash}\s*(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)",
+            rf"(salary\s+range|pay\s+range|pay\s+band|base\s+pay\s+range|compensation\s+range|compensation|expected\s+salary\s+range|expected\s+salary|base\s+salary)\D{{0,120}}(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)\s*{dash}\s*(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)",
             tline,
             flags=re.IGNORECASE,
         )
@@ -606,6 +606,10 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
                     period = "hour"
                 elif re.search(r"\b(monthly|per\s*month|/mo)\b", low):
                     period = "month"
+                elif min(smin, smax) >= 30000:
+                    # Values in plausible annual salary range with salary/compensation label
+                    # default to year — covers "expected salary range is $X - $Y" patterns
+                    period = "year"
                 else:
                     continue
 
@@ -1438,7 +1442,7 @@ def parse_dimensions(desc: str) -> ParsedJob:
 # MAIN ENRICH LOOP
 # ============================================================
 
-def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool) -> None:
+def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool, rescan_salary: bool = False) -> None:
     conn = get_conn()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=DictCursor)
@@ -1449,7 +1453,33 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
     patterns = build_skill_patterns_anywhere(canon_to_skill_id, skill_aliases)
 
     # Select jobs
-    if only_missing:
+    if rescan_salary:
+        cur.execute(
+            """
+            SELECT jp.job_id, jp.description_text,
+                   jp.company_id, jp.role_id, jp.location_id,
+                   jp.workplace_type, jp.employment_type, jp.experience_level,
+                   jp.salary_min, jp.salary_max, jp.salary_period,
+                   COALESCE(jp.data_tier, 1) AS data_tier,
+                   EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id) AS has_skills
+            FROM job_postings jp
+            WHERE jp.description_text IS NOT NULL
+              AND length(jp.description_text) > 0
+              AND jp.data_tier = 1
+              AND jp.salary_max IS NULL
+              AND (
+                  lower(jp.description_text) LIKE '%%salary%%'
+                  OR lower(jp.description_text) LIKE '%%compensation%%'
+                  OR lower(jp.description_text) LIKE '%%pay range%%'
+                  OR jp.description_text LIKE '%%$%%'
+              )
+            ORDER BY jp.ingested_at DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        jobs = cur.fetchall()
+    elif only_missing:
         cur.execute(
             """
             SELECT jp.job_id, jp.description_text,
@@ -1492,8 +1522,7 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
             """,
             (limit,),
         )
-
-    jobs = cur.fetchall()
+        jobs = cur.fetchall()
 
     planned_updates = 0
     planned_skill_inserts = 0
@@ -1539,6 +1568,11 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
             fields.append("salary_min=%s"); params.append(pj.salary_min)
         if pj.salary_max is not None and job["salary_max"] is None:
             fields.append("salary_max=%s"); params.append(pj.salary_max)
+        # Auto-annualize when period is year
+        if pj.salary_min is not None and pj.salary_period == "year" and job["salary_min"] is None:
+            fields.append("salary_min_annual=%s"); params.append(pj.salary_min)
+        if pj.salary_max is not None and pj.salary_period == "year" and job["salary_max"] is None:
+            fields.append("salary_max_annual=%s"); params.append(pj.salary_max)
         if pj.salary_period is not None and job["salary_period"] is None:
             fields.append("salary_period=%s"); params.append(pj.salary_period)
 
@@ -1585,9 +1619,10 @@ def main():
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--only-missing", action="store_true", help="Only jobs missing dims or skills")
     ap.add_argument("--rescan-skills", action="store_true", help="Re-scan skills even if job already has skills")
+    ap.add_argument("--rescan-salary", action="store_true", help="Re-scan salary for jobs with no salary but salary text in description")
     args = ap.parse_args()
 
-    enrich_jobs(limit=args.limit, apply=args.apply, only_missing=args.only_missing, rescan_skills=args.rescan_skills)
+    enrich_jobs(limit=args.limit, apply=args.apply, only_missing=args.only_missing, rescan_skills=args.rescan_skills, rescan_salary=args.rescan_salary)
 
 
 if __name__ == "__main__":
