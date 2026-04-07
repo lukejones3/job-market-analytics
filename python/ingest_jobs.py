@@ -565,7 +565,6 @@ def load_companies_from_db(source: str) -> list:
             FROM discovered_companies
             WHERE ats_source = %s
               AND enabled = true
-              AND active_roles > 0
             ORDER BY active_roles DESC
             """,
             (source,)
@@ -1421,7 +1420,7 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
     # regardless of which ATS source it came from.
     # Location logic:
     #   - Remote roles: location normalized to "remote" (source doesn't matter)
-    #   - Onsite/hybrid: use first word of location to capture city-level dedup
+    #   - Onsite/hybrid: use first city segment for city-level dedup
     #   - Unknown location: use "unknown"
     def _norm_location(job) -> str:
         if job.workplace_type == "remote":
@@ -1429,10 +1428,35 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
         loc = (job.location or "").strip().lower()
         if not loc or loc in ("united states", "us", "usa", ""):
             return "unknown"
-        # Take first segment before comma as city approximation
         return loc.split(",")[0].strip()
 
-    cross_seen = set()
+    # Load existing jobs from DB for cross-source dedup
+    # Build a set of (company, title, loc) for all Tier 1 jobs already ingested
+    try:
+        _conn = get_conn()
+        _cur = _conn.cursor()
+        _cur.execute("""
+            SELECT lower(c.company_name), lower(r.role_name),
+                   CASE
+                       WHEN jp.workplace_type = 'remote' THEN 'remote'
+                       WHEN l.location IS NULL OR l.location = '' THEN 'unknown'
+                       ELSE lower(split_part(l.location, ',', 1))
+                   END
+            FROM job_postings jp
+            JOIN companies c ON c.company_id = jp.company_id
+            JOIN roles r ON r.role_id = jp.role_id
+            LEFT JOIN locations l ON l.location_id = jp.location_id
+            WHERE jp.data_tier = 1
+        """)
+        db_cross_keys = set(_cur.fetchall())
+        _cur.close()
+        _conn.close()
+        log.info(f"Loaded {len(db_cross_keys)} existing Tier 1 job keys for cross-source dedup")
+    except Exception as e:
+        log.warning(f"Could not load existing jobs for cross-source dedup: {e}")
+        db_cross_keys = set()
+
+    cross_seen = set(db_cross_keys)
     deduped_final = []
     for job in deduped:
         loc_key = _norm_location(job)
