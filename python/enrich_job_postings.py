@@ -1569,11 +1569,13 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
             fields.append("salary_min=%s"); params.append(pj.salary_min)
         if pj.salary_max is not None and job["salary_max"] is None:
             fields.append("salary_max=%s"); params.append(pj.salary_max)
-        # Auto-annualize when period is year
+        # Auto-annualize when period is year — with $1M cap
         if pj.salary_min is not None and pj.salary_period == "year" and job["salary_min"] is None:
-            fields.append("salary_min_annual=%s"); params.append(pj.salary_min)
+            if float(pj.salary_min) <= 1000000:
+                fields.append("salary_min_annual=%s"); params.append(pj.salary_min)
         if pj.salary_max is not None and pj.salary_period == "year" and job["salary_max"] is None:
-            fields.append("salary_max_annual=%s"); params.append(pj.salary_max)
+            if float(pj.salary_max) <= 1000000:
+                fields.append("salary_max_annual=%s"); params.append(pj.salary_max)
         if pj.salary_period is not None and job["salary_period"] is None:
             fields.append("salary_period=%s"); params.append(pj.salary_period)
 
