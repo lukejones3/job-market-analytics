@@ -1507,6 +1507,7 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
             """,
             (limit,),
         )
+        jobs = cur.fetchall()
     else:
         cur.execute(
             """
