@@ -532,25 +532,23 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
         return None, None, None
 
     lines = [clean_text(x) for x in raw.splitlines() if clean_text(x)]
-    dash = r"(?:-|–|—)"
+    dash = r"(?:-|–|—|to)"
 
     for line in lines[:220]:
         tline = clean_text(line)
         low = tline.lower()
 
-        if _is_junk_line(tline):
-            continue
+        if "$" not in tline:
+            if _is_junk_line(tline):
+                continue
         if "try premium" in low:
             continue
         if re.search(r"\bfor\s*\$0\b", low):
             continue
 
-        if "$" not in tline:
-            continue
-
         # (A) $81.6K/yr - $102K/yr
         m = re.search(
-            rf"\$?\s*(\d+(?:\.\d+)?[kKmM]?)\s*/\s*(yr|year|hr|hour|mo|month)\s*{dash}\s*\$?\s*(\d+(?:\.\d+)?[kKmM]?)\s*/\s*(yr|year|hr|hour|mo|month)",
+            rf"\$?\s*([\d,]+(?:\.\d+)?[kKmM]?)\s*/\s*(yr|year|hr|hour|mo|month)\s*{dash}\s*\$?\s*([\d,]+(?:\.\d+)?[kKmM]?)\s*/\s*(yr|year|hr|hour|mo|month)",
             tline,
             flags=re.IGNORECASE,
         )
@@ -587,17 +585,30 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
             return min(v1, v2), max(v1, v2), p1n
 
         # (B) “Salary range $81,600 - $102,000 per year”
-        m = re.search(
-            rf"(salary\s+range|pay\s+range|pay\s+band|base\s+pay\s+range|compensation\s+range|compensation|expected\s+salary\s+range|expected\s+salary|base\s+salary)\D{{0,120}}(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)\s*{dash}\s*(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)",
-            tline,
-            flags=re.IGNORECASE,
-        )
+        # Multi-line window: joins surrounding lines to catch formats like:
+        # "Compensation\nFor Full-Time (Salary)\nUS based: $180,000/year to $260,000/year"
+        _line_idx = next((i for i, l in enumerate(lines) if clean_text(l) == tline), -1)
+        _window = " ".join(clean_text(l) for l in lines[max(0,_line_idx-1):_line_idx+3]) if _line_idx >= 0 else tline
+        _search_targets = [tline, _window] if _window != tline else [tline]
+
+        m = None
+        _matched_target = tline
+        for _target in _search_targets:
+            m = re.search(
+                rf"(salary\s+range|pay\s+range|pay\s+band|base\s+pay\s+range|compensation\s+range|compensation|expected\s+salary\s+range|expected\s+salary|base\s+salary|for\s+full[\-\s]time).{{0,200}}?(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)\s*(?:{dash}|to)\s*(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)",
+                _target,
+                flags=re.IGNORECASE,
+            )
+            if m:
+                _matched_target = _target
+                break
         if m:
             smin = _money_to_number(m.group(2))
             smax = _money_to_number(m.group(3))
             if smin is None or smax is None:
                 continue
-            period = _infer_period_from_context(tline, m.start(), m.end())
+            _period_src = _matched_target if "_matched_target" in dir() else tline
+            period = _infer_period_from_context(_period_src, m.start(), m.end())
             if not period:
                 # if line contains "annual/annually/per year" we accept as year
                 if re.search(r"\b(annual|annually|per\s*year|/yr|yearly)\b", low):
