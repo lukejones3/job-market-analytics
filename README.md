@@ -1,155 +1,96 @@
 # Job Market Analytics
 
-An independent data pipeline and market intelligence platform tracking real-time hiring trends across data, analytics, and machine learning roles.
+An independent, production-grade labor market intelligence platform tracking data, analytics, and ML hiring across 260+ companies.
 
-The system ingests job postings nightly from Greenhouse, Lever, and Ashby ATS APIs across 220+ actively hiring companies, enriches each posting through a multi-pass NLP pipeline, and produces structured labor market intelligence covering skill demand, salary signals, sector comparisons, hiring intensity, and job posting quality.
+The system ingests job postings nightly from Greenhouse, Lever, and Ashby ATS APIs, enriches each posting through a custom NLP pipeline, and scores every posting on a proprietary Honesty Score measuring salary transparency, scope realism, and skill-to-level plausibility.
 
-**Q1 2026 Data & Analytics Job Market Report** — published April 2026. Based on 1,263 fully enriched Tier 1 job postings across 220+ companies.
-
----
-
-## What This Builds
-
-A longitudinal dataset of data and analytics job postings with:
-
-- Skill extraction against a curated allowlist of 127 canonical skills with alias matching
-- Salary parsing from structured and unstructured text fields across all three ATS sources
-- Experience level inference from title patterns and years-of-experience language
-- A proprietary **Honesty Score** (0–100) measuring salary transparency, scope realism, and skill-to-level plausibility for each posting
-- Company-level transparency benchmarking across salary disclosure rates and requirement realism
-- **Sector classification** across 22 sectors enabling cross-industry comparisons
-- **Hiring intensity** metric — open data roles as a percentage of total headcount, normalized across 220+ companies
+**[April 2026 Inaugural Report →](https://solstice-stock-6c6.notion.site/APRIL-2026-DATA-ANALYTICS-JOB-MARKET-REPORT-INAUGURAL-EDITION-33c61d18db3480348780dd2c43bbc0d5)**
 
 ---
 
-## Architecture
+## Current Scale
+
+| Metric | Value |
+|---|---|
+| Tier 1 job postings (fully enriched) | 1,350+ |
+| Companies monitored nightly | 260+ |
+| Total companies in monitoring pool | 1,375+ |
+| Canonical skills tracked | 127 |
+| Sectors classified | 22 |
+| Dataset updated | Nightly |
+
+---
+
+## What Makes This Different
+
+**Honesty Score** — every posting is scored 0-100 across 5 penalty dimensions: salary transparency, scope realism, skill-to-level plausibility, internal consistency, and EEO boilerplate dominance. No other job market dataset publishes this.
+
+**Cross-source deduplication** — the same role posted on Greenhouse, Lever, and Ashby is ingested once. Deduplication is location-aware — the same title in San Francisco and New York are treated as distinct positions.
+
+**Hiring intensity** — open data roles normalized against company headcount. Surfaces which companies are making the biggest organizational bet on data talent right now.
+
+**Salary premium analysis** — compensation signal quantified by skill. LLMs carry a +15.2% salary premium. Power BI carries a -34.2% penalty. Updated monthly.
+
+---
+
+## Stack
+
+- **Ingestion** — Python 3.9, multi-source ATS APIs (Greenhouse, Lever, Ashby), nightly cron automation
+- **Storage** — PostgreSQL 16 on DigitalOcean Ubuntu 24, pg_dump backups with 7-day retention
+- **Enrichment** — custom NLP pipeline: skill extraction from 127-skill canonical allowlist, salary parsing, experience level inference, workplace type classification
+- **Transformation** — dbt 13-model layer: staging views, fact tables, dimension tables, analytics marts
+- **Scoring** — proprietary Honesty Score via PostgreSQL stored function, refreshed nightly after enrichment
+
+---
+
+## Pipeline Architecture
+
 ```
-Greenhouse API ──┐
-Lever API ───────┼──▶ ingest_jobs.py ──▶ PostgreSQL ──▶ enrich_job_postings.py ──▶ dbt ──▶ Power BI
-Ashby API ───────┤                                            │
-Adzuna API ──────┘                                            ▼
-                                                    refresh_job_honesty()
-```
-
-**Ingestion** — `python/ingest_jobs.py` queries all tracked company job boards nightly, deduplicates via content hash, and inserts net-new postings. Supports Greenhouse, Lever, Ashby, and Adzuna sources.
-
-**Enrichment** — `python/enrich_job_postings.py` runs a two-pass NLP pipeline extracting skills, parsing salary, inferring experience level, and classifying workplace type.
-
-**Honesty Scoring** — `sql/job_honesty.sql` defines a PostgreSQL function scoring each posting across five penalty dimensions: salary transparency, scope realism, skill-to-level plausibility, internal consistency, and EEO boilerplate dominance.
-
-**Transformation** — dbt models in `dbt/job_analytics_dbt/` produce staging views, fact tables, dimension tables, and analytics marts.
-
-**Infrastructure** — DigitalOcean Ubuntu 24.04 server with nightly cron pipeline, automated daily backups, and 7-day retention.
-
----
-
-## Data Model
-
-**Core tables:** `job_postings`, `companies`, `roles`, `skills`, `job_skills`, `locations`
-
-**Pipeline observability:** `pipeline_runs`, `pipeline_errors`
-
-**Intelligence layer:** `job_honesty`, `discovered_companies`, `skill_candidates`, `company_headcount`
-
-**dbt marts:** `mart_skill_demand`, `mart_salary_benchmarks`, `mart_market_coverage`
-
-**Dimensions:** `dim_companies` (includes sector, active_roles, employee_count, hiring_intensity_pct), `dim_roles`, `dim_skills`
-
----
-
-## Data Tiers
-
-| Tier | Source | Description | Used For |
-|------|--------|-------------|----------|
-| 1 | Greenhouse, Lever, Ashby | Full descriptions, skill extraction, honesty scoring | All analytics |
-| 2 | Adzuna | Structured salary, market breadth | Salary benchmarks, market coverage |
-| 3 | Manual captures | LinkedIn snapshots, no posted date | Reference only |
-
----
-
-## Key Findings (Q1 2026)
-
-- Python appears in 64.8% of tech company data job postings — ahead of SQL at 55.6%
-- Machine Learning skills carry a +10.2% salary premium vs dataset baseline
-- 48.3% of Tier 1 postings disclose no salary information
-- Large Language Models appear in 23.7% of postings with a +13.4% salary premium
-- Power BI correlates with a -28.4% salary penalty vs baseline
-- Airbnb and Waymo hire 90%+ senior — almost no junior pipeline
-- **AI/ML sector pays $277K average** but has 62% salary non-disclosure rate
-- **Autonomous/Robotics is the most transparent sector** — 99 avg honesty score, 2% no-salary
-- **Fintech is the least transparent** — 77% of postings disclose no salary
-- **Waymo leads hiring intensity** at 2.52% — 63 open data roles against 2,500 employees
-- Onsite roles pay $232K avg vs $195K remote — counterintuitive premium driven by AV and gaming companies
-
----
-
-## Sector Coverage
-
-22 sectors tracked with cross-sector salary, honesty, and hiring intensity benchmarks:
-
-AI/ML · Fintech/Payments · Data Infrastructure · Consumer/Marketplace · Healthcare Tech · Gaming · Cybersecurity · Autonomous/Robotics · SaaS/Enterprise · AdTech/MarTech · Travel · EdTech · Media/Entertainment · Logistics/Supply Chain · Real Estate Tech · Climate/Sustainability · InsuranceTech · Developer Tools · Nonprofit · Consulting · Space Tech · Restaurant Tech
-
----
-
-## Tech Stack
-
-- **Python** — ingestion, enrichment, discovery, headcount scripts
-- **PostgreSQL 16** — primary data store (DigitalOcean, Ubuntu 24.04)
-- **dbt** — transformation layer (13 models, all green)
-- **SQL** — honesty scoring functions, analytics queries
-- **Power BI** — reporting and visualization
-- **Git / GitHub** — version control
-
----
-
-## Nightly Pipeline (UTC)
-```
-06:00  pg_dump backup + 7-day retention cleanup
-07:00  ingest_jobs.py --apply --discover   # Greenhouse + Lever + Ashby + Adzuna
-07:30  refresh_job_honesty()
-08:00  discover_companies.py --apply --source refresh
+ATS APIs (Greenhouse / Lever / Ashby)
+        ↓
+Python ingestion + cross-source dedup
+        ↓
+PostgreSQL 16 (job_postings, companies, roles, skills, locations)
+        ↓
+Python NLP enrichment (skills, salary, experience, workplace)
+        ↓
+refresh_job_honesty() — PostgreSQL stored function
+        ↓
+dbt transformation layer (13 models)
+        ↓
+analytics_analytics.fct_jobs + dim_companies + mart_skill_demand
 ```
 
 ---
 
-## Repository Structure
-```
-python/
-  ingest_jobs.py              # Multi-source ingestion (Greenhouse, Lever, Ashby, Adzuna)
-  enrich_job_postings.py      # NLP enrichment pipeline
-  discover_companies.py       # Company discovery and refresh
-  discover_skills.py          # Skill candidate discovery via co-occurrence
-  fetch_headcount.py          # Wikipedia-based headcount fetcher (monthly)
-  morning_check.py            # Daily pipeline health check
+## Reports
 
-sql/
-  job_honesty.sql             # Honesty scoring function and schema
-  skill_intel.sql             # Skill intelligence queries
-
-dbt/job_analytics_dbt/
-  models/staging/             # Source-aligned staging views
-  models/marts/core/          # Fact tables, dimensions, analytics marts
-```
+| Report | Published | Coverage |
+|---|---|---|
+| Inaugural Edition | April 2026 | 1,350+ postings, 260+ companies |
+| May 2026 | May 1, 2026 | Month-over-month trends |
+| Q2 2026 | July 1, 2026 | First quarter-over-quarter comparison |
 
 ---
 
-## Company Coverage
+## Data Quality
 
-- **220+ actively hiring companies** tracked across Greenhouse, Lever, and Ashby
-- **1,300+ total companies** in discovery pool — monitored nightly, activates automatically when data roles appear
-- **22 sectors** classified with headcount data for hiring intensity calculation
-- Top companies by open data roles: Waymo (63), Lyft (41), Roblox (36), Stripe (28), Reddit (28)
-
----
-
-## License
-
-Copyright (c) 2026 Luke Jones. All rights reserved.
-
-This source code is made available for viewing and educational purposes only. Commercial use, redistribution, or derivative works require explicit written permission from the copyright holder.
-
-Contact: jones31luke@gmail.com
+- Salary cap enforced at parse time and DB constraint level — values above $1M annual rejected
+- Cross-source deduplication — zero confirmed duplicates across ATS sources
+- Honesty scoring — 100% of Tier 1 postings scored
+- Salary coverage — ~52% of Tier 1 postings contain verified salary data
+- All pipeline runs logged with insert/skip/error counts
 
 ---
 
-*Nightly ingestion active across Greenhouse, Lever, and Ashby. Dataset grows automatically. Q2 2026 report forthcoming.*
+## Contact
+
+Open to conversations about data licensing, custom sector analysis, and talent intelligence.
+
+**Luke Jones**
+jones31luke@gmail.com
+linkedin.com/in/luke-j-78a02121b
+
+---
+
+*Dataset updates nightly. Next report: May 1, 2026.*
