@@ -646,7 +646,7 @@ def _is_target_role(title: str) -> bool:
 def _throttle():
     time.sleep(REQUEST_DELAY_SECONDS)
 
-def _get(url: str, params: dict = None, timeout: int = 8) -> Optional[dict]:
+def _get(url: str, params: dict = None, timeout: int = 12) -> Optional[dict]:
     """Safe GET with error handling."""
     try:
         r = requests.get(url, params=params, timeout=timeout,
