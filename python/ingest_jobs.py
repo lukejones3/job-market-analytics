@@ -1721,6 +1721,143 @@ def fetch_amazon() -> List[RawJob]:
     log.info(f"Amazon total: {len(jobs)} unique target roles")
     return jobs
 
+
+# ============================================================
+# SOURCE: EIGHTFOLD
+# ============================================================
+
+EIGHTFOLD_COMPANIES = [
+    # (display_name, subdomain, domain)
+    ("Microsoft",       "microsoft",  "microsoft.com"),
+    ("American Express","aexp",       "aexp.com"),
+]
+
+def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJob]:
+    base = f"https://{subdomain}.eightfold.ai"
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Referer": f"{base}/careers",
+    }
+
+    search_terms = ["data analyst", "data scientist", "data engineer",
+                    "analytics engineer", "machine learning", "business intelligence"]
+
+    jobs = []
+    seen_ids = set()
+
+    for term in search_terms:
+        start = 0
+        num = 10
+        while True:
+            try:
+                r = requests.get(f"{base}/api/pcsx/search",
+                    params={"domain": domain, "query": term, "start": start, "num": num},
+                    headers=headers, timeout=12)
+                if r.status_code != 200:
+                    break
+                data = r.json().get("data", {})
+                positions = data.get("positions", [])
+                count = data.get("count", 0)
+                if not positions:
+                    break
+                if start == 0:
+                    log.info(f"    Eightfold [{name}] term='{term}': {count} total")
+
+                for p in positions:
+                    job_id = str(p.get("id", ""))
+                    if not job_id or job_id in seen_ids:
+                        continue
+
+                    title = p.get("name", "")
+                    if not _is_target_role(title):
+                        continue
+
+                    # US only filter
+                    locations = p.get("locations", [])
+                    loc_str = " ".join(locations).lower() if locations else ""
+                    non_us = ["united kingdom", "london", "india", "bangalore", "canada",
+                              "germany", "france", "australia", "singapore", "ireland",
+                              "netherlands", "poland", "sweden", "brazil", "mexico",
+                              "japan", "china", "spain", "italy", "denmark"]
+                    if any(c in loc_str for c in non_us):
+                        continue
+                    if locations and not any(x in loc_str for x in
+                        ["united states", "usa", "remote", "u.s.", "washington", "california",
+                         "new york", "texas", "illinois", "georgia", "virginia", "colorado",
+                         "massachusetts", "north carolina", "florida", "ohio", "arizona"]):
+                        continue
+
+                    seen_ids.add(job_id)
+
+                    # Fetch full description via SmartApply detail
+                    desc = ""
+                    salary_min, salary_max = None, None
+                    job_url = f"{base}/careers/job/{job_id}"
+                    try:
+                        dr = requests.get(f"{base}/api/apply/v2/jobs/{job_id}",
+                            params={"domain": domain, "hl": "en"},
+                            headers=headers, timeout=12)
+                        if dr.status_code == 200:
+                            detail = dr.json()
+                            desc = detail.get("job_description", "") or ""
+                            desc = re.sub(r"<[^>]+>", " ", desc)
+                            desc = re.sub(r"\s+", " ", desc).strip()
+                            job_url = detail.get("canonicalPositionUrl", "") or job_url
+                    except:
+                        pass
+                    time.sleep(0.3)
+
+                    location = locations[0] if locations else ""
+                    workplace_type = None
+                    wlo = p.get("workLocationOption", "")
+                    if wlo and "remote" in wlo.lower():
+                        workplace_type = "remote"
+                    elif wlo and "hybrid" in wlo.lower():
+                        workplace_type = "hybrid"
+                    elif "remote" in loc_str:
+                        workplace_type = "remote"
+
+                    jobs.append(RawJob(
+                        source="eightfold",
+                        source_id=f"{subdomain}_{job_id}",
+                        company=name,
+                        title=title,
+                        location=location,
+                        description=desc,
+                        job_url=job_url,
+                        salary_min=None,
+                        salary_max=None,
+                        salary_period=None,
+                        workplace_type=workplace_type,
+                    ))
+
+                start += num
+                if start >= min(count if count > 0 else 0, 500):
+                    break
+                time.sleep(0.4)
+
+            except Exception as e:
+                log.warning(f"Eightfold [{name}] term={term} error: {e}")
+                break
+        time.sleep(0.5)
+
+    log.info(f"  Eightfold [{name}]: {len(jobs)} target roles found")
+    return jobs
+
+
+def fetch_all_eightfold() -> List[RawJob]:
+    all_jobs = []
+    for name, subdomain, domain in EIGHTFOLD_COMPANIES:
+        try:
+            jobs = fetch_eightfold_company(name, subdomain, domain)
+            all_jobs.extend(jobs)
+            time.sleep(0.5)
+        except Exception as e:
+            log.warning(f"Eightfold [{name}] failed: {e}")
+    log.info(f"Eightfold total: {len(all_jobs)} jobs")
+    return all_jobs
+
 def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None:
     run_id = f"ingest_{source}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     log.info(f"Starting ingestion run: {run_id} | apply={apply}")
@@ -1743,6 +1880,10 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
     if source in ("workday", "all"):
         log.info("Fetching from Workday...")
         all_jobs.extend(fetch_all_workday())
+
+    if source in ("eightfold", "all"):
+        log.info("Fetching from Eightfold...")
+        all_jobs.extend(fetch_all_eightfold())
 
     if source in ("amazon", "all"):
         log.info("Fetching from Amazon...")
@@ -1917,7 +2058,7 @@ def main():
     ap = argparse.ArgumentParser(description="Multi-source job ingestion pipeline.")
     ap.add_argument(
         "--source",
-        choices=["greenhouse", "lever", "adzuna", "ashby", "workday", "amazon", "all"],
+        choices=["greenhouse", "lever", "adzuna", "ashby", "workday", "amazon", "eightfold", "all"],
         default="all",
         help="Which source to pull from (default: all)"
     )
