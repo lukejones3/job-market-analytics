@@ -1476,6 +1476,16 @@ WORKDAY_COMPANIES = [
     ("Motorola Solutions", "motorolasolutions", "Careers",             "wd5"),
     ("Target",             "target",        "TargetCareers",           "wd5"),
     ("Boeing",             "boeing",        "EXTERNAL_CAREERS",        "wd1"),
+    # Batch 3 — added April 12 2026
+    ("Walmart",            "walmart",       "WalmartExternal",         "wd5"),
+    ("Capital One",        "capitalone",    "Capital_One",             "wd12"),
+    ("Northrop Grumman",   "ngc",           "Northrop_Grumman_External_Site", "wd1"),
+    ("Mastercard",         "mastercard",    "CorporateCareers",        "wd1"),
+    ("Fidelity",           "fmr",           "FidelityCareers",         "wd1"),
+    ("BlackRock",          "blackrock",     "BlackRock_Professional",  "wd1"),
+    ("Comcast",            "comcast",       "Comcast_Careers",         "wd5"),
+    ("Disney",             "disney",        "disneycareer",            "wd5"),
+    ("Snap",               "snapchat",      "sourced",                 "wd1"),
 ]
 
 def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) -> List[RawJob]:
