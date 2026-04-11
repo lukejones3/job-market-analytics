@@ -1730,6 +1730,10 @@ EIGHTFOLD_COMPANIES = [
     # (display_name, subdomain, domain)
     ("Microsoft",       "microsoft",  "microsoft.com"),
     ("American Express","aexp",       "aexp.com"),
+    ("Morgan Stanley",  "morganstanley", "morganstanley.com"),
+    ("Ford",            "ford",          "ford.com"),
+    ("Twilio",          "twilio",        "twilio.com"),
+    ("Starbucks",       "starbucks",     "starbucks.com"),
 ]
 
 def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJob]:
