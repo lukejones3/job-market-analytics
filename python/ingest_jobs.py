@@ -1486,6 +1486,36 @@ WORKDAY_COMPANIES = [
     ("Comcast",            "comcast",       "Comcast_Careers",         "wd5"),
     ("Disney",             "disney",        "disneycareer",            "wd5"),
     ("Snap",               "snapchat",      "sourced",                 "wd1"),
+    # Batch 4 — added April 12 2026
+    ("S&P Global",         "spgi",          "SPGI_Careers",            "wd5"),
+    ("PNC Bank",           "pnc",           "External",                "wd5"),
+    ("Guidehouse",         "guidehouse",    "External",                "wd1"),
+    ("US Bank",            "usbank",        "US_Bank_Careers",         "wd1"),
+    ("TransUnion",         "transunion",    "TransUnion",              "wd5"),
+    ("USAA",               "usaa",          "USAAJOBSWD",              "wd1"),
+    ("Tempus",             "tempus",        "Tempus_Careers",          "wd5"),
+    ("Bloomberg Industry", "bloomberg",     "Bloombergindustrygroup_External_Career_Site", "wd1"),
+    ("Blackstone",         "blackstone",    "Blackstone_Campus_Careers","wd1"),
+    ("Bain Capital",       "baincapital",   "External_Public",         "wd1"),
+    ("Roche/Genentech",    "roche",         "ROG-A2O-GENE",            "wd3"),
+    ("Rocket Companies",   "quickenloans",  "rocket_careers",          "wd5"),
+    # Batch 5 — added April 12 2026
+    ("Abbott",             "abbott",        "AbbottCareers",           "wd5"),
+    ("PwC",                "pwc",           "Global_Experienced_Careers","wd3"),
+    ("Cigna",              "cigna",         "cignacareers",            "wd5"),
+    ("Wells Fargo",        "wf",            "WellsFargoJobs",          "wd1"),
+    ("3M",                 "3m",            "Search",                  "wd1"),
+    ("Thermo Fisher",      "thermofisher",  "ThermoFisherCareers",     "wd5"),
+    ("AT&T",               "att",           "ATTGeneral",              "wd1"),
+    ("Humana",             "humana",        "Humana_External_Career_Site","wd5"),
+    ("T. Rowe Price",      "troweprice",    "TRowePrice",              "wd5"),
+    ("Synchrony",          "synchronyfinancial","careers",             "wd5"),
+    ("Verizon",            "verizon",       "verizon-careers",         "wd12"),
+    # Batch 6 — added April 12 2026
+    ("Hitachi",            "hitachi",       "hitachi",                 "wd1"),
+    ("Vanguard",           "vanguard",      "Vanguard_External",       "wd5"),
+    ("NXP Semiconductors", "nxp",           "careers",                 "wd3"),
+    ("T-Mobile",           "tmobile",       "External",                "wd1"),
 ]
 
 def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) -> List[RawJob]:
