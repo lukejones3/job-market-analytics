@@ -1833,7 +1833,7 @@ def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJ
                     ))
 
                 start += num
-                if start >= min(count if count > 0 else 0, 500):
+                if count > 0 and start >= min(count, 500):
                     break
                 time.sleep(0.4)
 
