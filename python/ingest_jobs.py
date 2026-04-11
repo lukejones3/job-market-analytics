@@ -1620,6 +1620,107 @@ def fetch_all_workday() -> List[RawJob]:
     return all_jobs
 
 
+
+# ============================================================
+# SOURCE: AMAZON
+# ============================================================
+
+AMAZON_SEARCH_TERMS = [
+    "data analyst", "data scientist", "data engineer",
+    "analytics engineer", "machine learning engineer",
+    "business intelligence", "research scientist",
+    "applied scientist", "quantitative researcher",
+]
+
+def fetch_amazon() -> List[RawJob]:
+    base = "https://www.amazon.jobs"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Accept": "application/json, text/javascript, */*",
+        "Referer": f"{base}/en/search",
+    }
+
+    jobs = []
+    seen_ids = set()
+
+    for term in AMAZON_SEARCH_TERMS:
+        offset = 0
+        limit = 20
+        while True:
+            try:
+                r = requests.get(
+                    f"{base}/en/search.json",
+                    params={"query": term, "offset": offset, "result_limit": limit},
+                    headers=headers, timeout=12
+                )
+                if r.status_code != 200:
+                    break
+                data = r.json()
+                postings = data.get("jobs", [])
+                total = data.get("hits", 0)
+                if not postings:
+                    break
+
+                for j in postings:
+                    job_id = str(j.get("id_icims", ""))
+                    if not job_id or job_id in seen_ids:
+                        continue
+
+                    title = j.get("title", "")
+                    if not _is_target_role(title):
+                        continue
+
+                    # US only
+                    country = j.get("country_code", "")
+                    if country and country.upper() not in ("US", "USA", "UNITED STATES"):
+                        continue
+
+                    seen_ids.add(job_id)
+
+                    city = j.get("city", "")
+                    state = j.get("state", "")
+                    location = f"{city}, {state}".strip(", ") if city or state else ""
+
+                    desc = j.get("description", "") or j.get("description_short", "") or ""
+                    desc = re.sub(r"<[^>]+>", " ", desc)
+                    desc = re.sub(r"\s+", " ", desc).strip()
+
+                    # Workplace type
+                    workplace_type = None
+                    loc_lower = location.lower() + " " + title.lower()
+                    if "remote" in loc_lower:
+                        workplace_type = "remote"
+                    elif "hybrid" in loc_lower:
+                        workplace_type = "hybrid"
+
+                    job_path = j.get("job_path", f"/en/jobs/{job_id}")
+                    jobs.append(RawJob(
+                        source="amazon",
+                        source_id=job_id,
+                        company=j.get("company_name", "Amazon"),
+                        title=title,
+                        location=location,
+                        description=desc,
+                        job_url=f"{base}{job_path}",
+                        salary_min=None,
+                        salary_max=None,
+                        salary_period=None,
+                        workplace_type=workplace_type,
+                    ))
+
+                offset += limit
+                if offset >= min(total, 200):  # cap at 200 per term
+                    break
+                time.sleep(0.4)
+
+            except Exception as e:
+                log.warning(f"Amazon [{term}] error: {e}")
+                break
+        time.sleep(0.5)
+
+    log.info(f"Amazon total: {len(jobs)} unique target roles")
+    return jobs
+
 def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None:
     run_id = f"ingest_{source}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     log.info(f"Starting ingestion run: {run_id} | apply={apply}")
@@ -1642,6 +1743,10 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
     if source in ("workday", "all"):
         log.info("Fetching from Workday...")
         all_jobs.extend(fetch_all_workday())
+
+    if source in ("amazon", "all"):
+        log.info("Fetching from Amazon...")
+        all_jobs.extend(fetch_amazon())
 
     if source in ("adzuna", "all"):
         log.info("Fetching from Adzuna...")
@@ -1812,7 +1917,7 @@ def main():
     ap = argparse.ArgumentParser(description="Multi-source job ingestion pipeline.")
     ap.add_argument(
         "--source",
-        choices=["greenhouse", "lever", "adzuna", "ashby", "workday", "all"],
+        choices=["greenhouse", "lever", "adzuna", "ashby", "workday", "amazon", "all"],
         default="all",
         help="Which source to pull from (default: all)"
     )
