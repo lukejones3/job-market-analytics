@@ -1463,6 +1463,19 @@ WORKDAY_COMPANIES = [
     ("Cisco",             "cisco",        "Cisco_Careers",         "wd5"),
     ("Etsy",              "etsy",         "Etsy_Careers",          "wd5"),
     ("Zoom",              "zoom",         "Zoom",                  "wd5"),
+    # Batch 2 — added April 11 2026
+    ("NVIDIA",             "nvidia",        "nvidiaexternalcareersite", "wd5"),
+    ("Intel",              "intel",         "External",                "wd1"),
+    ("Booz Allen",         "bah",           "BAH_Jobs",                "wd1"),
+    ("Leidos",             "leidos",        "External",                "wd5"),
+    ("Nasdaq",             "nasdaq",        "Global_External_Site",    "wd1"),
+    ("Pfizer",             "pfizer",        "PfizerCareers",           "wd1"),
+    ("GSK",                "gsk",           "GSKCareers",              "wd5"),
+    ("Prudential",         "pru",           "Careers",                 "wd5"),
+    ("Visa",               "visa",          "Visa",                    "wd5"),
+    ("Motorola Solutions", "motorolasolutions", "Careers",             "wd5"),
+    ("Target",             "target",        "TargetCareers",           "wd5"),
+    ("Boeing",             "boeing",        "EXTERNAL_CAREERS",        "wd1"),
 ]
 
 def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) -> List[RawJob]:
