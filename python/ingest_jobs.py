@@ -1442,6 +1442,171 @@ def log_pipeline_run(cur, run_id: str, source: str, inserted: int,
 # MAIN PIPELINE
 # ============================================================
 
+
+# ============================================================
+# SOURCE: WORKDAY
+# ============================================================
+
+WORKDAY_COMPANIES = [
+    # (display_name, tenant, board, wd_server)
+    ("Applied Materials", "amat",        "External",              "wd1"),
+    ("PayPal",            "paypal",       "jobs",                  "wd1"),
+    ("Adobe",             "adobe",        "external_experienced",  "wd5"),
+    ("eBay",              "ebay",         "apply",                 "wd5"),
+    ("Salesforce",        "salesforce",   "External_Career_Site",  "wd12"),
+    ("Workday",           "workday",      "Workday",               "wd5"),
+    ("CrowdStrike",       "crowdstrike",  "crowdstrikecareers",    "wd5"),
+    ("Dell",              "dell",         "External",              "wd1"),
+    ("CVS Health",        "cvshealth",    "cvs_health_careers",    "wd1"),
+    ("Netflix",           "netflix",      "Netflix",               "wd1"),
+    ("Nike",              "nike",         "nke",                   "wd1"),
+    ("Cisco",             "cisco",        "Cisco_Careers",         "wd5"),
+    ("Etsy",              "etsy",         "Etsy_Careers",          "wd5"),
+    ("Zoom",              "zoom",         "Zoom",                  "wd5"),
+]
+
+def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) -> List[RawJob]:
+    base = f"https://{tenant}.{wd_server}.myworkdayjobs.com"
+    list_url = f"{base}/wday/cxs/{tenant}/{board}/jobs"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Referer": f"{base}/en-US/{board}",
+    }
+
+    jobs = []
+    offset = 0
+    limit = 20
+
+    while True:
+        try:
+            r = requests.post(list_url,
+                json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": "data"},
+                headers=headers, timeout=12)
+            if r.status_code != 200:
+                break
+            data = r.json()
+            postings = data.get("jobPostings", [])
+            total = data.get("total", 0)
+            if not postings:
+                break
+
+            for p in postings:
+                title = p.get("title", "")
+                if not _is_target_role(title):
+                    continue
+
+                ext_path = p.get("externalPath", "")
+                job_id = "WD" + hashlib.md5(f"{tenant}|{ext_path}".encode()).hexdigest()[:10]
+
+                # Fetch full description
+                desc = ""
+                workplace_type = None
+                if ext_path:
+                    # externalPath already contains /job/... so don't add /job/ prefix
+                    clean_path = ext_path.lstrip('/')
+                    detail_url = f"{base}/wday/cxs/{tenant}/{board}/{clean_path}"
+                    detail_headers = {
+                        **headers,
+                        "Accept": "application/json, text/javascript, */*; q=0.01",
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Referer": f"{base}/en-US/{board}{ext_path}",
+                    }
+                    try:
+                        dr = requests.get(detail_url, headers=detail_headers, timeout=12)
+                        if dr.status_code == 200:
+                            detail = dr.json()
+                            info = detail.get("jobPostingInfo", {})
+                            desc = info.get("jobDescription", "") or detail.get("jobDescription", "") or detail.get("description", "") or ""
+                            # Strip HTML tags
+                            desc = re.sub(r"<[^>]+>", " ", desc)
+                            desc = re.sub(r"\s+", " ", desc).strip()
+                            # Also extract location and remote type from detail
+                            if not location and info.get("location"):
+                                location = info["location"]
+                            remote_type = info.get("remoteType", "")
+                            if remote_type and remote_type.lower() in ("remote", "fully remote"):
+                                workplace_type = "remote"
+                            elif remote_type and "hybrid" in remote_type.lower():
+                                workplace_type = "hybrid"
+                    except:
+                        pass
+                    time.sleep(0.3)
+
+                # Extract location
+                location = ""
+                locs = p.get("locationsText", "") or p.get("locations", "")
+                if isinstance(locs, list) and locs:
+                    location = locs[0]
+                elif isinstance(locs, str):
+                    location = locs
+
+                # US-only filter — skip international roles
+                us_signals = ["remote", "usa", "united states", "ca", "ny", "tx", "wa", "il",
+                              "ma", "co", "ga", "or", "az", "nc", "fl", "oh", "mi", "mn"]
+                non_us_signals = ["singapore", "sgp", "india", "ind", "bangalore", "warsaw",
+                                  "poland", "uk", "london", "germany", "france", "canada", "toronto",
+                                  "amsterdam", "dublin", "australia", "sydney", "tokyo", "japan",
+                                  "china", "chn", "brazil", "mexico", "netherlands", "sweden"]
+                loc_lower = location.lower()
+                if any(s in loc_lower for s in non_us_signals):
+                    continue
+                # If location has no US signal and has country code, skip
+                if location and len(location) > 3 and "," in location:
+                    parts = location.split(",")
+                    last = parts[-1].strip().upper()
+                    if len(last) == 3 and last not in ["USA", "CAN"] and last.isalpha():
+                        continue  # 3-letter country code like SGP, IND, CHN
+
+                # Infer workplace type from location string if not already set
+                if workplace_type is None:
+                    loc_lower = location.lower()
+                    if "remote" in loc_lower:
+                        workplace_type = "remote"
+                    elif "hybrid" in loc_lower:
+                        workplace_type = "hybrid"
+
+                jobs.append(RawJob(
+                    source="workday",
+                    source_id=job_id,
+                    company=name,
+                    title=title,
+                    location=location,
+                    description=desc,
+                    job_url=f"{base}/en-US/{board}/job/{ext_path.lstrip('/')}",
+                    salary_min=None,
+                    salary_max=None,
+                    salary_period=None,
+                    workplace_type=workplace_type,
+                ))
+
+            offset += limit
+            if offset >= total:
+                break
+            time.sleep(0.4)
+
+        except Exception as e:
+            log.warning(f"Workday [{name}] error: {e}")
+            break
+
+    return jobs
+
+
+def fetch_all_workday() -> List[RawJob]:
+    all_jobs = []
+    for name, tenant, board, wd_server in WORKDAY_COMPANIES:
+        try:
+            jobs = fetch_workday_company(name, tenant, board, wd_server)
+            log.info(f"  Workday [{name}]: {len(jobs)} target roles found")
+            all_jobs.extend(jobs)
+            time.sleep(0.5)
+        except Exception as e:
+            log.warning(f"  Workday [{name}] failed: {e}")
+    log.info(f"Workday total: {len(all_jobs)} jobs")
+    return all_jobs
+
+
 def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None:
     run_id = f"ingest_{source}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     log.info(f"Starting ingestion run: {run_id} | apply={apply}")
@@ -1460,6 +1625,10 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
     if source in ("ashby", "all"):
         log.info("Fetching from Ashby...")
         all_jobs.extend(fetch_all_ashby())
+
+    if source in ("workday", "all"):
+        log.info("Fetching from Workday...")
+        all_jobs.extend(fetch_all_workday())
 
     if source in ("adzuna", "all"):
         log.info("Fetching from Adzuna...")
@@ -1630,7 +1799,7 @@ def main():
     ap = argparse.ArgumentParser(description="Multi-source job ingestion pipeline.")
     ap.add_argument(
         "--source",
-        choices=["greenhouse", "lever", "adzuna", "ashby", "all"],
+        choices=["greenhouse", "lever", "adzuna", "ashby", "workday", "all"],
         default="all",
         help="Which source to pull from (default: all)"
     )
