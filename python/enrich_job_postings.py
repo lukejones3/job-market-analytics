@@ -637,6 +637,20 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
 
             return lo, hi, period
 
+        # (B2) Chime-style "will begin at $X and up to $Y"
+        m = re.search(
+            r"(?:begin|starting)\s+at\s+\$\s*([\d,]+(?:\.\d+)?)\s*(?:and\s+up\s+to|[-\u2013\u2014to]+)\s*\$\s*([\d,]+(?:\.\d+)?)",
+            tline,
+            flags=re.IGNORECASE,
+        )
+        if m:
+            v1 = _money_to_number(m.group(1))
+            v2 = _money_to_number(m.group(2))
+            if v1 is not None and v2 is not None:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    return lo, hi, "year"
+
         # (C) Single salary like “$95,000 annually”
         m = re.search(r"(\$[\d,]+(?:\.\d+)?[kKmM]?)", tline)
         if m:
@@ -866,15 +880,16 @@ def infer_experience_level(desc: str, title_hint: Optional[str] = None) -> Optio
             return "entry"
         if re.search(r"\b(associate)\b", tt):
             return "associate"
+        # Senior/lead/principal FIRST before roman numerals
+        if re.search(r"\b(senior|sr\.?|lead|principal|staff)\b", tt):
+            return "senior"
+        if re.search(r"\b(manager|director|head of|vp|vice president)\b", tt):
+            return "senior"
         # Roman numeral suffixes — II=mid, III+=senior
         if re.search(r"\biii\b", tt):
             return "senior"
         if re.search(r"\bii\b", tt):
             return "mid"
-        if re.search(r"\b(senior|sr\.?|lead|principal|staff)\b", tt):
-            return "senior"
-        if re.search(r"\b(manager|director|head of|vp|vice president)\b", tt):
-            return "senior"
     # explicit entry phrasing in description
     if re.search(r"\b(entry[- ]level|new grad|recent graduate|0\+?\s*years?\s+of\s+experience)\b", t):
         return "entry"
