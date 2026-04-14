@@ -1359,11 +1359,12 @@ def ingest_job(cur, job: RawJob) -> bool:
             source_id,
             description_quality,
             data_tier,
-            experience_level
+            experience_level,
+            last_seen_at
         ) VALUES (
-            %s, %s, %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
         )
-        ON CONFLICT (job_id) DO NOTHING
+        ON CONFLICT (job_id) DO UPDATE SET last_seen_at = now()
         """,
         (
             job_id,
