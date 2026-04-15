@@ -1594,6 +1594,18 @@ WORKDAY_COMPANIES = [
     ("Vanguard",           "vanguard",      "Vanguard_External",       "wd5"),
     ("NXP Semiconductors", "nxp",           "careers",                 "wd3"),
     ("T-Mobile",           "tmobile",       "External",                "wd1"),
+    # Batch 7 — added April 13 2026
+    ("Amgen",              "amgen",         "Careers",                 "wd1"),
+    ("Medtronic",          "medtronic",     "MedtronicCareers",        "wd1"),
+    ("Gartner",            "gartner",       "EXT",                     "wd5"),
+    ("The Hartford",       "thehartford",   "Careers_External",        "wd5"),
+    ("BMO Bank",           "bmo",           "External",                "wd3"),
+    ("Guidewire",          "guidewire",     "External",                "wd5"),
+    ("GEICO",              "geico",         "external",                "wd1"),
+    ("Fractal Analytics",  "fractal",       "Careers",                 "wd1"),
+    ("Wiley",              "wiley",         "wiley_careers",           "wd1"),
+    ("Acxiom",             "acxiomllc",     "acxiomusa",               "wd5"),
+    ("Brookfield",         "brookfield",    "bpandc",                  "wd5"),
 ]
 
 def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) -> List[RawJob]:

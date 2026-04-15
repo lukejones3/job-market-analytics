@@ -611,7 +611,7 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
             period = _infer_period_from_context(_period_src, m.start(), m.end())
             if not period:
                 # if line contains "annual/annually/per year" we accept as year
-                if re.search(r"\b(annual|annually|per\s*year|/yr|yearly)\b", low):
+                if re.search(r"\b(annual|annually|per\s*year|per\s*annum|/yr|yearly)\b", low):
                     period = "year"
                 elif re.search(r"\b(hourly|per\s*hour|/hr)\b", low):
                     period = "hour"
@@ -637,6 +637,53 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
 
             return lo, hi, period
 
+        # (B0) "Minimum: $X Maximum: $Y" format (Zoom-style)
+        m = re.search(
+            r"minimum[:\s]+\$\s*([\d,]+(?:\.\d+)?)\s*maximum[:\s]+\$\s*([\d,]+(?:\.\d+)?)",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1))
+            v2 = _money_to_number(m.group(2))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    return lo, hi, "year"
+
+        # (B0b) "$ 158,500 to $ 218,000" — space between $ and number
+        m = re.search(
+            r"\$\s*([\d,]+(?:\.\d+)?[kKmM]?)\s*(?:to|-|–)\s*\$\s*([\d,]+(?:\.\d+)?[kKmM]?)",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1))
+            v2 = _money_to_number(m.group(2))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    # need period — check context
+                    period = _infer_period_from_context(tline, m.start(), m.end())
+                    if not period and (lo >= 30000):
+                        period = "year"
+                    if period == "year":
+                        return lo, hi, period
+
+        # (B0c) "40$ Hourly" — dollar sign after number
+        m = re.search(
+            r"([\d,]+(?:\.\d+)?)\s*\$\s*(?:hourly|per\s*hour|/hr)",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v = _money_to_number(m.group(1))
+            if v and Decimal("7") <= v <= Decimal("500"):
+                return v, v, "hour"
+
+        # (B0d) "Starting from $165k" — single value with starting from
+        m = re.search(
+            r"(?:starting\s+from|starting\s+at)\s+\$\s*([\d,]+(?:\.\d+)?[kKmM]?)",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v = _money_to_number(m.group(1))
+            if v and Decimal("15000") <= v <= Decimal("1000000"):
+                return v, v, "year"
+
         # (B2) Chime-style "will begin at $X and up to $Y"
         m = re.search(
             r"(?:begin|starting)\s+at\s+\$\s*([\d,]+(?:\.\d+)?)\s*(?:and\s+up\s+to|[-\u2013\u2014to]+)\s*\$\s*([\d,]+(?:\.\d+)?)",
@@ -656,7 +703,7 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
         if m:
             period = _infer_period_from_context(tline, m.start(), m.end())
             if not period:
-                if re.search(r"\b(annual|annually|per\s*year|/yr|yearly)\b", low):
+                if re.search(r"\b(annual|annually|per\s*year|per\s*annum|/yr|yearly)\b", low):
                     period = "year"
                 elif re.search(r"\b(hourly|per\s*hour|/hr)\b", low):
                     period = "hour"
