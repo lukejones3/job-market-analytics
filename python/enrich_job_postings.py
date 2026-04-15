@@ -1281,9 +1281,10 @@ def load_skill_aliases_from_db(cur) -> Dict[str, List[str]]:
     # If skill_aliases exists, load and merge (still restricted to ALLOWED_CANON_SKILLS)
     try:
         cur.execute("""
-            SELECT skill_name, alias
-            FROM skill_aliases
-            WHERE skill_name IS NOT NULL AND alias IS NOT NULL
+            SELECT s.skill_name, sa.alias_text as alias
+            FROM skill_aliases sa
+            JOIN skills s ON s.skill_id = sa.skill_id
+            WHERE sa.alias_text IS NOT NULL
         """)
         rows = cur.fetchall()
         for r in rows:
