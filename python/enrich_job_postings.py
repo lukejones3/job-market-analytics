@@ -615,6 +615,8 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
                     period = "year"
                 elif re.search(r"\b(hourly|per\s*hour|/hr)\b", low):
                     period = "hour"
+                elif re.search(r"\busd\b", low) and min(smin, smax) < Decimal("1000"):
+                    period = "hour"
                 elif re.search(r"\b(monthly|per\s*month|/mo)\b", low):
                     period = "month"
                 elif min(smin, smax) >= 30000:
@@ -762,6 +764,60 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
             if v and Decimal("15000") <= v <= Decimal("1000000"):
                 return v, v, "year"
 
+        # (B1a) Single labeled salary "Base Salary: $192,000" or "Salary: $150,000"
+        m = re.search(
+            r"(?:base\s+)?salary[:\s]+\$\s*([\d,\.]+[kKmM]?)\s*$",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v = _money_to_number(m.group(1).replace('.', '') if '.' in m.group(1) and len(m.group(1).split('.')[-1]) == 3 else m.group(1))
+            if v and Decimal("50000") <= v <= Decimal("1000000"):
+                return v, v, "year"
+
+        # (B1b) Double dollar sign "$$114,200/year"
+        tline_dd = re.sub(r'\$\$', '$', tline)
+        if tline_dd != tline:
+            result = parse_salary_range(tline_dd)
+            if result[0]:
+                return result
+
+        # (B1c) "X/year up to Y/year" or "from X/year up to Y/year"
+        m = re.search(
+            r"\$\s*([\d,\.]+)\s*/\s*year\s+up\s+to\s+\$\s*([\d,\.]+)\s*/\s*year",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1))
+            v2 = _money_to_number(m.group(2))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    return lo, hi, "year"
+
+        # (B1d) "is to" connector "$102,780 is to $137,040"
+        m = re.search(
+            r"\$\s*([\d,]+(?:\.\d+)?)\s+is\s+to\s+\$\s*([\d,]+(?:\.\d+)?)",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1))
+            v2 = _money_to_number(m.group(2))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    return lo, hi, "year"
+
+        # (B1e) "Pay Range $140 — $150 USD" — USD suffix, check both annual and hourly
+        m = re.search(
+            r"pay\s+range\s+\$\s*([\d,\.]+)\s*[—–-]\s*\$?\s*([\d,\.]+)\s*USD",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1))
+            v2 = _money_to_number(m.group(2))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    return lo, hi, "year"
+                elif Decimal("7") <= lo <= Decimal("500") and hi <= Decimal("500"):
+                    return lo, hi, "hour"
+
         # (B2) Chime-style "will begin at $X and up to $Y"
         m = re.search(
             r"(?:begin|starting)\s+at\s+\$\s*([\d,]+(?:\.\d+)?)\s*(?:and\s+up\s+to|[-\u2013\u2014to]+)\s*\$\s*([\d,]+(?:\.\d+)?)",
@@ -784,6 +840,8 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
                 if re.search(r"\b(annual|annually|per\s*year|per\s*annum|/yr|yearly)\b", low):
                     period = "year"
                 elif re.search(r"\b(hourly|per\s*hour|/hr)\b", low):
+                    period = "hour"
+                elif re.search(r"\busd\b", low) and min(smin, smax) < Decimal("1000"):
                     period = "hour"
                 elif re.search(r"\b(monthly|per\s*month|/mo)\b", low):
                     period = "month"
