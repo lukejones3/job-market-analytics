@@ -516,8 +516,7 @@ def _infer_period_from_context(text: str, start: int, end: int) -> Optional[str]
         return "hour"
     if re.search(r"\b(per\s*month|/mo|monthly)\b", window):
         return "month"
-    if re.search(r"\busd\b", window):
-        return "year"
+    # USD alone is not a period signal — don't infer year from it here
     return None
 
 def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal], Optional[str]]:
@@ -607,16 +606,22 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
             smax = _money_to_number(m.group(3))
             if smin is None or smax is None:
                 continue
+            # Fix truncated numbers like $274,00 (missing trailing zero)
+            # If smax is less than half of smin, it's likely truncated — multiply by 10
+            if smax and smin and smax < smin / 2 and smax > Decimal("1000"):
+                smax = smax * 10
             _period_src = _matched_target if "_matched_target" in dir() else tline
             period = _infer_period_from_context(_period_src, m.start(), m.end())
             if not period:
                 # if line contains "annual/annually/per year" we accept as year
                 if re.search(r"\b(annual|annually|per\s*year|per\s*annum|/yr|yearly)\b", low):
                     period = "year"
-                elif re.search(r"\b(hourly|per\s*hour|/hr)\b", low):
+                elif re.search(r"\b(hourly|per\s*hour|/hr|/hour)\b", low):
                     period = "hour"
                 elif re.search(r"\busd\b", low) and min(smin, smax) < Decimal("1000"):
                     period = "hour"
+                elif re.search(r"\busd\b", low) and min(smin, smax) >= Decimal("1000"):
+                    period = "year"
                 elif re.search(r"\b(monthly|per\s*month|/mo)\b", low):
                     period = "month"
                 elif min(smin, smax) >= 30000:
@@ -818,6 +823,107 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
                 elif Decimal("7") <= lo <= Decimal("500") and hi <= Decimal("500"):
                     return lo, hi, "hour"
 
+        # (B1f) "Up to $X" — single ceiling value (Fractal Analytics style)
+        m = re.search(
+            r"(?:up\s+to|maximum|not\s+to\s+exceed)\s+\$\s*([\d,]+(?:\.\d+)?[kKmM]?)",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v = _money_to_number(m.group(1))
+            if v and Decimal("15000") <= v <= Decimal("1000000"):
+                return v, v, "year"
+
+        # (B1g) "$X/hr USD Annual" or "$X/hr USD" — hourly with USD and Annual keywords
+        m = re.search(
+            r"\$\s*([\d,\.]+)\s*-\s*\$?\s*([\d,\.]+)\s*/\s*hr\s+USD",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1))
+            v2 = _money_to_number(m.group(2))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("7") <= lo <= Decimal("500") and hi <= Decimal("500"):
+                    return lo, hi, "hour"
+
+        # (B1h) Truncated number like "$274,00" — missing last digit, try adding zero
+        m = re.search(
+            r"\$\s*([\d,]+)\s*[-–—]\s*\$?\s*([\d]+,\d{2})(?!\d)",
+            tline, flags=re.IGNORECASE)
+        if m:
+            s2 = m.group(2)
+            # If second number ends in exactly 2 digits after comma, likely truncated
+            if re.match(r"^\d+,\d{2}$", s2):
+                s2_fixed = s2 + "0"
+                v1 = _money_to_number(m.group(1).replace(",", ""))
+                v2 = _money_to_number(s2_fixed.replace(",", ""))
+                if v1 and v2:
+                    lo, hi = min(v1, v2), max(v1, v2)
+                    if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                        return lo, hi, "year"
+
+        # (B1i) Spaces within number "$1 40 ,000" — SeekOut style OCR artifacts
+        m = re.search(
+            r"\$\s*([\d][\d\s,]+[\d])\s*[-–—]\s*\$?\s*([\d][\d\s,]+[\d])\s*per\s+year",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1).replace(' ', ''))
+            v2 = _money_to_number(m.group(2).replace(' ', ''))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    return lo, hi, "year"
+
+        # (B1j) Truncated salary like "$296,10" — USAA style missing digit
+        m = re.search(
+            r"\$\s*([\d,]+(?:\.\d+)?)\s*[-–—]\s*\$?\s*(\d+,\d{2})\s*[.\s]",
+            tline, flags=re.IGNORECASE)
+        if m:
+            s2 = m.group(2)
+            if re.match(r"^\d+,\d{2}$", s2):
+                v1 = _money_to_number(m.group(1))
+                v2 = _money_to_number(s2 + "0")
+                if v1 and v2:
+                    lo, hi = min(v1, v2), max(v1, v2)
+                    if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                        return lo, hi, "year"
+
+        # (B1k) "$X &mdash; $Y USD" or "$X &mdash; $Y" HTML entity em-dash with USD
+        m = re.search(
+            r"\$\s*([\d,\.]+[kKmM]?)\s*&mdash;\s*\$?\s*([\d,\.]+[kKmM]?)\s*(?:USD)?",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1))
+            v2 = _money_to_number(m.group(2))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    return lo, hi, "year"
+                elif Decimal("7") <= lo <= Decimal("500") and hi <= Decimal("500"):
+                    return lo, hi, "hour"
+
+        # (B1l) "Airbnb Pay Range $140 — $150 USD" — already covered by B1e but
+        # Morgan Stanley "$125,00 and $135,000" — truncated first value
+        m = re.search(
+            r"between\s+\$\s*(\d+,\d{2})\s+and\s+\$\s*([\d,]+)\s+per\s+year",
+            tline, flags=re.IGNORECASE)
+        if m:
+            s1 = m.group(1)
+            if re.match(r"^\d+,\d{2}$", s1):
+                v1 = _money_to_number(s1 + "0")
+                v2 = _money_to_number(m.group(2))
+                if v1 and v2:
+                    lo, hi = min(v1, v2), max(v1, v2)
+                    if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                        return lo, hi, "year"
+
+        # (B1m) "$X/hour" single value hourly
+        m = re.search(
+            r"\$\s*([\d,\.]+)\s*/\s*hour",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v = _money_to_number(m.group(1))
+            if v and Decimal("7") <= v <= Decimal("500"):
+                return v, v, "hour"
+
         # (B2) Chime-style "will begin at $X and up to $Y"
         m = re.search(
             r"(?:begin|starting)\s+at\s+\$\s*([\d,]+(?:\.\d+)?)\s*(?:and\s+up\s+to|[-\u2013\u2014to]+)\s*\$\s*([\d,]+(?:\.\d+)?)",
@@ -839,10 +945,12 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
             if not period:
                 if re.search(r"\b(annual|annually|per\s*year|per\s*annum|/yr|yearly)\b", low):
                     period = "year"
-                elif re.search(r"\b(hourly|per\s*hour|/hr)\b", low):
+                elif re.search(r"\b(hourly|per\s*hour|/hr|/hour)\b", low):
                     period = "hour"
                 elif re.search(r"\busd\b", low) and min(smin, smax) < Decimal("1000"):
                     period = "hour"
+                elif re.search(r"\busd\b", low) and min(smin, smax) >= Decimal("1000"):
+                    period = "year"
                 elif re.search(r"\b(monthly|per\s*month|/mo)\b", low):
                     period = "month"
                 else:
