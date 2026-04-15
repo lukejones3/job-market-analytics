@@ -710,13 +710,20 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
                     if period == "year":
                         return lo, hi, period
 
-        # (B0a4) Space as thousands separator "151 800" style
+        # (B0a4) Space as thousands separator "151 800,00" or "151 800" style
         m = re.search(
-            r"(?:minimum|min)[:\s]+\$\s*([\d][\d\s,]+[\d])\s+(?:maximum|max)[:\s]+\$?\s*([\d][\d\s,]+[\d])",
+            r"(?:minimum|min)[:\s]+\$\s*([\d][\d\s,\.]+[\d])\s+(?:maximum|max)[:\s]+\$?\s*([\d][\d\s,\.]+[\d])",
             tline, flags=re.IGNORECASE)
         if m:
-            v1 = _money_to_number(m.group(1).replace(' ', ''))
-            v2 = _money_to_number(m.group(2).replace(' ', ''))
+            # strip spaces and trailing ",00" or ".00" decimal artifact
+            def clean_eu(s):
+                s = s.strip().replace(' ', '')
+                # "151800,00" -> "151800" (European decimal)
+                if re.match(r'^\d+[,\."]\d{2}$', s):
+                    s = re.sub(r'[,\."]\d{2}$', '', s)
+                return s
+            v1 = _money_to_number(clean_eu(m.group(1)))
+            v2 = _money_to_number(clean_eu(m.group(2)))
             if v1 and v2:
                 lo, hi = min(v1, v2), max(v1, v2)
                 if Decimal("15000") <= lo and hi <= Decimal("1000000"):
