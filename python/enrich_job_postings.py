@@ -649,6 +649,84 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
                 if Decimal("15000") <= lo and hi <= Decimal("1000000"):
                     return lo, hi, "year"
 
+        # (B0a) HTML entity em-dash "&mdash;" between salary values
+        tline_clean = tline.replace("&mdash;", "-").replace("&ndash;", "-")
+        if tline_clean != tline:
+            result = parse_salary_range(tline_clean)
+            if result[0]:
+                return result
+
+        # (B0a2) "will be between $X and $Y" / "range between $X and $Y"
+        m = re.search(
+            r"(?:will\s+be\s+between|range\s+between|ranging\s+between|between)\s+\$\s*([\d,\.]+[kKmM]?)\s+and\s+\$?\s*([\d,\.]+[kKmM]?)",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1).replace('.', ''))
+            v2 = _money_to_number(m.group(2).replace('.', ''))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    return lo, hi, "year"
+
+        # (B0a3) "ranges from $X-$Y" or "$X-Y" without second dollar sign
+        # Also handles European period thousands separator like $158.400
+        m = re.search(
+            r"(?:ranges?\s+from\s+)?\$\s*([\d][,\.\d]+)\s*[-–—]\s*\$?\s*([\d][,\.\d]+)",
+            tline, flags=re.IGNORECASE)
+        if m:
+            # strip European-style periods used as thousands separators
+            s1 = m.group(1).replace('.', '') if '.' in m.group(1) and len(m.group(1).split('.')[-1]) == 3 else m.group(1)
+            s2 = m.group(2).replace('.', '') if '.' in m.group(2) and len(m.group(2).split('.')[-1]) == 3 else m.group(2)
+            v1 = _money_to_number(s1)
+            v2 = _money_to_number(s2)
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    period = _infer_period_from_context(tline, m.start(), m.end())
+                    if not period and lo >= 30000:
+                        period = "year"
+                    if period == "year":
+                        return lo, hi, period
+        # (B0a3 ORIGINAL — keep for fallback)
+        m = re.search(
+            r"(?:ranges?\s+from\s+)?\$\s*([\d,]+(?:\.\d+)?[kKmM]?)\s*[-–—]\s*([\d,]+(?:\.\d+)?[kKmM]?)",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1))
+            v2 = _money_to_number(m.group(2))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    period = _infer_period_from_context(tline, m.start(), m.end())
+                    if not period and lo >= 30000:
+                        period = "year"
+                    if period == "year":
+                        return lo, hi, period
+
+        # (B0a4) Space as thousands separator "151 800" style
+        m = re.search(
+            r"(?:minimum|min)[:\s]+\$\s*([\d][\d\s,]+[\d])\s+(?:maximum|max)[:\s]+\$?\s*([\d][\d\s,]+[\d])",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1).replace(' ', ''))
+            v2 = _money_to_number(m.group(2).replace(' ', ''))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    return lo, hi, "year"
+
+        # (B0a5) "starting between $X and $Y"
+        m = re.search(
+            r"starting\s+between\s+\$\s*([\d,]+[kKmM]?)\s+and\s+\$?\s*([\d,]+[kKmM]?)",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1))
+            v2 = _money_to_number(m.group(2))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    return lo, hi, "year"
+
         # (B0b) "$ 158,500 to $ 218,000" — space between $ and number
         m = re.search(
             r"\$\s*([\d,]+(?:\.\d+)?[kKmM]?)\s*(?:to|-|–)\s*\$\s*([\d,]+(?:\.\d+)?[kKmM]?)",
