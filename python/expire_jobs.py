@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
-Marks tier-1 jobs as expired if not seen in the last 3 nightly runs (~3 days).
+Marks tier-1 jobs as expired if not seen in today's ingest run.
+Includes a sanity check — if today's ingest was unhealthy (< 50 new jobs),
+expiry is skipped entirely to avoid false positives from a bad run.
 Run nightly AFTER ingest_jobs.py completes.
 """
 import os
@@ -23,24 +25,39 @@ def main():
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            # Mark expired — not seen in 3 days
+
+            # Sanity check — was today's ingest healthy?
+            cur.execute("""
+                SELECT COUNT(*) FROM job_postings
+                WHERE last_seen_at >= now() - interval '4 hours'
+                AND data_tier = 1
+            """)
+            todays_seen = cur.fetchone()[0]
+
+            if todays_seen < 50:
+                print(f"⚠️ Only {todays_seen} jobs seen in last 4 hours — skipping expiry to avoid false positives")
+                return
+
+            print(f"✅ Ingest healthy — {todays_seen} jobs seen today. Running expiry...")
+
+            # Mark expired — not seen in today's run (missed last_seen_at update)
             cur.execute("""
                 UPDATE job_postings
                 SET status = 'expired'
                 WHERE data_tier = 1
                 AND status != 'expired'
-                AND last_seen_at < now() - interval '3 days'
+                AND last_seen_at < now() - interval '1 day'
             """)
             expired = cur.rowcount
             print(f"Marked expired: {expired}")
 
-            # Mark active — seen recently
+            # Reactivate — seen again after being marked expired
             cur.execute("""
                 UPDATE job_postings
-                SET status = 'active'
+                SET status = 'raw'
                 WHERE data_tier = 1
                 AND status = 'expired'
-                AND last_seen_at >= now() - interval '3 days'
+                AND last_seen_at >= now() - interval '1 day'
             """)
             reactivated = cur.rowcount
             print(f"Reactivated: {reactivated}")
