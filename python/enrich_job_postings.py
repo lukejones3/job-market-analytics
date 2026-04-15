@@ -949,14 +949,15 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
         m = re.search(r"(\$[\d,]+(?:\.\d+)?[kKmM]?)", tline)
         if m:
             period = _infer_period_from_context(tline, m.start(), m.end())
+            _v_peek = _money_to_number(m.group(1))
             if not period:
                 if re.search(r"\b(annual|annually|per\s*year|per\s*annum|/yr|yearly)\b", low):
                     period = "year"
                 elif re.search(r"\b(hourly|per\s*hour|/hr|/hour)\b", low):
                     period = "hour"
-                elif re.search(r"\busd\b", low) and min(smin, smax) < Decimal("1000"):
+                elif re.search(r"\busd\b", low) and _v_peek and _v_peek < Decimal("1000"):
                     period = "hour"
-                elif re.search(r"\busd\b", low) and min(smin, smax) >= Decimal("1000"):
+                elif re.search(r"\busd\b", low) and _v_peek and _v_peek >= Decimal("1000"):
                     period = "year"
                 elif re.search(r"\b(monthly|per\s*month|/mo)\b", low):
                     period = "month"
