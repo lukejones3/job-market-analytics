@@ -671,7 +671,7 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
         # (B0a3) "ranges from $X-$Y" or "$X-Y" without second dollar sign
         # Also handles European period thousands separator like $158.400
         m = re.search(
-            r"(?:ranges?\s+from\s+)?\$\s*([\d][,\.\d]+)\s*[-–—]\s*\$?\s*([\d][,\.\d]+)",
+            r"(?:ranges?\s+from\s+)?\$\s*([\d][,\.\d]+)\s*[-–—]\s*\$?\s*([\d][,\.\d]+)\b",
             tline, flags=re.IGNORECASE)
         if m:
             # strip European-style periods used as thousands separators
