@@ -49,65 +49,92 @@ REQUEST_TIMEOUT = 8
 
 QUERIES = {
     "greenhouse": [
-        # Tech industry verticals
-        'site:boards.greenhouse.io "data" "adtech"',
-        'site:boards.greenhouse.io "data" "martech"',
-        'site:boards.greenhouse.io "data" "cybersecurity"',
-        'site:boards.greenhouse.io "data" "regtech"',
-        'site:boards.greenhouse.io "data" "wealthtech"',
-        'site:boards.greenhouse.io "data" "legaltech"',
-        'site:boards.greenhouse.io "data" "traveltech"',
-        'site:boards.greenhouse.io "data" "foodtech"',
-        'site:boards.greenhouse.io "data" "cleantech"',
-        'site:boards.greenhouse.io "data" "deeptech"',
-        # Company stage
-        'site:boards.greenhouse.io "data" "growth stage"',
-        'site:boards.greenhouse.io "data" "enterprise software"',
-        'site:boards.greenhouse.io "data" "vertical SaaS"',
-        'site:boards.greenhouse.io "data" "horizontal SaaS"',
-        'site:boards.greenhouse.io "data" "platform company"',
-        # Tool ecosystems
-        'site:boards.greenhouse.io "data" "Fivetran" "dbt"',
-        'site:boards.greenhouse.io "data" "Segment" "Snowflake"',
-        'site:boards.greenhouse.io "data" "Mixpanel" "Amplitude"',
-        'site:boards.greenhouse.io "data" "Looker" "dbt"',
-        'site:boards.greenhouse.io "data" "Databricks" "Delta Lake"',
-        # Specific role titles not tried yet
-        'site:boards.greenhouse.io "growth analyst"',
-        'site:boards.greenhouse.io "product analyst"',
-        'site:boards.greenhouse.io "financial analyst" "data"',
-        'site:boards.greenhouse.io "people analytics"',
-        'site:boards.greenhouse.io "marketing data"',
-        'site:boards.greenhouse.io "sales analytics"',
-        'site:boards.greenhouse.io "customer analytics"',
-        'site:boards.greenhouse.io "pricing analyst"',
-        'site:boards.greenhouse.io "risk analyst" "data"',
-        'site:job-boards.greenhouse.io "vertical SaaS" "data"',
-        'site:job-boards.greenhouse.io "growth analyst"',
-        'site:job-boards.greenhouse.io "people analytics"',
-        'site:job-boards.greenhouse.io "pricing analyst"',
-        'site:job-boards.greenhouse.io "Fivetran" "dbt"',
+        # Adjacent role titles not yet searched
+        'site:boards.greenhouse.io "actuarial analyst"',
+        'site:boards.greenhouse.io "credit risk analyst"',
+        'site:boards.greenhouse.io "campaign analyst"',
+        'site:boards.greenhouse.io "media mix model"',
+        'site:boards.greenhouse.io "marketing science"',
+        'site:boards.greenhouse.io "econometrician"',
+        'site:boards.greenhouse.io "measurement scientist"',
+        'site:boards.greenhouse.io "experimentation scientist"',
+        'site:boards.greenhouse.io "trust and safety" data',
+        'site:boards.greenhouse.io "integrity analyst"',
+        'site:boards.greenhouse.io "policy data"',
+        'site:boards.greenhouse.io "clinical data scientist"',
+        'site:boards.greenhouse.io "health economist"',
+        'site:boards.greenhouse.io "bioinformatics"',
+        'site:boards.greenhouse.io "computational biologist"',
+        'site:boards.greenhouse.io "geospatial analyst"',
+        'site:boards.greenhouse.io "spatial data"',
+        'site:boards.greenhouse.io "supply chain analyst"',
+        'site:boards.greenhouse.io "demand forecasting"',
+        'site:boards.greenhouse.io "inventory optimization"',
+        'site:boards.greenhouse.io "pricing scientist"',
+        'site:boards.greenhouse.io "yield analyst"',
+        'site:boards.greenhouse.io "attribution analyst"',
+        'site:boards.greenhouse.io "incrementality"',
+        'site:boards.greenhouse.io "lift measurement"',
+        'site:boards.greenhouse.io "data journalism"',
+        'site:boards.greenhouse.io "investigative data"',
+        'site:boards.greenhouse.io "financial data scientist"',
+        'site:boards.greenhouse.io "economist" data',
+        'site:boards.greenhouse.io "research engineer" data',
+        'site:job-boards.greenhouse.io "actuarial analyst"',
+        'site:job-boards.greenhouse.io "media mix model"',
+        'site:job-boards.greenhouse.io "experimentation scientist"',
+        'site:job-boards.greenhouse.io "bioinformatics"',
+        'site:job-boards.greenhouse.io "demand forecasting"',
+        'site:job-boards.greenhouse.io "pricing scientist"',
+        'site:job-boards.greenhouse.io "incrementality"',
+        'site:job-boards.greenhouse.io "economist" data',
     ],
     "lever": [
-        'site:jobs.lever.co "growth analyst"',
-        'site:jobs.lever.co "product analyst"',
-        'site:jobs.lever.co "people analytics"',
-        'site:jobs.lever.co "pricing analyst"',
-        'site:jobs.lever.co "customer analytics"',
-        'site:jobs.lever.co "marketing data"',
-        'site:jobs.lever.co "sales analytics"',
-        'site:jobs.lever.co "Fivetran" "dbt"',
-        'site:jobs.lever.co "Segment" "Snowflake"',
-        'site:jobs.lever.co "vertical SaaS" "data"',
-        'site:jobs.lever.co "enterprise software" "data"',
-        'site:jobs.lever.co "cleantech" "data"',
-        'site:jobs.lever.co "cybersecurity" "data"',
-        'site:jobs.lever.co "wealthtech" "data"',
+        'site:jobs.lever.co "actuarial analyst"',
+        'site:jobs.lever.co "credit risk analyst"',
+        'site:jobs.lever.co "campaign analyst"',
+        'site:jobs.lever.co "media mix model"',
+        'site:jobs.lever.co "marketing science"',
+        'site:jobs.lever.co "measurement scientist"',
+        'site:jobs.lever.co "experimentation scientist"',
+        'site:jobs.lever.co "trust and safety" data',
+        'site:jobs.lever.co "integrity analyst"',
+        'site:jobs.lever.co "clinical data scientist"',
+        'site:jobs.lever.co "bioinformatics"',
+        'site:jobs.lever.co "computational biologist"',
+        'site:jobs.lever.co "geospatial analyst"',
+        'site:jobs.lever.co "supply chain analyst"',
+        'site:jobs.lever.co "demand forecasting"',
+        'site:jobs.lever.co "pricing scientist"',
+        'site:jobs.lever.co "attribution analyst"',
+        'site:jobs.lever.co "incrementality"',
+        'site:jobs.lever.co "financial data scientist"',
+        'site:jobs.lever.co "economist" data',
+        'site:jobs.lever.co "research engineer" data',
+        'site:jobs.lever.co "yield analyst"',
+        'site:jobs.lever.co "health economist"',
+        'site:jobs.lever.co "policy data"',
     ],
     # ashby excluded — Google index doesn't match Ashby API slugs reliably
     # Use discover_companies.py --source ashby instead
     # workday excluded — Google returns instance IDs not company subdomains
     # Workday companies are manually curated in ingest_jobs.py
+    "icims": [
+        'site:icims.com "data scientist" "United States"',
+        'site:icims.com "data engineer" "United States"',
+        'site:icims.com "data analyst" "United States"',
+        'site:icims.com "analytics engineer" "United States"',
+        'site:icims.com "machine learning engineer" "United States"',
+        'site:icims.com "applied scientist" "United States"',
+        'site:icims.com "business intelligence" "United States"',
+        'site:icims.com "ml engineer" "United States"',
+        'site:icims.com "research scientist" "United States"',
+        'site:icims.com "staff data" "United States"',
+        'site:icims.com "principal data" "United States"',
+        'site:icims.com "data science manager" "United States"',
+        'site:icims.com "revenue operations" "United States"',
+        'site:icims.com "quantitative analyst" "United States"',
+    ],
     "workday_dork": [
         'site:myworkdayjobs.com "data scientist"',
         'site:myworkdayjobs.com "data engineer"',
@@ -165,6 +192,20 @@ def extract_workday_token(url: str) -> Optional[str]:
             return token
     return None
 
+def extract_icims_token(url: str) -> Optional[str]:
+    """Extract company slug from iCIMS URLs.
+    Patterns: careers-{company}.icims.com, {prefix}-{company}.icims.com
+    Returns the full subdomain as token since that's what we need to probe.
+    """
+    import re as _re
+    m = _re.search(r"https?://([a-z0-9\-]+)\.icims\.com", url, _re.IGNORECASE)
+    if m:
+        subdomain = m.group(1).lower()
+        # Filter out generic subdomains
+        if subdomain not in ("www", "social", "hrjobs", "jobs"):
+            return subdomain
+    return None
+
 def extract_workday_dork_token(url: str) -> Optional[str]:
     """Extract company slug and instance from real Workday URLs like 
     accenture.wd103.myworkdayjobs.com/AccentureCareers/..."""
@@ -189,6 +230,8 @@ def extract_token(url: str, source: str) -> Optional[str]:
         return extract_workday_token(url)
     elif source == "workday_dork":
         return extract_workday_dork_token(url)
+    elif source == "icims":
+        return extract_icims_token(url)
     return None
 
 # ── Serper search ───────────────────────────────────────────────────────────
@@ -321,6 +364,35 @@ def probe_workday(subdomain: str) -> tuple[bool, int, str]:
             continue
     return False, 0, ""
 
+def probe_icims(subdomain: str) -> tuple[bool, int, str]:
+    """Probe an iCIMS company board for data/analytics roles."""
+    try:
+        # iCIMS search API
+        url = f"https://{subdomain}.icims.com/jobs/search"
+        params = {
+            "ss": "1",
+            "searchKeyword": "data",
+            "searchLocation": "",
+            "in_iframe": "1",
+        }
+        r = requests.get(url, params=params, timeout=REQUEST_TIMEOUT,
+                        headers={"User-Agent": "Mozilla/5.0"})
+        if r.status_code != 200:
+            return False, 0, ""
+        
+        # Parse job titles from response
+        import re as _re
+        titles = _re.findall(r'<span[^>]*class="[^"]*job-title[^"]*"[^>]*>([^<]+)<', r.text)
+        if not titles:
+            # Try alternate pattern
+            titles = _re.findall(r'"jobTitle"\s*:\s*"([^"]+)"', r.text)
+        
+        target = [t for t in titles if TARGET_ROLE_RE.search(t)]
+        name = subdomain.replace("careers-", "").replace("-jobs", "").replace("-", " ").title()
+        return len(target) > 0, len(target), name
+    except Exception:
+        return False, 0, ""
+
 def probe_workday_dork(token: str) -> tuple[bool, int, str]:
     """Probe a workday company using the exact instance/tenant from Google."""
     try:
@@ -360,6 +432,8 @@ def probe(source: str, token: str) -> tuple[bool, int, str]:
         return probe_workday(token)
     elif source == "workday_dork":
         return probe_workday_dork(token)
+    elif source == "icims":
+        return probe_icims(token)
     return False, 0, ""
 
 # ── DB helpers ──────────────────────────────────────────────────────────────
@@ -385,7 +459,10 @@ def insert_company(cur, source: str, token: str, name: str,
     # For workday_dork, extract real board_token and use "workday" as source
     real_source = source
     real_token = token
-    if source == "workday_dork":
+    if source == "icims":
+        real_source = "icims"
+        real_token = token
+    elif source == "workday_dork":
         parts = token.split("|")
         if len(parts) == 3:
             company, instance, tenant = parts
@@ -416,14 +493,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--source", choices=["greenhouse", "lever", "workday_dork", "all"],
+    ap.add_argument("--source", choices=["greenhouse", "lever", "workday_dork", "icims", "all"],
                     default="all")
     ap.add_argument("--limit", type=int, default=500,
                     help="Max Serper queries to run")
     args = ap.parse_args()
 
     apply = args.apply and not args.dry_run
-    sources = ["greenhouse", "lever", "workday_dork"] if args.source == "all" else [args.source]
+    sources = ["greenhouse", "lever", "workday_dork", "icims"] if args.source == "all" else [args.source]
 
     conn = get_conn()
     cur = conn.cursor(cursor_factory=DictCursor)
