@@ -2089,7 +2089,10 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
         return loc.split(",")[0].strip()
 
     # Load existing jobs from DB for cross-source dedup
-    # Build a set of (company, title, loc) for all Tier 1 jobs already ingested
+    # Build two sets:
+    #   active_cross_keys  — raw/active jobs (block re-insertion)
+    #   expired_cross_keys — expired jobs keyed by (company, title, loc) -> job_id
+    #                        When a match is found, update last_seen_at instead of dropping
     try:
         _conn = get_conn()
         _cur = _conn.cursor()
@@ -2099,23 +2102,38 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
                        WHEN jp.workplace_type = 'remote' THEN 'remote'
                        WHEN l.location IS NULL OR l.location = '' THEN 'unknown'
                        ELSE lower(split_part(l.location, ',', 1))
-                   END
+                   END,
+                   jp.status,
+                   jp.job_id
             FROM job_postings jp
             JOIN companies c ON c.company_id = jp.company_id
             JOIN roles r ON r.role_id = jp.role_id
             LEFT JOIN locations l ON l.location_id = jp.location_id
             WHERE jp.data_tier = 1
         """)
-        db_cross_keys = set(_cur.fetchall())
+        rows = _cur.fetchall()
         _cur.close()
         _conn.close()
-        log.info(f"Loaded {len(db_cross_keys)} existing Tier 1 job keys for cross-source dedup")
+
+        active_cross_keys = set()
+        expired_cross_map = {}  # (company, title, loc) -> job_id
+        for company, title, loc, status, job_id in rows:
+            key = (company, title, loc)
+            if status == 'raw':
+                active_cross_keys.add(key)
+            else:
+                expired_cross_map[key] = job_id
+
+        log.info(f"Loaded {len(active_cross_keys)} active + {len(expired_cross_map)} expired Tier 1 job keys for cross-source dedup")
     except Exception as e:
         log.warning(f"Could not load existing jobs for cross-source dedup: {e}")
-        db_cross_keys = set()
+        active_cross_keys = set()
+        expired_cross_map = {}
 
-    cross_seen = set(db_cross_keys)
+    cross_seen = set(active_cross_keys)
     deduped_final = []
+    reactivated = 0
+
     for job in deduped:
         loc_key = _norm_location(job)
         cross_key = (
@@ -2124,13 +2142,37 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
             loc_key
         )
         if cross_key in cross_seen:
+            # Already active in DB — skip
             continue
+
+        if cross_key in expired_cross_map:
+            # Job was expired but is live again — reactivate by updating last_seen_at
+            if apply:
+                try:
+                    _conn = get_conn()
+                    _cur = _conn.cursor()
+                    _cur.execute("""
+                        UPDATE job_postings
+                        SET last_seen_at = now(), status = 'raw'
+                        WHERE job_id = %s
+                    """, (expired_cross_map[cross_key],))
+                    _conn.commit()
+                    _cur.close()
+                    _conn.close()
+                    reactivated += 1
+                except Exception as e:
+                    log.warning(f"Could not reactivate job {expired_cross_map[cross_key]}: {e}")
+            cross_seen.add(cross_key)
+            continue
+
         cross_seen.add(cross_key)
         deduped_final.append(job)
 
-    removed = len(deduped) - len(deduped_final)
+    removed = len(deduped) - len(deduped_final) - reactivated
     if removed > 0:
         log.info(f"Cross-source title+location dedup removed {removed} duplicate postings")
+    if reactivated > 0:
+        log.info(f"Cross-source dedup reactivated {reactivated} previously expired jobs")
     deduped = deduped_final
 
     log.info(f"After batch dedup: {len(deduped)} jobs")
