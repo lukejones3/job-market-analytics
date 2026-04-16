@@ -84,6 +84,8 @@ QUERIES = {
     ],
     # ashby excluded — Google index doesn't match Ashby API slugs reliably
     # Use discover_companies.py --source ashby instead
+    # workday excluded — Google returns instance IDs not company subdomains
+    # Workday companies are manually curated in ingest_jobs.py
 }
 
 # ── URL parsing ─────────────────────────────────────────────────────────────
@@ -120,6 +122,15 @@ def extract_ashby_token(url: str) -> Optional[str]:
             return token
     return None
 
+def extract_workday_token(url: str) -> Optional[str]:
+    """Extract subdomain from Workday URLs like company.myworkdayjobs.com"""
+    m = re.search(r"([a-z0-9\-]+)\.myworkdayjobs\.com", url, re.IGNORECASE)
+    if m:
+        token = m.group(1).lower()
+        if token and len(token) > 1 and token not in ("www", "apply", "wd1", "wd3", "wd5"):
+            return token
+    return None
+
 def extract_token(url: str, source: str) -> Optional[str]:
     if source == "greenhouse":
         return extract_greenhouse_token(url)
@@ -127,6 +138,8 @@ def extract_token(url: str, source: str) -> Optional[str]:
         return extract_lever_token(url)
     elif source == "ashby":
         return extract_ashby_token(url)
+    elif source == "workday":
+        return extract_workday_token(url)
     return None
 
 # ── Serper search ───────────────────────────────────────────────────────────
@@ -221,6 +234,44 @@ def probe_ashby(token: str) -> tuple[bool, int, str]:
     except Exception:
         return False, 0, ""
 
+def probe_workday(subdomain: str) -> tuple[bool, int, str]:
+    """Probe Workday by trying common tenant patterns."""
+    # Workday tenants follow pattern: subdomain.myworkdayjobs.com/tenant/jobs
+    # Try to find jobs via the CXS search API
+    tenant_candidates = [
+        f"{subdomain}/jobs",
+        f"{subdomain}External",
+        f"{subdomain}_External",
+        f"External_{subdomain}",
+        f"{subdomain}Careers",
+        f"{subdomain}_Career",
+    ]
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+    
+    for tenant in tenant_candidates:
+        try:
+            url = f"https://{subdomain}.myworkdayjobs.com/wday/cxs/{subdomain}/{tenant}/jobs"
+            r = requests.post(
+                url,
+                json={"limit": 20, "offset": 0, "searchText": "data"},
+                headers=headers,
+                timeout=REQUEST_TIMEOUT,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                jobs = data.get("jobPostings", [])
+                target = [j for j in jobs if TARGET_ROLE_RE.search(j.get("title", ""))]
+                name = subdomain.replace("-", " ").title()
+                return len(target) > 0, len(target), name
+        except Exception:
+            continue
+    return False, 0, ""
+
 def probe(source: str, token: str) -> tuple[bool, int, str]:
     if source == "greenhouse":
         return probe_greenhouse(token)
@@ -228,6 +279,8 @@ def probe(source: str, token: str) -> tuple[bool, int, str]:
         return probe_lever(token)
     elif source == "ashby":
         return probe_ashby(token)
+    elif source == "workday":
+        return probe_workday(token)
     return False, 0, ""
 
 # ── DB helpers ──────────────────────────────────────────────────────────────
