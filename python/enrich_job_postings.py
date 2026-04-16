@@ -758,6 +758,18 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
                     if period == "year":
                         return lo, hi, period
 
+        # (B0b2) "$135 ,000 and 155 , 00 0" — spaces inside numbers (Roku style)
+        m = re.search(
+            r"\$\s*([\d][\d\s,]{2,10}[\d])\s*(?:to|and|-|\u2013|\u2014)\s*\$?\s*([\d][\d\s,]{2,10}[\d])\s*(?:annually|per\s*year|/yr)?",
+            tline, flags=re.IGNORECASE)
+        if m:
+            v1 = _money_to_number(m.group(1).replace(' ', ''))
+            v2 = _money_to_number(m.group(2).replace(' ', ''))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
+                    return lo, hi, "year"
+
         # (B0c) "40$ Hourly" — dollar sign after number
         m = re.search(
             r"([\d,]+(?:\.\d+)?)\s*\$\s*(?:hourly|per\s*hour|/hr)",
