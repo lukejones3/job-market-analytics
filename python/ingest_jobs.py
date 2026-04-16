@@ -1738,7 +1738,39 @@ def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) ->
 
 def fetch_all_workday() -> List[RawJob]:
     all_jobs = []
-    for name, tenant, board, wd_server in WORKDAY_COMPANIES:
+
+    # Build company list — start with hardcoded, then add discovered_companies
+    workday_list = list(WORKDAY_COMPANIES)
+
+    # Load dynamic Workday companies from discovered_companies
+    # board_token format: "tenant/wdN/board" (from serper_dork discovery)
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT company_name, board_token FROM discovered_companies
+            WHERE ats_source = 'workday'
+            AND enabled = true
+            AND discovery_source IN ('serper_dork', 'workday_probe', 'workday_dork')
+            AND board_token LIKE '%wd%'
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+        # Parse board_token: "tenant/wdN/board"
+        hardcoded_tenants = {t for _, t, _, _ in WORKDAY_COMPANIES}
+        for company_name, board_token in rows:
+            parts = board_token.split('/')
+            if len(parts) == 3:
+                tenant, wd_server, board = parts
+                if tenant not in hardcoded_tenants:
+                    workday_list.append((company_name, tenant, board, wd_server))
+                    log.debug(f"  Added dynamic Workday company: {company_name} ({tenant}/{wd_server})")
+    except Exception as e:
+        log.warning(f"Could not load dynamic Workday companies: {e}")
+
+    for name, tenant, board, wd_server in workday_list:
         try:
             jobs = fetch_workday_company(name, tenant, board, wd_server)
             log.info(f"  Workday [{name}]: {len(jobs)} target roles found")
