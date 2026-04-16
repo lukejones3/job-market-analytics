@@ -49,59 +49,77 @@ REQUEST_TIMEOUT = 8
 
 QUERIES = {
     "greenhouse": [
-        # Specific company personas
-        'site:boards.greenhouse.io "data" "marketplace"',
-        'site:boards.greenhouse.io "data" "two-sided marketplace"',
-        'site:boards.greenhouse.io "data" "SaaS" "B2B"',
-        'site:boards.greenhouse.io "data" "developer tools"',
-        'site:boards.greenhouse.io "data" "open source"',
-        'site:boards.greenhouse.io "data" "API" "platform"',
-        'site:boards.greenhouse.io "data" "payments" "fintech"',
-        'site:boards.greenhouse.io "data" "insurance" "actuarial"',
-        'site:boards.greenhouse.io "data" "real estate" "proptech"',
-        'site:boards.greenhouse.io "data" "supply chain" "logistics"',
-        'site:boards.greenhouse.io "data" "healthcare" "EHR"',
-        'site:boards.greenhouse.io "data" "mental health"',
-        'site:boards.greenhouse.io "data" "telemedicine"',
-        'site:boards.greenhouse.io "data" "e-commerce" "retail"',
-        'site:boards.greenhouse.io "data" "media" "streaming"',
-        # Specific perks as differentiators
-        'site:boards.greenhouse.io "data" "parental leave" "equity"',
-        'site:boards.greenhouse.io "data" "visa sponsorship"',
-        'site:boards.greenhouse.io "data" "relocation"',
-        # Team signals
-        'site:boards.greenhouse.io "data" "small team"',
-        'site:boards.greenhouse.io "data" "founding" "engineer"',
-        'site:boards.greenhouse.io "data" "first data"',
-        'site:boards.greenhouse.io "data" "greenfield"',
-        # Specific certifications/compliance
-        'site:boards.greenhouse.io "data" "HIPAA"',
-        'site:boards.greenhouse.io "data" "SOC 2"',
-        'site:boards.greenhouse.io "data" "clearance" "secret"',
-        'site:job-boards.greenhouse.io "data" "marketplace"',
-        'site:job-boards.greenhouse.io "data" "developer tools"',
-        'site:job-boards.greenhouse.io "data" "supply chain"',
-        'site:job-boards.greenhouse.io "data" "visa sponsorship"',
-        'site:job-boards.greenhouse.io "data" "first data"',
+        # Tech industry verticals
+        'site:boards.greenhouse.io "data" "adtech"',
+        'site:boards.greenhouse.io "data" "martech"',
+        'site:boards.greenhouse.io "data" "cybersecurity"',
+        'site:boards.greenhouse.io "data" "regtech"',
+        'site:boards.greenhouse.io "data" "wealthtech"',
+        'site:boards.greenhouse.io "data" "legaltech"',
+        'site:boards.greenhouse.io "data" "traveltech"',
+        'site:boards.greenhouse.io "data" "foodtech"',
+        'site:boards.greenhouse.io "data" "cleantech"',
+        'site:boards.greenhouse.io "data" "deeptech"',
+        # Company stage
+        'site:boards.greenhouse.io "data" "growth stage"',
+        'site:boards.greenhouse.io "data" "enterprise software"',
+        'site:boards.greenhouse.io "data" "vertical SaaS"',
+        'site:boards.greenhouse.io "data" "horizontal SaaS"',
+        'site:boards.greenhouse.io "data" "platform company"',
+        # Tool ecosystems
+        'site:boards.greenhouse.io "data" "Fivetran" "dbt"',
+        'site:boards.greenhouse.io "data" "Segment" "Snowflake"',
+        'site:boards.greenhouse.io "data" "Mixpanel" "Amplitude"',
+        'site:boards.greenhouse.io "data" "Looker" "dbt"',
+        'site:boards.greenhouse.io "data" "Databricks" "Delta Lake"',
+        # Specific role titles not tried yet
+        'site:boards.greenhouse.io "growth analyst"',
+        'site:boards.greenhouse.io "product analyst"',
+        'site:boards.greenhouse.io "financial analyst" "data"',
+        'site:boards.greenhouse.io "people analytics"',
+        'site:boards.greenhouse.io "marketing data"',
+        'site:boards.greenhouse.io "sales analytics"',
+        'site:boards.greenhouse.io "customer analytics"',
+        'site:boards.greenhouse.io "pricing analyst"',
+        'site:boards.greenhouse.io "risk analyst" "data"',
+        'site:job-boards.greenhouse.io "vertical SaaS" "data"',
+        'site:job-boards.greenhouse.io "growth analyst"',
+        'site:job-boards.greenhouse.io "people analytics"',
+        'site:job-boards.greenhouse.io "pricing analyst"',
+        'site:job-boards.greenhouse.io "Fivetran" "dbt"',
     ],
     "lever": [
-        'site:jobs.lever.co "data" "marketplace"',
-        'site:jobs.lever.co "data" "developer tools"',
-        'site:jobs.lever.co "data" "supply chain"',
-        'site:jobs.lever.co "data" "healthcare" "EHR"',
-        'site:jobs.lever.co "data" "mental health"',
-        'site:jobs.lever.co "data" "e-commerce"',
-        'site:jobs.lever.co "data" "visa sponsorship"',
-        'site:jobs.lever.co "data" "HIPAA"',
-        'site:jobs.lever.co "data" "first data"',
-        'site:jobs.lever.co "data" "founding"',
-        'site:jobs.lever.co "data" "open source"',
-        'site:jobs.lever.co "data" "payments"',
+        'site:jobs.lever.co "growth analyst"',
+        'site:jobs.lever.co "product analyst"',
+        'site:jobs.lever.co "people analytics"',
+        'site:jobs.lever.co "pricing analyst"',
+        'site:jobs.lever.co "customer analytics"',
+        'site:jobs.lever.co "marketing data"',
+        'site:jobs.lever.co "sales analytics"',
+        'site:jobs.lever.co "Fivetran" "dbt"',
+        'site:jobs.lever.co "Segment" "Snowflake"',
+        'site:jobs.lever.co "vertical SaaS" "data"',
+        'site:jobs.lever.co "enterprise software" "data"',
+        'site:jobs.lever.co "cleantech" "data"',
+        'site:jobs.lever.co "cybersecurity" "data"',
+        'site:jobs.lever.co "wealthtech" "data"',
     ],
     # ashby excluded — Google index doesn't match Ashby API slugs reliably
     # Use discover_companies.py --source ashby instead
     # workday excluded — Google returns instance IDs not company subdomains
     # Workday companies are manually curated in ingest_jobs.py
+    "workday_dork": [
+        'site:myworkdayjobs.com "data scientist"',
+        'site:myworkdayjobs.com "data engineer"',
+        'site:myworkdayjobs.com "analytics engineer"',
+        'site:myworkdayjobs.com "machine learning engineer"',
+        'site:myworkdayjobs.com "data analyst" "senior"',
+        'site:myworkdayjobs.com "applied scientist"',
+        'site:myworkdayjobs.com "business intelligence"',
+        'site:myworkdayjobs.com "ml engineer"',
+        'site:myworkdayjobs.com "research scientist"',
+        'site:myworkdayjobs.com "staff data"',
+    ],
 }
 
 # ── URL parsing ─────────────────────────────────────────────────────────────
@@ -147,6 +165,19 @@ def extract_workday_token(url: str) -> Optional[str]:
             return token
     return None
 
+def extract_workday_dork_token(url: str) -> Optional[str]:
+    """Extract company slug and instance from real Workday URLs like 
+    accenture.wd103.myworkdayjobs.com/AccentureCareers/..."""
+    import re as _re
+    m = _re.search(r"([a-z0-9\-]+)\.(wd\d+)\.myworkdayjobs\.com/([^/?#\s]+)", url, _re.IGNORECASE)
+    if m:
+        company = m.group(1).lower()
+        instance = m.group(2).lower()
+        tenant = m.group(3)
+        # Return as compound token: company|instance|tenant
+        return f"{company}|{instance}|{tenant}"
+    return None
+
 def extract_token(url: str, source: str) -> Optional[str]:
     if source == "greenhouse":
         return extract_greenhouse_token(url)
@@ -156,6 +187,8 @@ def extract_token(url: str, source: str) -> Optional[str]:
         return extract_ashby_token(url)
     elif source == "workday":
         return extract_workday_token(url)
+    elif source == "workday_dork":
+        return extract_workday_dork_token(url)
     return None
 
 # ── Serper search ───────────────────────────────────────────────────────────
@@ -288,6 +321,34 @@ def probe_workday(subdomain: str) -> tuple[bool, int, str]:
             continue
     return False, 0, ""
 
+def probe_workday_dork(token: str) -> tuple[bool, int, str]:
+    """Probe a workday company using the exact instance/tenant from Google."""
+    try:
+        parts = token.split("|")
+        if len(parts) != 3:
+            return False, 0, ""
+        company, instance, tenant = parts
+        url = f"https://{company}.{instance}.myworkdayjobs.com/wday/cxs/{company}/{tenant}/jobs"
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+        }
+        r = requests.post(
+            url,
+            json={"limit": 20, "offset": 0, "searchText": "data"},
+            headers=headers,
+            timeout=REQUEST_TIMEOUT,
+        )
+        if r.status_code == 200:
+            jobs = r.json().get("jobPostings", [])
+            target = [j for j in jobs if TARGET_ROLE_RE.search(j.get("title", ""))]
+            name = company.replace("-", " ").title()
+            return len(target) > 0, len(target), name
+    except Exception:
+        pass
+    return False, 0, ""
+
 def probe(source: str, token: str) -> tuple[bool, int, str]:
     if source == "greenhouse":
         return probe_greenhouse(token)
@@ -297,6 +358,8 @@ def probe(source: str, token: str) -> tuple[bool, int, str]:
         return probe_ashby(token)
     elif source == "workday":
         return probe_workday(token)
+    elif source == "workday_dork":
+        return probe_workday_dork(token)
     return False, 0, ""
 
 # ── DB helpers ──────────────────────────────────────────────────────────────
@@ -319,13 +382,23 @@ def load_existing_tokens(cur, source: str) -> set[str]:
 
 def insert_company(cur, source: str, token: str, name: str, 
                    active_roles: int, apply: bool) -> bool:
-    company_id = "C" + hashlib.md5(f"{source}:{token}".encode()).hexdigest()[:9]
+    # For workday_dork, extract real board_token and use "workday" as source
+    real_source = source
+    real_token = token
+    if source == "workday_dork":
+        parts = token.split("|")
+        if len(parts) == 3:
+            company, instance, tenant = parts
+            real_source = "workday"
+            real_token = f"{company}/{instance}/{tenant}"
+    
+    company_id = "C" + hashlib.md5(f"{real_source}:{real_token}".encode()).hexdigest()[:9]
     if apply:
         cur.execute("""
             INSERT INTO discovered_companies 
                 (company_id, company_name, ats_source, board_token, 
-                 active_roles, total_seen, discovery_source)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                 active_roles, total_seen, discovery_source, enabled)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (ats_source, board_token) DO UPDATE SET
                 last_seen_at = now(),
                 active_roles = EXCLUDED.active_roles,
@@ -333,8 +406,8 @@ def insert_company(cur, source: str, token: str, name: str,
                     WHEN EXCLUDED.active_roles > 0 THEN now() 
                     ELSE discovered_companies.last_had_roles 
                 END
-        """, (company_id, name or token, source, token, 
-              active_roles, active_roles, "serper_dork"))
+        """, (company_id, name or token, real_source, real_token, 
+              active_roles, active_roles, "serper_dork", True))
     return True
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -343,14 +416,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--source", choices=["greenhouse", "lever", "all"],
+    ap.add_argument("--source", choices=["greenhouse", "lever", "workday_dork", "all"],
                     default="all")
     ap.add_argument("--limit", type=int, default=500,
                     help="Max Serper queries to run")
     args = ap.parse_args()
 
     apply = args.apply and not args.dry_run
-    sources = ["greenhouse", "lever"] if args.source == "all" else [args.source]
+    sources = ["greenhouse", "lever", "workday_dork"] if args.source == "all" else [args.source]
 
     conn = get_conn()
     cur = conn.cursor(cursor_factory=DictCursor)
