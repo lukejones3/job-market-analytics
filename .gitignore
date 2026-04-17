@@ -221,3 +221,5 @@ dbt/**/logs/
 *.BACKUP*
 logs/
 logs/
+job_analytics_fresh_*.sql
+backups/
