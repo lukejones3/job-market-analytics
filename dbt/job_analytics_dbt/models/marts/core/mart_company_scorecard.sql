@@ -70,7 +70,7 @@ difficulty as (
         on lower(c.company_name) = lower(vhd.company_name)
 )
 
-select
+select distinct on (dc.company_name)
     dc.company_id,
     dc.company_name,
     dc.sector,
@@ -106,4 +106,4 @@ left join ghost_summary gs on gs.company_id = dc.company_id
 left join top_skills ts on ts.company_id = dc.company_id
 left join difficulty d on d.company_id = dc.company_id
 where aj.active_roles >= 3
-order by aj.active_roles desc
+order by dc.company_name, aj.active_roles desc nulls last
