@@ -740,7 +740,10 @@ _NON_US_LOCATION_RE = re.compile(
     r"emea|apac|latam|latin america|europe|asia|africa|"
     r"toronto|vancouver|montreal|london|dublin|bangalore|bengaluru|hyderabad|"
     r"chennai|pune|mumbai|kolkata|mexico city|sydney|melbourne|berlin|amsterdam|"
-    r"paris|madrid|stockholm|tel aviv|remote - international)\b",
+    r"paris|madrid|stockholm|tel aviv|remote - international|"
+    r"seoul|south korea|kor -|ukraine|kyiv|warsaw|bucharest|"
+    r"beijing|shanghai|hong kong|taipei|jakarta|kuala lumpur|"
+    r"sao paulo|bogota|buenos aires|lima|santiago)\b",
     re.IGNORECASE,
 )
 
