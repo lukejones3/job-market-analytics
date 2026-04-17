@@ -1764,6 +1764,10 @@ def fetch_all_workday() -> List[RawJob]:
             parts = board_token.split('/')
             if len(parts) == 3:
                 tenant, wd_server, board = parts
+                # Skip locale-format tokens like "adobe/wd5/en-US" — not a real board name
+                if board.lower() in ('en-us', 'fr-ca', 'en-gb', 'ja-jp', 'de-de'):
+                    log.debug(f"  Skipping locale-format token: {board_token}")
+                    continue
                 if tenant not in hardcoded_tenants:
                     workday_list.append((company_name, tenant, board, wd_server))
                     log.debug(f"  Added dynamic Workday company: {company_name} ({tenant}/{wd_server})")
