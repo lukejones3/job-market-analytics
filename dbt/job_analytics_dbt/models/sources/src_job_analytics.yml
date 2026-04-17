@@ -14,4 +14,7 @@ sources:
       - name: pipeline_errors
       - name: discovered_companies
       - name: company_headcount
-      # add other raw tables later as needed
+      - name: job_honesty
+      - name: job_honesty_latest
+      - name: vw_ghost_job_index
+      - name: vw_hiring_difficulty
