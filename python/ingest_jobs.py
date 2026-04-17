@@ -1751,7 +1751,7 @@ def fetch_all_workday() -> List[RawJob]:
             SELECT company_name, board_token FROM discovered_companies
             WHERE ats_source = 'workday'
             AND enabled = true
-            AND discovery_source IN ('serper_dork', 'workday_probe', 'workday_dork')
+            AND discovery_source IN ('serper_dork', 'workday_probe', 'workday_dork', 'manual')
             AND board_token LIKE '%wd%'
         """)
         rows = cur.fetchall()
