@@ -12,11 +12,11 @@ The system ingests job postings from Greenhouse, Lever, Ashby, Workday, Amazon, 
 
 | Metric | Value |
 |---|---|
-| Tier 1 job postings (fully enriched) | 5,300+ |
-| Active Tier 1 roles (live on ATS) | 4,400+ |
+| Tier 1 job postings (fully enriched) | 6,100+ |
+| Active Tier 1 roles (live on ATS) | 4,500+ |
 | ATS sources | 6 (Greenhouse, Lever, Ashby, Workday, Amazon, Eightfold) |
 | Companies actively hiring | 1,000+ |
-| Total companies in monitoring pool | 2,500+ |
+| Total companies in monitoring pool | 2,700+ |
 | Canonical skills tracked | 114 (with 239 aliases) |
 | Sectors classified | 28 |
 | Salary transparency coverage | 55% |
@@ -26,15 +26,17 @@ The system ingests job postings from Greenhouse, Lever, Ashby, Workday, Amazon, 
 
 ## What Makes This Different
 
-**6-source ingestion** — Greenhouse (1,600+ companies) and Lever (640+ companies) cover the venture-backed tech market. Workday covers enterprise companies like Netflix, Capital One, Boeing, Disney, and CVS Health. Ashby covers modern AI-native startups like Perplexity, Cohere, and Ramp. Amazon and Eightfold fill the gaps. No other independent dataset spans all six.
+**6-source ingestion** — Greenhouse (1,800+ companies) and Lever (629+ companies) cover the venture-backed tech market. Workday covers enterprise companies like Netflix, Capital One, Boeing, Citi, Allstate, and Warner Bros. Ashby covers modern AI-native startups like Perplexity, Ramp, and Cohere. Amazon and Eightfold fill the gaps. No other independent dataset spans all six.
 
 **Honesty Score** — every posting is scored 0-100 across 5 penalty dimensions: salary transparency, scope realism, skill-to-level plausibility, internal consistency, and EEO boilerplate dominance. No other job market dataset publishes this.
 
 **Hiring Difficulty Score** — composite metric combining skill rarity, role complexity vs sector peers, salary competitiveness, and posting opacity. Predicts which roles will be hardest to fill before they go stale. Normalized 0-100 across the dataset.
 
+**Ghost Job Index** — sigmoid probability model scoring each active posting's likelihood of being a ghost job, based on days open relative to sector median. Available for Greenhouse, Lever, and Ashby sources.
+
 **Compensation Competitiveness Index** — company average max salary vs sector median by experience level. Identifies which companies pay above or below market for specific role types.
 
-**Job lifecycle tracking** — nightly expiry system marks roles that disappear from ATS boards. Enables posting longevity analysis and role velocity trending as longitudinal data accumulates.
+**Job lifecycle tracking** — nightly expiry system marks roles that disappear from ATS boards. Cross-source dedup reactivates previously expired jobs when re-confirmed live. Enables posting longevity analysis and role velocity trending as longitudinal data accumulates.
 
 **Salary parsing engine** — custom 30+ pattern regex system handling European separators, HTML entity dashes, OTE pairs, zone-based comp, hourly rates, and truncated numbers. 55% salary coverage on Tier 1 postings.
 
@@ -48,13 +50,13 @@ The system ingests job postings from Greenhouse, Lever, Ashby, Workday, Amazon, 
 |---|---|---|
 | Honesty Score | 0-100 posting quality score across 5 dimensions | Live |
 | Hiring Difficulty Score | Composite fill-difficulty predictor, normalized 0-100 | Live |
+| Ghost Job Index | Sigmoid probability a posting is no longer actively hiring | Live |
 | Compensation Competitiveness Index | % above/below sector median by experience level | Live |
 | Skill Gap Score | % niche skills (<5% prevalence) per company | Live |
 | Job Description Complexity Score | Required skills vs sector peers | Live |
 | Salary Premium by Skill | % compensation lift per canonical skill | Live |
 | Role Velocity | Hiring acceleration/deceleration | Building (needs 30d data) |
 | Posting Longevity Index | Avg days open before expiry | Building (needs 30d data) |
-| Ghost Job Index | Probability a posting is no longer actively hiring | Building |
 
 ---
 
@@ -84,17 +86,34 @@ The system ingests job postings from Greenhouse, Lever, Ashby, Workday, Amazon, 
 ## Stack
 
 - **Ingestion** — Python 3.9, 6-source ATS pipeline, parallelized nightly cron (all sources simultaneously, ~50 min)
-- **Discovery** — Serper.dev Google dorking across 40+ query angles; 2,500+ companies discovered and validated
-- **Storage** — PostgreSQL 16 on DigitalOcean Ubuntu 24, pg_dump backups with 7-day retention
+- **Discovery** — Serper.dev Google dorking across 40+ query angles targeting role titles, tech stack signals, industry verticals, and funding stage; 2,700+ companies discovered and validated
+- **Storage** — PostgreSQL 16 on DigitalOcean (4GB RAM, 2 vCPU), pg_dump backups with 7-day retention
 - **Enrichment** — custom NLP pipeline: 114-skill extraction with 239 aliases, 30+ salary format parser, experience level inference, workplace type classification
-- **Scoring** — proprietary Honesty Score via PostgreSQL stored function; Hiring Difficulty Score via `vw_hiring_difficulty` view
+- **Scoring** — Honesty Score via PostgreSQL stored function; Hiring Difficulty Score and Ghost Job Index via SQL views; all refreshed nightly
+- **Transformation** — dbt 1.11 with 18 models: 5 staging views, 4 dimension/fact tables, 9 analytics marts
 - **Lifecycle** — nightly expiry system with ingest sanity check; cross-source dedup reactivates previously expired jobs when re-confirmed live
 
 ---
 
 ## Pipeline Architecture
 
-Greenhouse (1,600+) / Lever (640+) / Ashby (69) / Workday (170) / Amazon / Eightfold | v (parallel, 7:00-7:15am UTC) Python ingestion + cross-source dedup + job lifecycle reactivation | v PostgreSQL 16 (job_postings, companies, roles, skills, locations) | v (8:15am) Python NLP enrichment (skills, salary, experience, workplace) | v (8:30am) refresh_job_honesty() — PostgreSQL stored function | v (8:45am) discover_companies + dedup_sources | v (9:15am) expire_jobs — marks roles gone from ATS boards | v (9:30am) sync discovered_companies active_roles counts | v dbt transformation layer (13 models) | v fct_jobs + dim_companies + mart_skill_demand + mart_salary_benchmarks
+Greenhouse (1,800+) / Lever (629+) / Ashby (69) / Workday (185) / Amazon / Eightfold | v (parallel, 7:00-7:15am UTC) Python ingestion + cross-source dedup + job lifecycle reactivation | v PostgreSQL 16 (job_postings, companies, roles, skills, locations) | v (8:15am) Python NLP enrichment (skills, salary, experience, workplace) | v (8:30am) refresh_job_honesty() — PostgreSQL stored function | v (8:45am) discover_companies + dedup_sources | v (9:15am) expire_jobs — marks roles gone from ATS boards | v (9:30am) sync discovered_companies active_roles counts | v (9:45am) dbt run — 18 models across staging, dimensions, facts, and marts | v analytics_analytics schema: fct_jobs + dim_companies + mart_company_scorecard + mart_skill_demand + mart_salary_benchmarks + mart_ghost_job_index + mart_hiring_difficulty + mart_honesty_scores + mart_sector_benchmarks
+
+---
+
+## dbt Marts
+
+| Mart | Description | Rows |
+|---|---|---|
+| `fct_jobs` | Core fact table — one row per job posting | 16,000+ |
+| `dim_companies` | Company dimension with sector, headcount, hiring intensity | 4,700+ |
+| `mart_company_scorecard` | One row per company — all metrics combined | 476 |
+| `mart_skill_demand` | Skill × experience level demand and salary | 739 |
+| `mart_salary_benchmarks` | Salary percentiles by source, level, state | 158 |
+| `mart_ghost_job_index` | Ghost probability per active job | 2,163 |
+| `mart_hiring_difficulty` | Company-level difficulty score breakdown | 254 |
+| `mart_honesty_scores` | Company-level honesty score aggregates | 280 |
+| `mart_sector_benchmarks` | Sector-level rollup of all key metrics | 20 |
 
 ---
 
@@ -118,7 +137,7 @@ Greenhouse (1,600+) / Lever (640+) / Ashby (69) / Workday (170) / Amazon / Eight
 
 | Report | Published | Coverage |
 |---|---|---|
-| Inaugural Edition | April 2026 | 5,300+ postings, 1,000+ companies, 6 ATS sources |
+| Inaugural Edition | April 2026 | 6,100+ postings, 1,000+ companies, 6 ATS sources |
 | May 2026 | May 1, 2026 | Month-over-month trends |
 | Q2 2026 | July 1, 2026 | First quarter-over-quarter comparison |
 
@@ -128,13 +147,14 @@ Greenhouse (1,600+) / Lever (640+) / Ashby (69) / Workday (170) / Amazon / Eight
 
 - Salary cap enforced at parse time and DB constraint — values above $1M annual rejected
 - Cross-source deduplication — zero confirmed duplicates across all 6 ATS sources
-- 86% experience level coverage on Tier 1 postings (100% on active jobs after enrichment)
-- 85% sector coverage on Tier 1 postings
+- 86% experience level coverage on Tier 1 postings
+- 85%+ sector coverage on active Tier 1 postings
 - Honesty scoring — 100% of Tier 1 postings scored via PostgreSQL stored function
 - Salary coverage — 55% of Tier 1 active postings contain verified salary data
 - All pipeline runs logged with insert/skip/error counts per source
-- US-only filter applied at ingestion — international roles excluded
+- US-only filter applied at ingestion — 40+ international city/country patterns rejected
 - Job lifecycle tracking — last_seen_at updated on every ingest; expire_jobs runs nightly at 9:15am UTC
+- OOM protection — 4GB RAM server handles 1,800+ Greenhouse company ingest without memory kill
 
 ---
 
