@@ -128,7 +128,6 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] {
 """, unsafe_allow_html=True)
 
 # ── DB Connection ─────────────────────────────────────────────────────────────
-@st.cache_resource
 def get_connection():
     return psycopg2.connect(
         host=st.secrets.get("db_host", os.getenv("PGHOST", "REMOVED_DB_HOST")),
@@ -141,7 +140,10 @@ def get_connection():
 @st.cache_data(ttl=3600)
 def query(sql, params=None):
     conn = get_connection()
-    return pd.read_sql(sql, conn, params=params)
+    try:
+        return pd.read_sql(sql, conn, params=params)
+    finally:
+        conn.close()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
