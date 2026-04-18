@@ -160,7 +160,7 @@ with st.sidebar:
 
     page = st.radio(
         "Navigate",
-        ["📊 Overview", "🏢 Company Scorecard", "🔧 Skill Premiums", "🏭 Sector Dashboard"],
+        ["📊 Overview", "🏢 Company Scorecard", "🔧 Skill Premiums", "🏭 Sector Dashboard", "🎯 Role Explorer"],
         label_visibility="collapsed"
     )
 
@@ -205,15 +205,28 @@ with st.sidebar:
 # PAGE: OVERVIEW
 # ══════════════════════════════════════════════════════════════════════════════
 if page == "📊 Overview":
-    st.markdown("""
+    # Live counts for hero
+    hero_counts = query("""
+        SELECT
+            COUNT(*) FILTER (WHERE status='raw' AND data_tier=1) as active,
+            COUNT(*) FILTER (WHERE data_tier=1) as total,
+            COUNT(DISTINCT company_id) FILTER (WHERE status='raw' AND data_tier=1) as companies
+        FROM job_postings
+    """)
+    hc = hero_counts.iloc[0] if not hero_counts.empty else None
+    active_count = f"{int(hc['active']):,}" if hc is not None else "5,000+"
+    total_count  = f"{int(hc['total']):,}"  if hc is not None else "6,000+"
+    co_count     = f"{int(hc['companies']):,}" if hc is not None else "1,000+"
+
+    st.markdown(f"""
     <div style="margin-bottom:40px">
         <div style="font-family:'Syne',sans-serif;font-size:2.5rem;font-weight:800;color:#e8e6e0;letter-spacing:-0.03em;line-height:1.1">
-            Data & ML Hiring<br>Intelligence Platform
+            Data & ML Hiring<br>Intelligence
         </div>
-        <div style="font-size:0.75rem;color:#555;margin-top:12px;max-width:500px">
-            6,100+ enriched job postings across 1,000+ companies. Updated nightly from
-            6 ATS sources. Proprietary scoring on salary transparency, hiring difficulty,
-            and posting quality.
+        <div style="font-size:0.75rem;color:#555;margin-top:12px;max-width:560px">
+            Insights from {active_count} active job postings across {co_count} companies.
+            Understand how compensation, role design, and transparency impact hiring outcomes.
+            Updated nightly from 6 ATS sources.
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -245,6 +258,63 @@ if page == "📊 Overview":
             st.metric("Avg Honesty Score", f"{r['avg_honesty']}/100")
         with col5:
             st.metric("Tracked (Total)", f"{int(r['active_jobs'] + r['expired']):,}")
+
+    # ── Key Market Signals ────────────────────────────────────────────────────
+    signals = query("""
+        SELECT
+            ROUND(AVG(CASE WHEN salary_max_annual IS NULL THEN 1.0 ELSE 0.0 END)*100) as no_salary_pct,
+            COUNT(DISTINCT company_id) as companies
+        FROM job_postings
+        WHERE data_tier=1 AND status='raw'
+    """)
+    skill_signals = query("""
+        SELECT
+            ROUND(PERCENTILE_CONT(0.8) WITHIN GROUP (ORDER BY sc.skill_count)) as p80_skills,
+            ROUND(AVG(sc.skill_count),1) as avg_skills
+        FROM job_postings jp
+        JOIN (SELECT job_id, COUNT(*) as skill_count FROM job_skills GROUP BY job_id) sc
+            ON sc.job_id = jp.job_id
+        WHERE jp.data_tier=1 AND jp.status='raw'
+    """)
+    ghost_signals = query("""
+        SELECT COUNT(*) as high_ghost
+        FROM vw_ghost_job_index
+        WHERE ghost_tier = 'high'
+    """)
+    salary_signals = query("""
+        SELECT
+            ROUND(PERCENTILE_CONT(0.4) WITHIN GROUP (ORDER BY salary_max_annual)) as p40_sal,
+            ROUND(PERCENTILE_CONT(0.6) WITHIN GROUP (ORDER BY salary_max_annual)) as p60_sal
+        FROM job_postings
+        WHERE data_tier=1 AND status='raw'
+          AND salary_max_annual BETWEEN 50000 AND 500000
+    """)
+
+    sv  = signals.iloc[0]      if not signals.empty      else None
+    skv = skill_signals.iloc[0] if not skill_signals.empty else None
+    gv  = ghost_signals.iloc[0] if not ghost_signals.empty else None
+    salv= salary_signals.iloc[0] if not salary_signals.empty else None
+
+    signal_bullets = []
+    if sv  is not None: signal_bullets.append(f"{int(sv['no_salary_pct'])}% of active roles do not disclose salary")
+    if skv is not None: signal_bullets.append(f"Top 20% of roles require {int(skv['p80_skills'])}+ skills — avg is {float(skv['avg_skills']):.0f}")
+    if gv  is not None: signal_bullets.append(f"{int(gv['high_ghost']):,} active roles show high ghost job probability")
+    if salv is not None and pd.notna(salv['p40_sal']) and pd.notna(salv['p60_sal']):
+        signal_bullets.append(f"Mid-market salary bands cluster between ${int(salv['p40_sal']):,}–${int(salv['p60_sal']):,}")
+    signal_bullets.append(f"{active_count} active roles tracked across {co_count} companies as of today")
+
+    bullet_html = "".join([
+        f"<div style='font-size:0.75rem;color:#aaa;padding:4px 0;border-bottom:1px solid #111'>· {b}</div>"
+        for b in signal_bullets
+    ])
+
+    st.markdown("<div class='section-header'>Key Market Signals</div>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="background:#0d0d18;border:1px solid #1e1e2e;border-radius:4px;
+                padding:16px 20px;margin-bottom:24px">
+        {bullet_html}
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("<div class='section-header'>Ghost Job Index — Active Postings</div>", unsafe_allow_html=True)
 
@@ -781,6 +851,426 @@ elif page == "🏭 Sector Dashboard":
             }),
             use_container_width=True, hide_index=True
         )
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: ROLE EXPLORER
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "🎯 Role Explorer":
+    st.markdown("""
+    <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:#e8e6e0;margin-bottom:8px">
+        Role Explorer
+    </div>
+    <div style="font-size:0.7rem;color:#555;margin-bottom:32px">
+        Compensation, skills, and hiring patterns by role family — Tier 1 active roles only
+    </div>
+    """, unsafe_allow_html=True)
+
+    ROLE_FAMILY_SQL = """
+    CASE
+        WHEN lower(r.role_name) ~ 'director|head of|vp |vice president|chief data|chief analytics|manager, data|manager, analytics|manager, ml|manager, machine|data science manager|analytics manager|marketing analytics manager|marketing science' THEN 'Leadership'
+        WHEN lower(r.role_name) ~ 'data engineer|analytics engineer|data architect|data platform engineer|mlops|data science engineer|data reliability|data infrastructure' THEN 'Data Engineer'
+        WHEN lower(r.role_name) ~ 'machine learning|ml engineer|ai/ml|computer vision|applied scientist|applied researcher|ai researcher' THEN 'ML Engineer'
+        WHEN lower(r.role_name) ~ 'ai engineer|applied ai|llm engineer|ai specialist|ai data' THEN 'AI Engineer'
+        WHEN lower(r.role_name) ~ 'data scientist|quantitative researcher|research scientist|data science' THEN 'Data Scientist'
+        WHEN lower(r.role_name) ~ 'data analyst|business analyst|bi analyst|financial analyst|fp&a|reporting analyst|business intelligence|product analyst|marketing analyst|fraud analyst|growth analyst|risk analyst|pricing analyst|compensation analyst|credit analyst|actuarial|clinical data|data quality analyst|analytics consultant|analytics lead|data analytics|data product manager|product manager, data|senior data product' THEN 'Data Analyst'
+        WHEN lower(r.role_name) ~ 'sales op|revenue op|marketing op|operations analyst|operations manager|operations lead|operations specialist|operations director|revops' THEN 'Revenue/Ops'
+        ELSE 'Other'
+    END
+    """
+
+    ROLE_COLORS = {
+        'Data Analyst':  '#4488ff',
+        'Data Engineer': '#c8f542',
+        'Data Scientist':'#ffd166',
+        'ML Engineer':   '#06d6a0',
+        'AI Engineer':   '#ff6b6b',
+        'Leadership':    '#cc88ff',
+        'Revenue/Ops':   '#ff9944',
+        'Other':         '#555577',
+    }
+
+    # ── Role family overview strip ────────────────────────────────────────────
+    family_overview = query(f"""
+        SELECT
+            {ROLE_FAMILY_SQL} as role_family,
+            COUNT(DISTINCT jp.job_id) as jobs,
+            ROUND(AVG(jp.salary_max_annual) FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as avg_max,
+            ROUND(AVG(CASE WHEN jp.salary_max_annual IS NOT NULL THEN 1.0 ELSE 0.0 END)*100,1) as transparency_pct
+        FROM job_postings jp
+        JOIN roles r ON r.role_id = jp.role_id
+        WHERE jp.data_tier=1 AND jp.status='raw'
+        GROUP BY 1
+        ORDER BY jobs DESC
+    """)
+
+    FAMILY_ORDER = ['Data Analyst','Data Engineer','Data Scientist','ML Engineer','AI Engineer','Leadership','Revenue/Ops','Other']
+    family_overview['role_family'] = pd.Categorical(family_overview['role_family'], categories=FAMILY_ORDER, ordered=True)
+    family_overview = family_overview.sort_values('role_family')
+
+    # Pill selector
+    selected_family = st.radio(
+        "Role Family",
+        family_overview['role_family'].tolist(),
+        horizontal=True,
+        label_visibility="collapsed"
+    )
+
+    fam = family_overview[family_overview['role_family'] == selected_family].iloc[0]
+    fam_color = ROLE_COLORS.get(selected_family, '#c8f542')
+
+
+    # ── Market Reality Block ──────────────────────────────────────────────────
+    reality = query(f"""
+        SELECT
+            ROUND(AVG(sc.skill_count), 1)                                           as avg_skills,
+            PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY sc.skill_count)            as p75_skills,
+            ROUND(AVG(jp.salary_max_annual)
+                FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000))       as avg_max,
+            ROUND(AVG(jp.salary_min_annual)
+                FILTER (WHERE jp.salary_min_annual BETWEEN 30000 AND 500000))       as avg_min,
+            ROUND(AVG(CASE WHEN jp.salary_max_annual IS NOT NULL
+                THEN 1.0 ELSE 0.0 END) * 100, 1)                                   as transparency_pct,
+            ROUND(AVG(jp.salary_max_annual)
+                FILTER (WHERE jp.experience_level = 'entry'
+                    AND jp.salary_max_annual BETWEEN 50000 AND 500000))             as entry_avg_max,
+            ROUND(AVG(jp.salary_max_annual)
+                FILTER (WHERE jp.experience_level = 'mid'
+                    AND jp.salary_max_annual BETWEEN 50000 AND 500000))             as mid_avg_max,
+            ROUND(AVG(jp.salary_max_annual)
+                FILTER (WHERE jp.experience_level = 'senior'
+                    AND jp.salary_max_annual BETWEEN 50000 AND 500000))             as senior_avg_max,
+            COUNT(DISTINCT jp.job_id)                                               as total_jobs,
+            ROUND(AVG(CASE WHEN jp.workplace_type = 'remote'
+                THEN 1.0 ELSE 0.0 END) * 100)                                      as remote_pct
+        FROM job_postings jp
+        JOIN roles r ON r.role_id = jp.role_id
+        LEFT JOIN (
+            SELECT job_id, COUNT(*) as skill_count FROM job_skills GROUP BY job_id
+        ) sc ON sc.job_id = jp.job_id
+        WHERE jp.data_tier = 1 AND jp.status = 'raw'
+          AND ({ROLE_FAMILY_SQL}) = %s
+    """, params=(selected_family,))
+
+    if not reality.empty:
+        rv = reality.iloc[0]
+
+        # ── Build alerts from real data ───────────────────────────────────────
+        alerts = []
+        insights = []
+
+        # Transparency
+        t = float(rv['transparency_pct']) if pd.notna(rv['transparency_pct']) else 0
+        if t < 50:
+            alerts.append(f"Only {t:.0f}% of {selected_family} roles post salary — most employers are hiding comp")
+        elif t >= 70:
+            alerts.append(f"{t:.0f}% of {selected_family} roles post salary — above-average transparency for this market")
+
+        # Entry-level salary
+        if pd.notna(rv['entry_avg_max']):
+            entry = int(rv['entry_avg_max'])
+            alerts.append(f"Entry-level avg max: ${entry:,} — {'competitive starting point' if entry > 120000 else 'below $120K signals high competition for junior roles'}")
+
+        # Skill complexity
+        if pd.notna(rv['p75_skills']):
+            p75 = int(rv['p75_skills'])
+            avg_sk = float(rv['avg_skills']) if pd.notna(rv['avg_skills']) else 0
+            alerts.append(f"Avg role requires {avg_sk:.0f} skills — top 25% of postings require {p75}+")
+
+        # Remote
+        if pd.notna(rv['remote_pct']):
+            rpct = int(rv['remote_pct'])
+            alerts.append(f"{rpct}% of active {selected_family} roles are remote")
+
+        # ── What this means (hiring vs job seeking) ───────────────────────────
+        if pd.notna(rv['avg_max']) and pd.notna(rv['mid_avg_max']):
+            avg_max = int(rv['avg_max'])
+            mid_max = int(rv['mid_avg_max'])
+            p75_sk  = int(rv['p75_skills']) if pd.notna(rv['p75_skills']) else 8
+            insights.append(("If you're hiring", [
+                f"Posting below ${int(mid_max * 0.9):,} puts you below 90% of mid-level market rate",
+                f"Requiring {p75_sk + 2}+ skills places your role in the top 10% complexity — expect longer fill times",
+                f"{'Adding' if t < 50 else 'Keeping'} a salary band {'increases' if t < 50 else 'maintains'} applicant volume significantly",
+            ]))
+            insights.append(("If you're job seeking", [
+                f"Market mid-level max is ${mid_max:,} — negotiate toward this if offered less",
+                f"Roles requiring {p75_sk}+ skills are harder to fill — stronger negotiating position",
+                f"{'Only' if t < 50 else ''} {t:.0f}% of roles show salary — always ask in screening",
+            ]))
+
+        # ── Render ────────────────────────────────────────────────────────────
+        st.markdown(f"""
+        <div style="background:#0d0d1a;border:1px solid #ff6b6b33;border-left:3px solid #ff6b6b;
+                    border-radius:4px;padding:16px 20px;margin-bottom:24px">
+            <div style="font-size:0.6rem;color:#ff6b6b;text-transform:uppercase;
+                        letter-spacing:0.15em;margin-bottom:12px">
+                🚨 Market Reality — {selected_family} (US, Active Roles)
+            </div>
+            {"".join([f"<div style='font-size:0.75rem;color:#ccc;padding:3px 0'>⚠️ {a}</div>" for a in alerts])}
+        </div>
+        """, unsafe_allow_html=True)
+
+        if insights:
+            ic1, ic2 = st.columns(2)
+            for col, (label, points) in zip([ic1, ic2], insights):
+                with col:
+                    point_html = "".join([
+                        f"<div style='font-size:0.7rem;color:#aaa;padding:3px 0'>→ {p}</div>"
+                        for p in points
+                    ])
+                    st.markdown(f"""
+                    <div style="background:#111120;border:1px solid #1e1e2e;border-left:3px solid #c8f542;
+                                border-radius:4px;padding:14px 16px;height:100%">
+                        <div style="font-size:0.6rem;color:#c8f542;text-transform:uppercase;
+                                    letter-spacing:0.12em;margin-bottom:10px">🎯 {label}</div>
+                        {point_html}
+                    </div>
+                    """, unsafe_allow_html=True)
+
+        st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='section-header'>Overview</div>", unsafe_allow_html=True)
+
+
+    # Hero metrics
+    hc1, hc2, hc3, hc4 = st.columns(4)
+    with hc1:
+        st.metric("Active Roles", f"{int(fam['jobs']):,}")
+    with hc2:
+        avg_max = f"${int(fam['avg_max']):,}" if pd.notna(fam['avg_max']) else "—"
+        st.metric("Avg Max Salary", avg_max)
+    with hc3:
+        st.metric("Salary Transparency", f"{fam['transparency_pct']}%")
+    with hc4:
+        # Share of total market
+        total = family_overview['jobs'].sum()
+        share = round(int(fam['jobs']) / total * 100, 1)
+        st.metric("Market Share", f"{share}%")
+
+    # ── Salary by experience level ────────────────────────────────────────────
+    st.markdown("<div class='section-header'>Compensation by Experience Level</div>", unsafe_allow_html=True)
+
+    sal_by_level = query(f"""
+        SELECT
+            jp.experience_level,
+            COUNT(DISTINCT jp.job_id) as jobs,
+            ROUND(AVG(jp.salary_min_annual) FILTER (WHERE jp.salary_min_annual BETWEEN 30000 AND 500000)) as avg_min,
+            ROUND(AVG(jp.salary_max_annual) FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as avg_max,
+            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY jp.salary_max_annual)
+                FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as median_max
+        FROM job_postings jp
+        JOIN roles r ON r.role_id = jp.role_id
+        WHERE jp.data_tier=1 AND jp.status='raw'
+          AND jp.experience_level IS NOT NULL
+          AND ({ROLE_FAMILY_SQL}) = %s
+        GROUP BY jp.experience_level
+        ORDER BY
+            CASE jp.experience_level
+                WHEN 'entry' THEN 1 WHEN 'associate' THEN 2
+                WHEN 'mid' THEN 3 WHEN 'senior' THEN 4
+                ELSE 5 END
+    """, params=(selected_family,))
+
+    if not sal_by_level.empty and sal_by_level['avg_max'].notna().any():
+        lc1, lc2 = st.columns([2, 1])
+        with lc1:
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=sal_by_level['experience_level'],
+                y=sal_by_level['avg_min'],
+                name='Avg Min',
+                marker_color='#1e1e3e',
+                marker_line_color=fam_color,
+                marker_line_width=1,
+            ))
+            fig.add_trace(go.Bar(
+                x=sal_by_level['experience_level'],
+                y=sal_by_level['avg_max'],
+                name='Avg Max',
+                marker_color=fam_color,
+                opacity=0.85,
+            ))
+            fig.update_layout(
+                plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
+                font_color='#888', font_family='DM Mono',
+                height=280, barmode='overlay',
+                margin=dict(l=0, r=0, t=0, b=0),
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=False, tickformat='$,.0f'),
+                legend=dict(bgcolor='#0a0a0f', bordercolor='#1e1e2e', borderwidth=1),
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        with lc2:
+            for _, lvl in sal_by_level.iterrows():
+                avg = f"${int(lvl['avg_max']):,}" if pd.notna(lvl['avg_max']) else "—"
+                st.markdown(f"""
+                <div style="padding:10px;border:1px solid #1e1e2e;border-radius:3px;margin-bottom:6px;background:#111120">
+                    <div style="font-size:0.6rem;color:#444;text-transform:uppercase">{lvl['experience_level']}</div>
+                    <div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:{fam_color}">{avg}</div>
+                    <div style="font-size:0.6rem;color:#333">{int(lvl['jobs'])} roles</div>
+                </div>
+                """, unsafe_allow_html=True)
+    else:
+        st.markdown("<div style='color:#444;font-size:0.7rem'>Not enough salary data for this role family.</div>", unsafe_allow_html=True)
+
+    # ── Top skills ────────────────────────────────────────────────────────────
+    st.markdown("<div class='section-header'>Top Skills & Salary Premium</div>", unsafe_allow_html=True)
+
+    top_skills = query(f"""
+        SELECT s.skill_name,
+            COUNT(DISTINCT jp.job_id) as jobs,
+            ROUND(AVG(jp.salary_max_annual) FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as avg_max,
+            ROUND((AVG(jp.salary_max_annual) FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000) -
+                (SELECT AVG(jp2.salary_max_annual)
+                 FROM job_postings jp2 JOIN roles r2 ON r2.role_id = jp2.role_id
+                 WHERE jp2.data_tier=1 AND jp2.status='raw'
+                   AND jp2.salary_max_annual BETWEEN 50000 AND 500000
+                   AND (CASE WHEN lower(r2.role_name) ~ 'director|head of|vp |vice president|chief data|chief analytics|manager, data|manager, analytics|manager, ml|manager, machine|data science manager|analytics manager|marketing analytics manager|marketing science' THEN 'Leadership'
+                        WHEN lower(r2.role_name) ~ 'data engineer|analytics engineer|data architect|data platform engineer|mlops|data science engineer|data reliability|data infrastructure' THEN 'Data Engineer'
+                        WHEN lower(r2.role_name) ~ 'machine learning|ml engineer|ai/ml|computer vision|applied scientist|applied researcher|ai researcher' THEN 'ML Engineer'
+                        WHEN lower(r2.role_name) ~ 'ai engineer|applied ai|llm engineer|ai specialist|ai data' THEN 'AI Engineer'
+                        WHEN lower(r2.role_name) ~ 'data scientist|quantitative researcher|research scientist|data science' THEN 'Data Scientist'
+                        WHEN lower(r2.role_name) ~ 'data analyst|business analyst|bi analyst|financial analyst|fp&a|reporting analyst|business intelligence|product analyst|marketing analyst|fraud analyst|growth analyst|risk analyst|pricing analyst|compensation analyst|credit analyst|actuarial|clinical data|data quality analyst|analytics consultant|analytics lead|data analytics|data product manager|product manager, data|senior data product' THEN 'Data Analyst'
+                        WHEN lower(r2.role_name) ~ 'sales op|revenue op|marketing op|operations analyst|operations manager|operations lead|operations specialist|operations director|revops' THEN 'Revenue/Ops'
+                        ELSE 'Other' END) = %(fam)s))
+                /
+                NULLIF((SELECT AVG(jp2.salary_max_annual)
+                 FROM job_postings jp2 JOIN roles r2 ON r2.role_id = jp2.role_id
+                 WHERE jp2.data_tier=1 AND jp2.status='raw'
+                   AND jp2.salary_max_annual BETWEEN 50000 AND 500000
+                   AND (CASE WHEN lower(r2.role_name) ~ 'director|head of|vp |vice president|chief data|chief analytics|manager, data|manager, analytics|manager, ml|manager, machine|data science manager|analytics manager|marketing analytics manager|marketing science' THEN 'Leadership'
+                        WHEN lower(r2.role_name) ~ 'data engineer|analytics engineer|data architect|data platform engineer|mlops|data science engineer|data reliability|data infrastructure' THEN 'Data Engineer'
+                        WHEN lower(r2.role_name) ~ 'machine learning|ml engineer|ai/ml|computer vision|applied scientist|applied researcher|ai researcher' THEN 'ML Engineer'
+                        WHEN lower(r2.role_name) ~ 'ai engineer|applied ai|llm engineer|ai specialist|ai data' THEN 'AI Engineer'
+                        WHEN lower(r2.role_name) ~ 'data scientist|quantitative researcher|research scientist|data science' THEN 'Data Scientist'
+                        WHEN lower(r2.role_name) ~ 'data analyst|business analyst|bi analyst|financial analyst|fp&a|reporting analyst|business intelligence|product analyst|marketing analyst|fraud analyst|growth analyst|risk analyst|pricing analyst|compensation analyst|credit analyst|actuarial|clinical data|data quality analyst|analytics consultant|analytics lead|data analytics|data product manager|product manager, data|senior data product' THEN 'Data Analyst'
+                        WHEN lower(r2.role_name) ~ 'sales op|revenue op|marketing op|operations analyst|operations manager|operations lead|operations specialist|operations director|revops' THEN 'Revenue/Ops'
+                        ELSE 'Other' END) = %(fam)s), 0)
+                * 100, 1) as premium_pct
+        FROM job_postings jp
+        JOIN roles r ON r.role_id = jp.role_id
+        JOIN job_skills js ON js.job_id = jp.job_id
+        JOIN skills s ON s.skill_id = js.skill_id
+        WHERE jp.data_tier=1 AND jp.status='raw'
+          AND s.difficulty_relevant = true
+          AND ({ROLE_FAMILY_SQL}) = %(fam)s
+        GROUP BY s.skill_name
+        HAVING COUNT(DISTINCT jp.job_id) >= 5
+        ORDER BY jobs DESC
+        LIMIT 20
+    """, params={"fam": selected_family})
+
+    if not top_skills.empty:
+        sc1, sc2 = st.columns(2)
+        with sc1:
+            fig2 = px.bar(
+                top_skills.head(15),
+                x='jobs', y='skill_name',
+                orientation='h',
+                color='jobs',
+                color_continuous_scale=[[0,'#1a1a2e'],[1,fam_color]],
+                labels={'jobs':'Roles Requiring Skill','skill_name':''},
+                text='jobs',
+            )
+            fig2.update_layout(
+                plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
+                font_color='#888', font_family='DM Mono',
+                height=400, coloraxis_showscale=False,
+                margin=dict(l=0, r=20, t=0, b=0),
+                xaxis=dict(showgrid=False, showticklabels=False),
+                yaxis=dict(showgrid=False, categoryorder='total ascending'),
+                title=dict(text='Most In-Demand', font=dict(color='#555', size=10)),
+            )
+            fig2.update_traces(textposition='outside', textfont_color=fam_color, marker_line_width=0)
+            st.plotly_chart(fig2, use_container_width=True)
+
+        with sc2:
+            premium_data = top_skills.dropna(subset=['premium_pct']).sort_values('premium_pct', ascending=False).head(15)
+            if not premium_data.empty:
+                fig3 = px.bar(
+                    premium_data,
+                    x='premium_pct', y='skill_name',
+                    orientation='h',
+                    color='premium_pct',
+                    color_continuous_scale=[[0,'#1a1a2e'],[0.5,'#333366'],[1,fam_color]],
+                    labels={'premium_pct':'Salary Premium %','skill_name':''},
+                    text=premium_data['premium_pct'].apply(lambda x: f"+{x}%" if x > 0 else f"{x}%"),
+                )
+                fig3.update_layout(
+                    plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
+                    font_color='#888', font_family='DM Mono',
+                    height=400, coloraxis_showscale=False,
+                    margin=dict(l=0, r=20, t=0, b=0),
+                    xaxis=dict(showgrid=False, zeroline=True, zerolinecolor='#1e1e2e', showticklabels=False),
+                    yaxis=dict(showgrid=False, categoryorder='total ascending'),
+                    title=dict(text='Salary Premium vs Baseline', font=dict(color='#555', size=10)),
+                )
+                fig3.update_traces(textposition='outside', textfont_color=fam_color, marker_line_width=0)
+                st.plotly_chart(fig3, use_container_width=True)
+
+    # ── Workplace & remote breakdown ──────────────────────────────────────────
+    st.markdown("<div class='section-header'>Work Model & Top Hiring Companies</div>", unsafe_allow_html=True)
+
+    wc1, wc2 = st.columns([1, 2])
+
+    with wc1:
+        workplace = query(f"""
+            SELECT
+                COALESCE(jp.workplace_type, 'unspecified') as workplace_type,
+                COUNT(*) as jobs
+            FROM job_postings jp
+            JOIN roles r ON r.role_id = jp.role_id
+            WHERE jp.data_tier=1 AND jp.status='raw'
+              AND ({ROLE_FAMILY_SQL}) = %s
+            GROUP BY 1 ORDER BY 2 DESC
+        """, params=(selected_family,))
+
+        if not workplace.empty:
+            wp_colors = {'remote':'#06d6a0','hybrid':'#ffd166','onsite':'#ff6b6b','unspecified':'#333355'}
+            fig4 = px.pie(
+                workplace, values='jobs', names='workplace_type',
+                color='workplace_type',
+                color_discrete_map=wp_colors,
+                hole=0.6,
+            )
+            fig4.update_layout(
+                plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
+                font_color='#888', font_family='DM Mono',
+                height=280, margin=dict(l=0, r=0, t=0, b=0),
+                showlegend=True,
+                legend=dict(bgcolor='#0a0a0f', bordercolor='#1e1e2e', borderwidth=1, font=dict(size=10)),
+            )
+            fig4.update_traces(textinfo='percent', textfont_size=10)
+            st.plotly_chart(fig4, use_container_width=True)
+
+    with wc2:
+        top_cos = query(f"""
+            SELECT c.company_name, c.sector,
+                COUNT(DISTINCT jp.job_id) as roles,
+                ROUND(AVG(jp.salary_max_annual) FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as avg_max,
+                ROUND(AVG(CASE WHEN jp.salary_max_annual IS NOT NULL THEN 1.0 ELSE 0.0 END)*100) as transparency_pct
+            FROM job_postings jp
+            JOIN roles r ON r.role_id = jp.role_id
+            JOIN companies c ON c.company_id = jp.company_id
+            WHERE jp.data_tier=1 AND jp.status='raw'
+              AND ({ROLE_FAMILY_SQL}) = %s
+            GROUP BY c.company_name, c.sector
+            ORDER BY roles DESC
+            LIMIT 12
+        """, params=(selected_family,))
+
+        if not top_cos.empty:
+            top_cos['avg_max'] = top_cos['avg_max'].apply(lambda x: f"${int(x):,}" if pd.notna(x) else "—")
+            top_cos['transparency_pct'] = top_cos['transparency_pct'].apply(lambda x: f"{int(x)}%" if pd.notna(x) else "—")
+            st.dataframe(
+                top_cos.rename(columns={
+                    'company_name':'Company','sector':'Sector',
+                    'roles':'Roles','avg_max':'Avg Max','transparency_pct':'Transparent'
+                }),
+                use_container_width=True, hide_index=True
+            )
+
+
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("""
