@@ -1,0 +1,24 @@
+# Backup
+0 6 * * * pg_dump -U lukejones -h 127.0.0.1 job_analytics > /opt/job-market-analytics/backups/job_analytics_$(date +\%F).sql
+0 6 * * * find /opt/job-market-analytics/backups -name "*.sql" -mtime +7 -delete
+
+# Ingest (parallel at 7am UTC)
+0 7 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/ingest_jobs.py --apply --discover --source greenhouse >> logs/ingest_gh.log 2>&1
+0 7 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/ingest_jobs.py --apply --source adzuna >> logs/ingest_az.log 2>&1
+15 7 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/ingest_jobs.py --apply --source lever >> logs/ingest_lv.log 2>&1
+15 7 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/ingest_jobs.py --apply --source ashby >> logs/ingest_as.log 2>&1
+15 7 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/ingest_jobs.py --apply --source workday >> logs/ingest_wd.log 2>&1
+15 7 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/ingest_jobs.py --apply --source eightfold >> logs/ingest_ef.log 2>&1
+15 7 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/ingest_jobs.py --apply --source amazon >> logs/ingest_amz.log 2>&1
+
+# Enrich
+0 8 * * * cd /opt/job-market-analytics && psql -h 127.0.0.1 -U lukejones -d job_analytics -c "UPDATE job_postings SET salary_min_annual=salary_min, salary_max_annual=salary_max WHERE salary_period='year' AND salary_max_annual IS NULL AND salary_max <= 1000000;" >> logs/annualize.log 2>&1
+15 8 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/enrich_job_postings.py --apply --only-missing --limit 5000 >> logs/enrich.log 2>&1
+30 8 * * * cd /opt/job-market-analytics && psql -h REMOVED_DB_HOST -U lukejones -d job_analytics -c "SELECT refresh_job_honesty();" >> logs/honesty.log 2>&1
+
+# Post-processing
+45 8 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/discover_companies.py --apply --source refresh >> logs/discover.log 2>&1
+0 9 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/dedup_sources.py --apply >> logs/dedup.log 2>&1
+15 9 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/expire_jobs.py >> logs/expire.log 2>&1
+30 9 * * * cd /opt/job-market-analytics && psql -h REMOVED_DB_HOST -U lukejones -d job_analytics -f /opt/job-market-analytics/sql/sync_discovered.sql >> logs/sync_discovered.log 2>&1
+45 9 * * * cd /opt/job-market-analytics/dbt/job_analytics_dbt && /opt/job-market-analytics/.venv/bin/dbt run >> /opt/job-market-analytics/logs/dbt.log 2>&1
