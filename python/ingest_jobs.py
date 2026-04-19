@@ -2122,12 +2122,12 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
         _cur.close()
         _conn.close()
 
-        active_cross_keys = set()
+        active_cross_keys = {}  # (company, title, loc) -> job_id
         expired_cross_map = {}  # (company, title, loc) -> job_id
         for company, title, loc, status, job_id in rows:
             key = (company, title, loc)
             if status == 'raw':
-                active_cross_keys.add(key)
+                active_cross_keys[key] = job_id
             else:
                 expired_cross_map[key] = job_id
 
@@ -2137,9 +2137,10 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
         active_cross_keys = set()
         expired_cross_map = {}
 
-    cross_seen = set(active_cross_keys)
+    cross_seen = set(active_cross_keys.keys())
     deduped_final = []
     reactivated = 0
+    _seen_job_ids = set()  # job_ids to touch last_seen_at in batch
 
     for job in deduped:
         loc_key = _norm_location(job)
@@ -2149,7 +2150,9 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
             loc_key
         )
         if cross_key in cross_seen:
-            # Already active in DB — skip
+            # Already active in DB — collect job_id for batch last_seen_at update
+            if apply and cross_key in active_cross_keys:
+                _seen_job_ids.add(active_cross_keys[cross_key])
             continue
 
         if cross_key in expired_cross_map:
@@ -2174,6 +2177,22 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
 
         cross_seen.add(cross_key)
         deduped_final.append(job)
+
+    # Batch update last_seen_at for all deduped-but-active jobs
+    if apply and _seen_job_ids:
+        try:
+            _conn = get_conn()
+            _cur = _conn.cursor()
+            _cur.execute(
+                "UPDATE job_postings SET last_seen_at = now() WHERE job_id = ANY(%s)",
+                (list(_seen_job_ids),)
+            )
+            _conn.commit()
+            _cur.close()
+            _conn.close()
+            log.info(f"Touched last_seen_at for {len(_seen_job_ids)} deduped active jobs")
+        except Exception as e:
+            log.warning(f"Batch last_seen_at update failed: {e}")
 
     removed = len(deduped) - len(deduped_final) - reactivated
     if removed > 0:
