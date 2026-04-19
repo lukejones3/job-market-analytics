@@ -1213,7 +1213,8 @@ def infer_experience_level(desc: str, title_hint: Optional[str] = None) -> Optio
             return "mid"
         if yrs >= 1:
             return "associate"
-        return "entry"
+        # yrs == 0 is ambiguous — don't assign entry, fall through to title fallback
+        return None
 
     # light fallback: common title families (kept conservative)
     if title_hint:
