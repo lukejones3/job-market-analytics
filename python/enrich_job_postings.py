@@ -531,7 +531,7 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
         return None, None, None
 
     lines = [clean_text(x) for x in raw.splitlines() if clean_text(x)]
-    dash = r"(?:-|–|—|to)"
+    dash = r"(?:-|–|—|~|to)"
 
     for line in lines[:220]:
         tline = clean_text(line)
@@ -594,7 +594,7 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
         _matched_target = tline
         for _target in _search_targets:
             m = re.search(
-                rf"(salary\s+range|pay\s+range|pay\s+band|base\s+pay\s+range|compensation\s+range|compensation|expected\s+salary\s+range|expected\s+salary|base\s+salary|for\s+full[\-\s]time).{{0,200}}?(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)\s*(?:{dash}|to)\s*(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)",
+                rf"(salary\s+range|pay\s+range|pay\s+band|base\s+pay\s+range|compensation\s+range|compensation|expected\s+salary\s+range|expected\s+salary|base\s+salary|for\s+full[\-\s]time|ote|on[\-\s]target\s+earnings|target\s+compensation|total\s+target|is\s+expected\s+to\s+be).{{0,200}}?(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)\s*(?:{dash}|to)\s*(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)",
                 _target,
                 flags=re.IGNORECASE,
             )
@@ -743,7 +743,7 @@ def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal],
 
         # (B0b) "$ 158,500 to $ 218,000" — space between $ and number
         m = re.search(
-            r"\$\s*([\d,]+(?:\.\d+)?[kKmM]?)\s*(?:to|-|–)\s*\$\s*([\d,]+(?:\.\d+)?[kKmM]?)",
+            r"\$\s*([\d,]+(?:\.\d+)?[kKmM]?)\s*(?:to|-|–|~)\s*\$\s*([\d,]+(?:\.\d+)?[kKmM]?)",
             tline, flags=re.IGNORECASE)
         if m:
             v1 = _money_to_number(m.group(1))
