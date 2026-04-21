@@ -839,6 +839,188 @@ def parse_salary_range(text: str) -> tuple:
 
     return None, None, None
 
+_LOC_LINE_RE = re.compile(r"\b([A-Za-z .'-]+),\s*([A-Z]{2})\b")
+
+def normalize_company_candidate(s: str) -> str:
+    s = (s or "").lower().replace("\u00a0", " ")
+    # Normalize ALL dash variants → space
+    s = re.sub(r"[\u2010\u2011\u2012\u2013\u2014\u2015\-]", " ", s)
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+def is_bad_company_name(name: str) -> bool:
+    if not name:
+        return True
+    norm = normalize_company_candidate(name)
+    if not norm:
+        return True
+    if _BAD_COMPANY_TOKEN_RE.search(norm):
+        return True
+    if norm in _COMPANY_STOPWORDS:
+        return True
+    # “City, ST” is location, not company
+    if _LOC_LINE_RE.search(name):
+        return True
+    return False
+
+def score_company_candidate(raw_line: str) -> int:
+    """Higher score = more likely a real company name."""
+    s = clean_text(raw_line)
+    s = re.sub(r"\s+logo$", "", s, flags=re.IGNORECASE).strip()
+    if not s:
+        return -999
+
+    if is_bad_company_name(s):
+        return -100
+
+    if len(s) < 2 or len(s) > 80:
+        return -40
+
+    # hard rejects: pure symbols/digits
+    if re.fullmatch(r"[\d\W_]+", s):
+        return -80
+
+    score = 0
+    words = [w for w in re.split(r"\s+", s) if w]
+    wc = len(words)
+
+    # plausible word counts
+    if 1 <= wc <= 7:
+        score += 10
+    else:
+        score -= 10
+
+    # titlecase-ish signal
+    titlecase_words = sum(1 for w in words if w[:1].isupper())
+    if titlecase_words >= max(1, wc // 2):
+        score += 6
+
+    # penalize separators typical of UI lines
+    if any(ch in s for ch in [":", ";", "/"]):
+        score -= 10
+    if "·" in s:
+        score -= 6
+
+    # penalize obvious “role” words (often a title, not company)
+    if _TITLE_KEYWORDS_RE.search(s):
+        score -= 8
+
+    return score
+
+def _split_linkedin_line(line: str) -> str:
+    s = (line or "").strip()
+    s = re.sub(r"\s+logo$", "", s, flags=re.IGNORECASE).strip()
+    for sep in [" · ", " • ", " | "]:
+        if sep in s:
+            s = s.split(sep, 1)[0].strip()
+            break
+    return s
+
+def _looks_like_title(line: str) -> bool:
+    low = normalize_for_matching(line)
+    if not line or len(line) < 4 or len(line) > 120:
+        return False
+    if _is_junk_line(line):
+        return False
+    if low in _COMPANY_STOPWORDS:
+        return False
+    if re.fullmatch(r"[\d\W_]+", line):
+        return False
+    if _TITLE_KEYWORDS_RE.search(line):
+        # reject “how you match” etc
+        if any(bad in low for bad in ["job alert", "reposted", "clicked apply", "promoted", "matches your job preferences"]):
+            return False
+        return True
+    return False
+
+def extract_title_company_location_from_description(desc: str) -> Dict[str, Optional[str]]:
+    """
+    Returns: {title, company, location, state}
+    """
+    cleaned = strip_linkedin_chrome(desc or "")
+    lines = [clean_text(x) for x in cleaned.splitlines()]
+    lines = [x for x in lines if x]
+    top = lines[:40]
+
+    # location/state from top lines
+    location = None
+    state = None
+    for line in top:
+        m = _LOC_LINE_RE.search(line)
+        if m:
+            st = (m.group(2) or "").strip().upper()
+            if st in US_STATES_PLUS_DC:
+                location = m.group(1).strip()
+                state = st
+                break
+
+    # title: first strong-looking title line
+    title = None
+    for line in top:
+        if _looks_like_title(line):
+            title = line.strip(" -•")
+            break
+
+    # company: best scored candidate among top lines
+    best_company = None
+    best_score = -999
+    for raw_line in top[:18]:
+        line = _split_linkedin_line(raw_line)
+        if not line:
+            continue
+        if title and line == title:
+            continue
+        if _looks_like_title(line):
+            continue
+        if _LOC_LINE_RE.search(line):
+            continue
+        sc = score_company_candidate(line)
+        if sc > best_score:
+            best_score = sc
+            best_company = line.strip(" -•")
+
+    # threshold
+    company = best_company if (best_company and best_score >= 10) else None
+
+    return {"title": title, "company": company, "location": location, "state": state}
+
+# ============================================================
+# EXPERIENCE LEVEL (CONTROLLED, NOT GUESSY)
+# ============================================================
+
+def _extract_years_experience_requirements(desc: str) -> Optional[int]:
+    lines = [clean_text(x) for x in (desc or "").splitlines() if clean_text(x)]
+    dash = r"(?:-|–|—)"
+    candidates: List[int] = []
+
+    for line in lines[:400]:
+        l = normalize_for_matching(line)
+        if "year" not in l or "experience" not in l:
+            continue
+
+        m_plus = re.search(r"\b(\d+)\s*\+\s*years?\b", l)
+        if m_plus:
+            candidates.append(int(m_plus.group(1)))
+            continue
+
+        m_range = re.search(rf"\b(\d+)\s*(?:{dash}|to)\s*(\d+)\s*years?\b", l)
+        if m_range:
+            candidates.append(int(m_range.group(1)))  # conservative: lower bound
+            continue
+
+        m_atleast = re.search(r"\b(at\s*least|min(?:imum)?)\s*(\d+)\s*years?\b", l)
+        if m_atleast:
+            candidates.append(int(m_atleast.group(2)))
+            continue
+
+        m_plain = re.search(r"\b(\d+)\s*years?\b", l)
+        if m_plain:
+            candidates.append(int(m_plain.group(1)))
+            continue
+
+    return min(candidates) if candidates else None
+
+
 def infer_experience_level(desc: str, title_hint: Optional[str] = None) -> Optional[str]:
     """
     Levels: entry, associate, mid, senior
