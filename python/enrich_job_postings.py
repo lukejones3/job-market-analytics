@@ -519,659 +519,325 @@ def _infer_period_from_context(text: str, start: int, end: int) -> Optional[str]
     # USD alone is not a period signal — don't infer year from it here
     return None
 
-def parse_salary_range(text: str) -> Tuple[Optional[Decimal], Optional[Decimal], Optional[str]]:
+def _to_dec(s: str) -> Optional[Decimal]:
+    """Convert string like '140K', '140,000', '269,400.00', '122.250,00' to Decimal."""
+    if s is None:
+        return None
+    s = s.strip().replace(" ", "")
+    # European thousands separator: 122.250,00 or 1.234.567
+    # If dot appears before comma or before end with 3 digits after it, it's a thousands sep
+    s = re.sub(r"\.(\d{3})(?=[,.]|$)", r"\1", s)
+    # European decimal comma: 122250,00 -> 122250.00
+    s = re.sub(r",(\d{2})$", r".\1", s)
+    # Remove remaining commas (thousands separators)
+    s = s.replace(",", "").replace("$", "")
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)([kKmM]?)", s)
+    if not m:
+        return None
+    val = Decimal(m.group(1))
+    suffix = m.group(2).lower()
+    if suffix == "k":
+        # if value already looks like thousands (>= 1000), K is a typo — don't scale
+        if val >= 1000:
+            pass  # 161000K -> 161000, not 161000000
+        else:
+            val *= 1000
+    elif suffix == "m":
+        val *= 1000000
+    return val
+
+
+def _scale_pair(s1: str, s2: str) -> tuple:
     """
-    NO-TOLERANCE salary parser:
-      - MUST contain a '$'
-      - MUST contain an explicit period indicator (/yr, per year, annually, /hr, per hour, /mo, etc.)
-      - Reject “Try Premium for $0” and other chrome
+    Parse two salary strings.
+    If s2 has K suffix and s1 doesn't, scale s1 by K too.
+    e.g. '$185 - $235K' -> (185000, 235000)
+    """
+    s1, s2 = s1.strip(), s2.strip()
+    has_k2 = bool(re.search(r"[kK]$", s2))
+    has_k1 = bool(re.search(r"[kK]$", s1))
+    if has_k2 and not has_k1 and not re.search(r"\.", s1):
+        # bare number like "185" with companion "235K" -> treat as 185K
+        raw1 = re.sub(r"[,$]", "", s1)
+        try:
+            if Decimal(raw1) < 10000:  # looks like thousands (185, 140 etc)
+                v1 = _to_dec(s1 + "K")
+            else:
+                v1 = _to_dec(s1)
+        except Exception:
+            v1 = _to_dec(s1)
+    else:
+        v1 = _to_dec(s1)
+    v2 = _to_dec(s2)
+    return v1, v2
+
+
+def _period_from_context(text: str, lo: Optional[Decimal] = None) -> Optional[str]:
+    """Infer period from text context and value magnitude."""
+    t = text.lower()
+    if re.search(r"\b(per\s*year|/yr|yearly|annually|annual|per\s*annum)\b", t):
+        return "year"
+    if re.search(r"\b(per\s*hour|/hr|/hour|hourly)\b", t):
+        return "hour"
+    if re.search(r"\b(per\s*month|/mo|monthly)\b", t):
+        return "month"
+    # Infer from magnitude
+    if lo is not None:
+        if lo >= 15000:
+            return "year"
+        if Decimal("7") <= lo <= Decimal("500"):
+            return "hour"
+    return None
+
+
+def _sanity(lo: Optional[Decimal], hi: Optional[Decimal], period: Optional[str]) -> bool:
+    """Validate a salary result."""
+    if lo is None or hi is None or period is None:
+        return False
+    if lo > hi:
+        lo, hi = hi, lo
+    if period == "year":
+        return Decimal("15000") <= lo and hi <= Decimal("1000000")
+    if period == "hour":
+        return Decimal("7") <= lo and hi <= Decimal("500")
+    if period == "month":
+        return Decimal("1000") <= lo and hi <= Decimal("50000")
+    return False
+
+
+# Shared dash pattern
+_D = "(?:-|–|—|~|to)"
+_M = r"\$?\s*([\d,\.]+[kKmM]?)"
+
+
+def _try_slash_period(tline: str):
+    """$81.6K/yr - $102K/yr  or  $40/hr - $50/hr"""
+    m = re.search(
+        r"\$?\s*([\d,\.]+[kKmM]?)\s*/\s*(yr|year|hr|hour|mo|month)\s*" + _D +
+        r"\s*\$?\s*([\d,\.]+[kKmM]?)\s*/\s*(yr|year|hr|hour|mo|month)",
+        tline, re.IGNORECASE)
+    if m:
+        p1, p2 = m.group(2)[0].lower(), m.group(4)[0].lower()
+        if p1 == p2:
+            pm = {"y": "year", "h": "hour", "m": "month"}[p1]
+            v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(3))
+            if v1 and v2:
+                return min(v1, v2), max(v1, v2), pm
+    return None
+
+
+def _try_labeled_range(tline: str, window: str):
+    """
+    salary range $X-$Y, pay range $X-$Y, base salary $X-$Y,
+    starting base salary of $X-$Y, compensation range $X-$Y, etc.
+    """
+    LABELS = (
+        r"salary\s+range|pay\s+range|pay\s+band|pay\s+rate|"
+        r"base\s+pay\s+range|compensation\s+range|"
+        r"expected\s+salary\s+range|expected\s+salary|"
+        r"base\s+salary\s+range\s+is|base\s+salary\s+range|base\s+salary|"
+        r"starting\s+base\s+salary\s+of|salary\s+range\s+of|"
+        r"ote|on[\-\s]target\s+earnings|target\s+compensation|"
+        r"is\s+expected\s+to\s+be|for\s+full[\-\s]time|"
+        r"the\s+pay\s+scale|compensation"
+    )
+    pat = re.compile(
+        rf"({LABELS}).{{0,200}}?"
+        rf"\$?\s*([\d,\.]+[kKmM]?)\s*(?:OTE|USD|CAD)?\s*{_D}\s*\$?\s*([\d,\.]+[kKmM]?)",
+        re.IGNORECASE)
+
+    for target in ([tline, window] if window != tline else [tline]):
+        m = pat.search(target)
+        if m:
+            v1, v2 = _scale_pair(m.group(2), m.group(3))
+            if v1 and v2:
+                lo, hi = min(v1, v2), max(v1, v2)
+                period = _period_from_context(target, lo)
+                if period and _sanity(lo, hi, period):
+                    return lo, hi, period
+    return None
+
+
+def _try_min_max_labels(tline: str):
+    """
+    Minimum: $X Maximum: $Y
+    $X (minimum) ... $Y (maximum)
+    """
+    # keyword style
+    m = re.search(
+        r"minimum[:\s]+\$?\s*([\d,\.]+[kKmM]?).{0,100}?maximum[:\s]+\$?\s*([\d,\.]+[kKmM]?)",
+        tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1, v2), max(v1, v2)
+            p = _period_from_context(tline, lo)
+            if _sanity(lo, hi, p):
+                return lo, hi, p
+
+    # $X (minimum) ... $Y (midpoint) ... $Z (maximum) -> use min and max
+    m = re.search(
+        r"\$\s*([\d,\.]+)\s*\(minimum\).{0,150}\$\s*([\d,\.]+)\s*\(maximum\)",
+        tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1, v2), max(v1, v2)
+            p = _period_from_context(tline, lo)
+            if _sanity(lo, hi, p):
+                return lo, hi, p
+    return None
+
+
+def _try_bare_range(tline: str):
+    """
+    Any $X - $Y pattern relying on magnitude for period.
+    Handles: USD $X-$Y, CAD $X-$Y, $X &mdash; $Y, $ X-$Y (space after $)
+    """
+    # USD prefix
+    m = re.search(
+        r"USD\s+\$?\s*([\d,\.]+[kKmM]?)\s*" + _D + r"\s*\$?\s*([\d,\.]+[kKmM]?)",
+        tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _scale_pair(m.group(1), m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1, v2), max(v1, v2)
+            p = _period_from_context(tline, lo)
+            if _sanity(lo, hi, p):
+                return lo, hi, p
+
+    # CAD prefix
+    m = re.search(
+        r"CAD\s+\$?\s*([\d,\.]+[kKmM]?)\s*" + _D + r"\s*(?:CAD\s+)?\$?\s*([\d,\.]+[kKmM]?)",
+        tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _scale_pair(m.group(1), m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1, v2), max(v1, v2)
+            p = _period_from_context(tline, lo)
+            if _sanity(lo, hi, p):
+                return lo, hi, p
+
+    # Standard $X - $Y (including space after $)
+    m = re.search(
+        r"\$\s*([\d,\.]+[kKmM]?)\s*" + _D + r"\s*\$?\s*([\d,\.]+[kKmM]?)",
+        tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _scale_pair(m.group(1), m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1, v2), max(v1, v2)
+            p = _period_from_context(tline, lo)
+            if _sanity(lo, hi, p):
+                return lo, hi, p
+
+    # $X to $Y (without dash)
+    m = re.search(
+        r"\$\s*([\d,\.]+[kKmM]?)\s+to\s+\$?\s*([\d,\.]+[kKmM]?)",
+        tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _scale_pair(m.group(1), m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1, v2), max(v1, v2)
+            p = _period_from_context(tline, lo)
+            if _sanity(lo, hi, p):
+                return lo, hi, p
+
+    return None
+
+
+def _try_single_value(tline: str, low: str):
+    """Single salary values with explicit context."""
+    # offering $X+ or offering $X
+    m = re.search(r"offering\s+\$\s*([\d,\.]+[kKmM]?)\+?", tline, re.IGNORECASE)
+    if m:
+        v = _to_dec(m.group(1))
+        if v and v >= 50000:
+            return v, v, "year"
+
+    # starting from/at $X
+    m = re.search(r"(?:starting\s+from|starting\s+at)\s+\$\s*([\d,\.]+[kKmM]?)", tline, re.IGNORECASE)
+    if m:
+        v = _to_dec(m.group(1))
+        if v and v >= 15000:
+            return v, v, "year"
+
+    # minimum base salary starts at $X
+    m = re.search(r"minimum\s+base\s+salary\s+starts\s+at\s+\$\s*([\d,\.]+[kKmM]?)", tline, re.IGNORECASE)
+    if m:
+        v = _to_dec(m.group(1))
+        if v and v >= 15000:
+            return v, v, "year"
+
+    # Single labeled: Compensation: $X or Salary: $X (no range indicator)
+    m = re.search(
+        r"(?:compensation|salary)[:\s]+\$\s*([\d,\.]+[kKmM]?)(?:\s*(?:USD|per\s+year|annually|/yr))?\s*$",
+        tline, re.IGNORECASE)
+    if m and not re.search(r"range|band|package", tline, re.IGNORECASE):
+        v = _to_dec(m.group(1))
+        if v and v >= 50000:
+            return v, v, "year"
+
+    # $X/hour single
+    m = re.search(r"\$\s*([\d,\.]+)\s*/\s*hou", tline, re.IGNORECASE)
+    if m:
+        v = _to_dec(m.group(1))
+        if v and Decimal("7") <= v <= Decimal("500"):
+            return v, v, "hour"
+
+    # "$X/hr" single
+    m = re.search(r"\$\s*([\d,\.]+)\s*/\s*hr\b", tline, re.IGNORECASE)
+    if m:
+        v = _to_dec(m.group(1))
+        if v and Decimal("7") <= v <= Decimal("500"):
+            return v, v, "hour"
+
+    return None
+
+
+def parse_salary_range(text: str) -> tuple:
+    """
+    Clean architecture salary parser.
+    Tries extractors in priority order per line, returns first valid result.
     """
     raw = strip_linkedin_chrome(text or "")
     if not raw.strip():
         return None, None, None
 
+    # Normalize HTML entities and unicode
+    raw = (raw
+           .replace("&mdash;", "-").replace("&ndash;", "-")
+           .replace("&#8212;", "-").replace("&#8211;", "-")
+           .replace("\u2013", "-").replace("\u2014", "-"))
+
     lines = [clean_text(x) for x in raw.splitlines() if clean_text(x)]
-    dash = r"(?:-|–|—|~|to)"
+    if not lines:
+        return None, None, None
 
-    for line in lines[:220]:
-        tline = clean_text(line)
-        low = tline.lower()
-
+    for idx, tline in enumerate(lines[:220]):
         if "$" not in tline:
-            if _is_junk_line(tline):
-                continue
+            continue
+        low = tline.lower()
         if "try premium" in low:
             continue
         if re.search(r"\bfor\s*\$0\b", low):
             continue
 
-        # (A) $81.6K/yr - $102K/yr
-        m = re.search(
-            rf"\$?\s*([\d,]+(?:\.\d+)?[kKmM]?)\s*/\s*(yr|year|hr|hour|mo|month)\s*{dash}\s*\$?\s*([\d,]+(?:\.\d+)?[kKmM]?)\s*/\s*(yr|year|hr|hour|mo|month)",
-            tline,
-            flags=re.IGNORECASE,
+        # Build window for multi-line patterns
+        window = " ".join(lines[max(0, idx - 1):idx + 3])
+
+        result = (
+            _try_slash_period(tline) or
+            _try_labeled_range(tline, window) or
+            _try_min_max_labels(tline) or
+            _try_bare_range(tline) or
+            _try_single_value(tline, low)
         )
-        if m:
-            s1, p1, s2, p2 = m.group(1), m.group(2).lower(), m.group(3), m.group(4).lower()
 
-            def _p_norm(p: str) -> str:
-                if p.startswith("y"):
-                    return "year"
-                if p.startswith("h"):
-                    return "hour"
-                return "month"
-
-            p1n = _p_norm(p1)
-            p2n = _p_norm(p2)
-            if p1n != p2n:
-                continue
-
-            v1 = _money_to_number(s1)
-            v2 = _money_to_number(s2)
-            if v1 is None or v2 is None:
-                continue
-
-            # sanity
-            if p1n == "year" and min(v1, v2) < Decimal("15000"):
-                continue
-            if p1n == "year" and max(v1, v2) > Decimal("1000000"):
-                continue
-            if p1n == "hour" and min(v1, v2) < Decimal("7"):
-                continue
-            if p1n == "hour" and max(v1, v2) > Decimal("500"):
-                continue
-
-            return min(v1, v2), max(v1, v2), p1n
-
-        # (B) “Salary range $81,600 - $102,000 per year”
-        # Multi-line window: joins surrounding lines to catch formats like:
-        # "Compensation\nFor Full-Time (Salary)\nUS based: $180,000/year to $260,000/year"
-        _line_idx = next((i for i, l in enumerate(lines) if clean_text(l) == tline), -1)
-        _window = " ".join(clean_text(l) for l in lines[max(0,_line_idx-1):_line_idx+3]) if _line_idx >= 0 else tline
-        _search_targets = [tline, _window] if _window != tline else [tline]
-
-        m = None
-        _matched_target = tline
-        for _target in _search_targets:
-            m = re.search(
-                rf"(salary\s+range|pay\s+range|pay\s+band|base\s+pay\s+range|compensation\s+range|compensation|expected\s+salary\s+range|expected\s+salary|base\s+salary|for\s+full[\-\s]time|ote|on[\-\s]target\s+earnings|target\s+compensation|total\s+target|is\s+expected\s+to\s+be).{{0,200}}?(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)\s*(?:{dash}|to)\s*(\$?\s*[\d,]+(?:\.\d+)?[kKmM]?)",
-                _target,
-                flags=re.IGNORECASE,
-            )
-            if m:
-                _matched_target = _target
-                break
-        if m:
-            smin = _money_to_number(m.group(2))
-            smax = _money_to_number(m.group(3))
-            if smin is None or smax is None:
-                continue
-            # Fix truncated numbers like $274,00 (missing trailing zero)
-            # If smax is less than half of smin, it's likely truncated — multiply by 10
-            if smax and smin and smax < smin / 2 and smax > Decimal("1000"):
-                smax = smax * 10
-            _period_src = _matched_target if "_matched_target" in dir() else tline
-            period = _infer_period_from_context(_period_src, m.start(), m.end())
-            if not period:
-                # if line contains "annual/annually/per year" we accept as year
-                if re.search(r"\b(annual|annually|per\s*year|per\s*annum|/yr|yearly)\b", low):
-                    period = "year"
-                elif re.search(r"\b(hourly|per\s*hour|/hr|/hour)\b", low):
-                    period = "hour"
-                elif re.search(r"\busd\b", low) and min(smin, smax) < Decimal("1000"):
-                    period = "hour"
-                elif re.search(r"\busd\b", low) and min(smin, smax) >= Decimal("1000"):
-                    period = "year"
-                elif re.search(r"\b(monthly|per\s*month|/mo)\b", low):
-                    period = "month"
-                elif min(smin, smax) >= 30000:
-                    # Values in plausible annual salary range with salary/compensation label
-                    # default to year — covers "expected salary range is $X - $Y" patterns
-                    period = "year"
-                else:
-                    continue
-
-            # sanity
-            lo, hi = min(smin, smax), max(smin, smax)
-            if period == "year" and lo < Decimal("15000"):
-                continue
-            if period == "year" and hi > Decimal("1000000"):
-                continue
-            if period == "hour" and lo < Decimal("7"):
-                continue
-            if period == "hour" and hi > Decimal("500"):
-                continue
-
-            return lo, hi, period
-
-        # (B0) "Minimum: $X Maximum: $Y" format (Zoom-style)
-        m = re.search(
-            r"minimum[:\s]+\$\s*([\d,]+(?:\.\d+)?)\s*maximum[:\s]+\$\s*([\d,]+(?:\.\d+)?)",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1))
-            v2 = _money_to_number(m.group(2))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    return lo, hi, "year"
-
-        # (B0a) HTML entity em-dash "&mdash;" between salary values
-        tline_clean = tline.replace("&mdash;", "-").replace("&ndash;", "-")
-        if tline_clean != tline:
-            result = parse_salary_range(tline_clean)
-            if result[0]:
-                return result
-
-        # (B0a2) "will be between $X and $Y" / "range between $X and $Y"
-        m = re.search(
-            r"(?:will\s+be\s+between|range\s+between|ranging\s+between|between)\s+\$\s*([\d,\.]+[kKmM]?)\s+and\s+\$?\s*([\d,\.]+[kKmM]?)",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1).replace('.', ''))
-            v2 = _money_to_number(m.group(2).replace('.', ''))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    return lo, hi, "year"
-
-        # (B0a3) "ranges from $X-$Y" or "$X-Y" without second dollar sign
-        # Also handles European period thousands separator like $158.400
-        m = re.search(
-            r"(?:ranges?\s+from\s+)?\$\s*([\d][,\.\d]+)\s*[-–—]\s*\$?\s*([\d][,\.\d]+)\b",
-            tline, flags=re.IGNORECASE)
-        if m:
-            # strip European-style periods used as thousands separators
-            s1 = m.group(1).replace('.', '') if '.' in m.group(1) and len(m.group(1).split('.')[-1]) == 3 else m.group(1)
-            s2 = m.group(2).replace('.', '') if '.' in m.group(2) and len(m.group(2).split('.')[-1]) == 3 else m.group(2)
-            v1 = _money_to_number(s1)
-            v2 = _money_to_number(s2)
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    period = _infer_period_from_context(tline, m.start(), m.end())
-                    if not period and lo >= 30000:
-                        period = "year"
-                    if period == "year":
-                        return lo, hi, period
-        # (B0a3 ORIGINAL — keep for fallback)
-        m = re.search(
-            r"(?:ranges?\s+from\s+)?\$\s*([\d,]+(?:\.\d+)?[kKmM]?)\s*[-–—]\s*([\d,]+(?:\.\d+)?[kKmM]?)",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1))
-            v2 = _money_to_number(m.group(2))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    period = _infer_period_from_context(tline, m.start(), m.end())
-                    if not period and lo >= 30000:
-                        period = "year"
-                    if period == "year":
-                        return lo, hi, period
-
-        # (B0a4) Space as thousands separator "151 800,00" or "151 800" style
-        m = re.search(
-            r"(?:minimum|min)[:\s]+\$\s*([\d][\d\s,\.]+[\d])\s+(?:maximum|max)[:\s]+\$?\s*([\d][\d\s,\.]+[\d])",
-            tline, flags=re.IGNORECASE)
-        if m:
-            # strip spaces and trailing ",00" or ".00" decimal artifact
-            def clean_eu(s):
-                s = s.strip().replace(' ', '')
-                # "151800,00" -> "151800" (European decimal)
-                if re.match(r'^\d+[,\."]\d{2}$', s):
-                    s = re.sub(r'[,\."]\d{2}$', '', s)
-                return s
-            v1 = _money_to_number(clean_eu(m.group(1)))
-            v2 = _money_to_number(clean_eu(m.group(2)))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    return lo, hi, "year"
-
-        # (B0a5) "starting between $X and $Y"
-        m = re.search(
-            r"starting\s+between\s+\$\s*([\d,]+[kKmM]?)\s+and\s+\$?\s*([\d,]+[kKmM]?)",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1))
-            v2 = _money_to_number(m.group(2))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    return lo, hi, "year"
-
-        # (B0b) "$ 158,500 to $ 218,000" — space between $ and number
-        m = re.search(
-            r"\$\s*([\d,]+(?:\.\d+)?[kKmM]?)\s*(?:to|-|–|~)\s*\$\s*([\d,]+(?:\.\d+)?[kKmM]?)",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1))
-            v2 = _money_to_number(m.group(2))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    # need period — check context
-                    period = _infer_period_from_context(tline, m.start(), m.end())
-                    if not period and (lo >= 30000):
-                        period = "year"
-                    if period == "year":
-                        return lo, hi, period
-
-        # (B0b2) "$135 ,000 and 155 , 00 0" — spaces inside numbers (Roku style)
-        m = re.search(
-            r"\$\s*([\d][\d\s,]{2,10}[\d])\s*(?:to|and|-|\u2013|\u2014)\s*\$?\s*([\d][\d\s,]{2,10}[\d])\s*(?:annually|per\s*year|/yr)?",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1).replace(' ', ''))
-            v2 = _money_to_number(m.group(2).replace(' ', ''))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    return lo, hi, "year"
-
-        # (B0c) "40$ Hourly" — dollar sign after number
-        m = re.search(
-            r"([\d,]+(?:\.\d+)?)\s*\$\s*(?:hourly|per\s*hour|/hr)",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v = _money_to_number(m.group(1))
-            if v and Decimal("7") <= v <= Decimal("500"):
-                return v, v, "hour"
-
-        # (B0d) "Starting from $165k" — single value with starting from
-        m = re.search(
-            r"(?:starting\s+from|starting\s+at)\s+\$\s*([\d,]+(?:\.\d+)?[kKmM]?)",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v = _money_to_number(m.group(1))
-            if v and Decimal("15000") <= v <= Decimal("1000000"):
-                return v, v, "year"
-
-        # (B1a) Single labeled salary "Base Salary: $192,000" or "Salary: $150,000"
-        m = re.search(
-            r"(?:base\s+)?salary[:\s]+\$\s*([\d,\.]+[kKmM]?)\s*$",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v = _money_to_number(m.group(1).replace('.', '') if '.' in m.group(1) and len(m.group(1).split('.')[-1]) == 3 else m.group(1))
-            if v and Decimal("50000") <= v <= Decimal("1000000"):
-                return v, v, "year"
-
-        # (B1b) Double dollar sign "$$114,200/year"
-        tline_dd = re.sub(r'\$\$', '$', tline)
-        if tline_dd != tline:
-            result = parse_salary_range(tline_dd)
-            if result[0]:
-                return result
-
-        # (B1c) "X/year up to Y/year" or "from X/year up to Y/year"
-        m = re.search(
-            r"\$\s*([\d,\.]+)\s*/\s*year\s+up\s+to\s+\$\s*([\d,\.]+)\s*/\s*year",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1))
-            v2 = _money_to_number(m.group(2))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    return lo, hi, "year"
-
-        # (B1d) "is to" connector "$102,780 is to $137,040"
-        m = re.search(
-            r"\$\s*([\d,]+(?:\.\d+)?)\s+is\s+to\s+\$\s*([\d,]+(?:\.\d+)?)",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1))
-            v2 = _money_to_number(m.group(2))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    return lo, hi, "year"
-
-        # (B1e) "Pay Range $140 — $150 USD" — USD suffix, check both annual and hourly
-        m = re.search(
-            r"pay\s+range\s+\$\s*([\d,\.]+)\s*[—–-]\s*\$?\s*([\d,\.]+)\s*USD",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1))
-            v2 = _money_to_number(m.group(2))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    return lo, hi, "year"
-                elif Decimal("7") <= lo <= Decimal("500") and hi <= Decimal("500"):
-                    return lo, hi, "hour"
-
-        # (B1f) "Up to $X" — single ceiling value (Fractal Analytics style)
-        m = re.search(
-            r"(?:up\s+to|maximum|not\s+to\s+exceed)\s+\$\s*([\d,]+(?:\.\d+)?[kKmM]?)",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v = _money_to_number(m.group(1))
-            if v and Decimal("15000") <= v <= Decimal("1000000"):
-                return v, v, "year"
-
-        # (B1g) "$X/hr USD Annual" or "$X/hr USD" — hourly with USD and Annual keywords
-        m = re.search(
-            r"\$\s*([\d,\.]+)\s*-\s*\$?\s*([\d,\.]+)\s*/\s*hr\s+USD",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1))
-            v2 = _money_to_number(m.group(2))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("7") <= lo <= Decimal("500") and hi <= Decimal("500"):
-                    return lo, hi, "hour"
-
-        # (B1h) Truncated number like "$274,00" — missing last digit, try adding zero
-        m = re.search(
-            r"\$\s*([\d,]+)\s*[-–—]\s*\$?\s*([\d]+,\d{2})(?!\d)",
-            tline, flags=re.IGNORECASE)
-        if m:
-            s2 = m.group(2)
-            # If second number ends in exactly 2 digits after comma, likely truncated
-            if re.match(r"^\d+,\d{2}$", s2):
-                s2_fixed = s2 + "0"
-                v1 = _money_to_number(m.group(1).replace(",", ""))
-                v2 = _money_to_number(s2_fixed.replace(",", ""))
-                if v1 and v2:
-                    lo, hi = min(v1, v2), max(v1, v2)
-                    if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                        return lo, hi, "year"
-
-        # (B1i) Spaces within number "$1 40 ,000" — SeekOut style OCR artifacts
-        m = re.search(
-            r"\$\s*([\d][\d\s,]+[\d])\s*[-–—]\s*\$?\s*([\d][\d\s,]+[\d])\s*per\s+year",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1).replace(' ', ''))
-            v2 = _money_to_number(m.group(2).replace(' ', ''))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    return lo, hi, "year"
-
-        # (B1j) Truncated salary like "$296,10" — USAA style missing digit
-        m = re.search(
-            r"\$\s*([\d,]+(?:\.\d+)?)\s*[-–—]\s*\$?\s*(\d+,\d{2})\s*[.\s]",
-            tline, flags=re.IGNORECASE)
-        if m:
-            s2 = m.group(2)
-            if re.match(r"^\d+,\d{2}$", s2):
-                v1 = _money_to_number(m.group(1))
-                v2 = _money_to_number(s2 + "0")
-                if v1 and v2:
-                    lo, hi = min(v1, v2), max(v1, v2)
-                    if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                        return lo, hi, "year"
-
-        # (B1k) "$X &mdash; $Y USD" or "$X &mdash; $Y" HTML entity em-dash with USD
-        m = re.search(
-            r"\$\s*([\d,\.]+[kKmM]?)\s*&mdash;\s*\$?\s*([\d,\.]+[kKmM]?)\s*(?:USD)?",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v1 = _money_to_number(m.group(1))
-            v2 = _money_to_number(m.group(2))
-            if v1 and v2:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    return lo, hi, "year"
-                elif Decimal("7") <= lo <= Decimal("500") and hi <= Decimal("500"):
-                    return lo, hi, "hour"
-
-        # (B1l) "Airbnb Pay Range $140 — $150 USD" — already covered by B1e but
-        # Morgan Stanley "$125,00 and $135,000" — truncated first value
-        m = re.search(
-            r"between\s+\$\s*(\d+,\d{2})\s+and\s+\$\s*([\d,]+)\s+per\s+year",
-            tline, flags=re.IGNORECASE)
-        if m:
-            s1 = m.group(1)
-            if re.match(r"^\d+,\d{2}$", s1):
-                v1 = _money_to_number(s1 + "0")
-                v2 = _money_to_number(m.group(2))
-                if v1 and v2:
-                    lo, hi = min(v1, v2), max(v1, v2)
-                    if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                        return lo, hi, "year"
-
-        # (B1m) "$X/hour" single value hourly
-        m = re.search(
-            r"\$\s*([\d,\.]+)\s*/\s*hour",
-            tline, flags=re.IGNORECASE)
-        if m:
-            v = _money_to_number(m.group(1))
-            if v and Decimal("7") <= v <= Decimal("500"):
-                return v, v, "hour"
-
-        # (B2) Chime-style "will begin at $X and up to $Y"
-        m = re.search(
-            r"(?:begin|starting)\s+at\s+\$\s*([\d,]+(?:\.\d+)?)\s*(?:and\s+up\s+to|[-\u2013\u2014to]+)\s*\$\s*([\d,]+(?:\.\d+)?)",
-            tline,
-            flags=re.IGNORECASE,
-        )
-        if m:
-            v1 = _money_to_number(m.group(1))
-            v2 = _money_to_number(m.group(2))
-            if v1 is not None and v2 is not None:
-                lo, hi = min(v1, v2), max(v1, v2)
-                if Decimal("15000") <= lo and hi <= Decimal("1000000"):
-                    return lo, hi, "year"
-
-        # (C) Single salary like “$95,000 annually”
-        m = re.search(r"(\$[\d,]+(?:\.\d+)?[kKmM]?)", tline)
-        if m:
-            period = _infer_period_from_context(tline, m.start(), m.end())
-            _v_peek = _money_to_number(m.group(1))
-            if not period:
-                if re.search(r"\b(annual|annually|per\s*year|per\s*annum|/yr|yearly)\b", low):
-                    period = "year"
-                elif re.search(r"\b(hourly|per\s*hour|/hr|/hour)\b", low):
-                    period = "hour"
-                elif re.search(r"\busd\b", low) and _v_peek and _v_peek < Decimal("1000"):
-                    period = "hour"
-                elif re.search(r"\busd\b", low) and _v_peek and _v_peek >= Decimal("1000"):
-                    period = "year"
-                elif re.search(r"\b(monthly|per\s*month|/mo)\b", low):
-                    period = "month"
-                else:
-                    continue
-            v = _money_to_number(m.group(1))
-            if v is None:
-                continue
-
-            if period == "year" and v < Decimal("15000"):
-                continue
-            if period == "hour" and v < Decimal("7"):
-                continue
-
-            return v, v, period
+        if result and _sanity(result[0], result[1], result[2]):
+            lo, hi = min(result[0], result[1]), max(result[0], result[1])
+            return lo, hi, result[2]
 
     return None, None, None
-
-# ============================================================
-# TITLE / COMPANY / LOCATION (DEFENSIVE)
-# ============================================================
-
-_LOC_LINE_RE = re.compile(r"\b([A-Za-z .'-]+),\s*([A-Z]{2})\b")
-
-def normalize_company_candidate(s: str) -> str:
-    s = (s or "").lower().replace("\u00a0", " ")
-    # Normalize ALL dash variants → space
-    s = re.sub(r"[\u2010\u2011\u2012\u2013\u2014\u2015\-]", " ", s)
-    s = re.sub(r"\s+", " ", s)
-    return s.strip()
-
-def is_bad_company_name(name: str) -> bool:
-    if not name:
-        return True
-    norm = normalize_company_candidate(name)
-    if not norm:
-        return True
-    if _BAD_COMPANY_TOKEN_RE.search(norm):
-        return True
-    if norm in _COMPANY_STOPWORDS:
-        return True
-    # “City, ST” is location, not company
-    if _LOC_LINE_RE.search(name):
-        return True
-    return False
-
-def score_company_candidate(raw_line: str) -> int:
-    """Higher score = more likely a real company name."""
-    s = clean_text(raw_line)
-    s = re.sub(r"\s+logo$", "", s, flags=re.IGNORECASE).strip()
-    if not s:
-        return -999
-
-    if is_bad_company_name(s):
-        return -100
-
-    if len(s) < 2 or len(s) > 80:
-        return -40
-
-    # hard rejects: pure symbols/digits
-    if re.fullmatch(r"[\d\W_]+", s):
-        return -80
-
-    score = 0
-    words = [w for w in re.split(r"\s+", s) if w]
-    wc = len(words)
-
-    # plausible word counts
-    if 1 <= wc <= 7:
-        score += 10
-    else:
-        score -= 10
-
-    # titlecase-ish signal
-    titlecase_words = sum(1 for w in words if w[:1].isupper())
-    if titlecase_words >= max(1, wc // 2):
-        score += 6
-
-    # penalize separators typical of UI lines
-    if any(ch in s for ch in [":", ";", "/"]):
-        score -= 10
-    if "·" in s:
-        score -= 6
-
-    # penalize obvious “role” words (often a title, not company)
-    if _TITLE_KEYWORDS_RE.search(s):
-        score -= 8
-
-    return score
-
-def _split_linkedin_line(line: str) -> str:
-    s = (line or "").strip()
-    s = re.sub(r"\s+logo$", "", s, flags=re.IGNORECASE).strip()
-    for sep in [" · ", " • ", " | "]:
-        if sep in s:
-            s = s.split(sep, 1)[0].strip()
-            break
-    return s
-
-def _looks_like_title(line: str) -> bool:
-    low = normalize_for_matching(line)
-    if not line or len(line) < 4 or len(line) > 120:
-        return False
-    if _is_junk_line(line):
-        return False
-    if low in _COMPANY_STOPWORDS:
-        return False
-    if re.fullmatch(r"[\d\W_]+", line):
-        return False
-    if _TITLE_KEYWORDS_RE.search(line):
-        # reject “how you match” etc
-        if any(bad in low for bad in ["job alert", "reposted", "clicked apply", "promoted", "matches your job preferences"]):
-            return False
-        return True
-    return False
-
-def extract_title_company_location_from_description(desc: str) -> Dict[str, Optional[str]]:
-    """
-    Returns: {title, company, location, state}
-    """
-    cleaned = strip_linkedin_chrome(desc or "")
-    lines = [clean_text(x) for x in cleaned.splitlines()]
-    lines = [x for x in lines if x]
-    top = lines[:40]
-
-    # location/state from top lines
-    location = None
-    state = None
-    for line in top:
-        m = _LOC_LINE_RE.search(line)
-        if m:
-            st = (m.group(2) or "").strip().upper()
-            if st in US_STATES_PLUS_DC:
-                location = m.group(1).strip()
-                state = st
-                break
-
-    # title: first strong-looking title line
-    title = None
-    for line in top:
-        if _looks_like_title(line):
-            title = line.strip(" -•")
-            break
-
-    # company: best scored candidate among top lines
-    best_company = None
-    best_score = -999
-    for raw_line in top[:18]:
-        line = _split_linkedin_line(raw_line)
-        if not line:
-            continue
-        if title and line == title:
-            continue
-        if _looks_like_title(line):
-            continue
-        if _LOC_LINE_RE.search(line):
-            continue
-        sc = score_company_candidate(line)
-        if sc > best_score:
-            best_score = sc
-            best_company = line.strip(" -•")
-
-    # threshold
-    company = best_company if (best_company and best_score >= 10) else None
-
-    return {"title": title, "company": company, "location": location, "state": state}
-
-# ============================================================
-# EXPERIENCE LEVEL (CONTROLLED, NOT GUESSY)
-# ============================================================
-
-def _extract_years_experience_requirements(desc: str) -> Optional[int]:
-    lines = [clean_text(x) for x in (desc or "").splitlines() if clean_text(x)]
-    dash = r"(?:-|–|—)"
-    candidates: List[int] = []
-
-    for line in lines[:400]:
-        l = normalize_for_matching(line)
-        if "year" not in l or "experience" not in l:
-            continue
-
-        m_plus = re.search(r"\b(\d+)\s*\+\s*years?\b", l)
-        if m_plus:
-            candidates.append(int(m_plus.group(1)))
-            continue
-
-        m_range = re.search(rf"\b(\d+)\s*(?:{dash}|to)\s*(\d+)\s*years?\b", l)
-        if m_range:
-            candidates.append(int(m_range.group(1)))  # conservative: lower bound
-            continue
-
-        m_atleast = re.search(r"\b(at\s*least|min(?:imum)?)\s*(\d+)\s*years?\b", l)
-        if m_atleast:
-            candidates.append(int(m_atleast.group(2)))
-            continue
-
-        m_plain = re.search(r"\b(\d+)\s*years?\b", l)
-        if m_plain:
-            candidates.append(int(m_plain.group(1)))
-            continue
-
-    return min(candidates) if candidates else None
 
 def infer_experience_level(desc: str, title_hint: Optional[str] = None) -> Optional[str]:
     """
@@ -1221,7 +887,21 @@ def infer_experience_level(desc: str, title_hint: Optional[str] = None) -> Optio
         tt = normalize_for_matching(title_hint)
         if re.search(r"\b(analyst|specialist|coordinator)\b", tt):
             return "associate"
-        if re.search(r"\b(engineer|scientist)\b", tt):
+        if re.search(r"\b(engineer|scientist|developer|programmer)\b", tt):
+            return "mid"
+        if re.search(r"\b(researcher|architect|strategist|consultant)\b", tt):
+            return "mid"
+        if re.search(r"\b(manager|director|head|vp|vice president|chief)\b", tt):
+            return "senior"
+        # Numbered levels — III/3+ = senior, II/2 = mid, I/1 = associate
+        if re.search(r"\biii\b|\b[34]$|level\s*[34]\b", tt):
+            return "senior"
+        if re.search(r"\bii\b|\b2$|level\s*2\b", tt):
+            return "mid"
+        if re.search(r"\bi\b|\b1$|level\s*1\b", tt):
+            return "associate"
+        # Default for any remaining data/analytics/ml titles
+        if re.search(r"\b(data|analytics|machine learning|ml|ai|bi|intelligence)\b", tt):
             return "mid"
 
     return None
