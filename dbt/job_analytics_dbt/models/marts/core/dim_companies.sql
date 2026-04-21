@@ -2,8 +2,8 @@ select
   c.company_id,
   c.company_name,
   c.company_type,
-  dc.sector,
-  dc.active_roles,
+  coalesce(c.sector, dc.sector) as sector,
+  coalesce(jp_counts.active_roles, 0) as active_roles,
   ch.employee_count,
   case
     when ch.employee_count is not null and ch.employee_count <= 5000
@@ -13,13 +13,13 @@ select
     else null
   end as company_tier,
   case
-    when ch.employee_count > 0 and ch.employee_count <= 5000
-    then round(dc.active_roles::numeric / ch.employee_count * 100, 2)
+    when ch.employee_count > 0 and coalesce(jp_counts.active_roles, 0) > 0
+    then round(coalesce(jp_counts.active_roles, 0)::numeric / ch.employee_count * 100, 2)
     else null
   end as hiring_intensity_pct,
   case
-    when ch.employee_count > 0 and ch.employee_count > 5000
-    then round(dc.active_roles::numeric / ch.employee_count * 1000, 2)
+    when ch.employee_count > 0 and coalesce(jp_counts.active_roles, 0) > 0
+    then round(coalesce(jp_counts.active_roles, 0)::numeric / ch.employee_count * 1000, 2)
     else null
   end as hiring_intensity_per_1k,
   case
@@ -34,3 +34,9 @@ left join {{ source('job_analytics', 'discovered_companies') }} dc
   on lower(c.company_name) = lower(dc.company_name)
 left join {{ source('job_analytics', 'company_headcount') }} ch
   on lower(c.company_name) = lower(ch.company_name)
+left join (
+  select company_id, count(*) as active_roles
+  from {{ source('job_analytics', 'job_postings') }}
+  where status = 'raw' and data_tier = 1
+  group by company_id
+) jp_counts on jp_counts.company_id = c.company_id
