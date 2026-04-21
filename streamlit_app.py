@@ -1437,6 +1437,140 @@ elif page == "📖 Metrics Guide":
     """, unsafe_allow_html=True)
 
 
+
+elif page == "🔥 Hiring Intensity":
+    st.markdown("""
+    <div style="margin-bottom:32px">
+        <div style="font-family:'Syne',sans-serif;font-size:0.65rem;color:#444;
+            text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px">Company Intelligence</div>
+        <h1 style="font-family:'Syne',sans-serif;font-size:2.2rem;font-weight:800;
+            color:#e8e6e0;margin:0;line-height:1.1">Hiring Intensity</h1>
+        <p style="color:#555;margin-top:12px;max-width:600px;font-size:0.85rem;line-height:1.7">
+            Active data & ML roles as a % of total headcount. Normalizes for company size —
+            a startup hiring 5 data roles is more aggressive than a Fortune 500 hiring 50.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Filters
+    hi_col1, hi_col2, hi_col3 = st.columns([2, 1, 1])
+    with hi_col1:
+        hi_sectors = query("SELECT DISTINCT sector FROM analytics_analytics.mart_company_scorecard WHERE sector IS NOT NULL AND hiring_intensity_pct IS NOT NULL ORDER BY sector")
+        hi_sector_filter = st.multiselect("Filter by Sector", hi_sectors["sector"].tolist(), placeholder="All sectors", key="hi_sector")
+    with hi_col2:
+        min_employees = st.selectbox("Min headcount", [0, 200, 500, 1000, 2000, 5000], index=0, key="hi_min_emp")
+    with hi_col3:
+        hi_sort = st.selectbox("Sort by", ["hiring_intensity_pct", "active_roles", "employee_count"], key="hi_sort")
+
+    hi_where = ["hiring_intensity_pct IS NOT NULL", f"employee_count >= {min_employees}"]
+    if hi_sector_filter:
+        hi_where.append(f"sector IN ({','.join([repr(s) for s in hi_sector_filter])})")
+
+    intensity_data = query(f"""
+        SELECT company_name, sector, active_roles, employee_count,
+               hiring_intensity_pct, avg_max_salary
+        FROM analytics_analytics.mart_company_scorecard
+        WHERE {' AND '.join(hi_where)}
+        ORDER BY {hi_sort} DESC NULLS LAST
+        LIMIT 200
+    """)
+
+    if not intensity_data.empty:
+        # Summary metrics
+        m1, m2, m3, m4 = st.columns(4)
+        with m1:
+            st.metric("Companies Tracked", f"{len(intensity_data):,}")
+        with m2:
+            avg_i = intensity_data['hiring_intensity_pct'].mean()
+            st.metric("Avg Intensity", f"{avg_i:.2f}%")
+        with m3:
+            hyper = len(intensity_data[intensity_data['hiring_intensity_pct'] >= 2])
+            st.metric("Hyper-Growth (>2%)", f"{hyper}")
+        with m4:
+            active_build = len(intensity_data[(intensity_data['hiring_intensity_pct'] >= 0.5) & (intensity_data['hiring_intensity_pct'] < 2)])
+            st.metric("Active Build-Out (0.5–2%)", f"{active_build}")
+
+        # Tier bands
+        st.markdown("<div class='section-header'>Intensity Distribution</div>", unsafe_allow_html=True)
+        tc1, tc2, tc3 = st.columns(3)
+        hyper_df  = intensity_data[intensity_data['hiring_intensity_pct'] >= 2]
+        active_df = intensity_data[(intensity_data['hiring_intensity_pct'] >= 0.5) & (intensity_data['hiring_intensity_pct'] < 2)]
+        steady_df = intensity_data[intensity_data['hiring_intensity_pct'] < 0.5]
+
+        for col, df, label, color, desc in [
+            (tc1, hyper_df,  "🔥 Hyper-Growth",    "#ff6b6b", ">2% intensity"),
+            (tc2, active_df, "📈 Active Build-Out", "#ffd166", "0.5–2% intensity"),
+            (tc3, steady_df, "🟢 Steady State",     "#06d6a0", "<0.5% intensity"),
+        ]:
+            with col:
+                st.markdown(f"""
+                <div class="metric-card">
+                    <div style="font-size:0.6rem;color:#444;text-transform:uppercase;letter-spacing:0.1em">{label}</div>
+                    <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:{color};margin-top:4px">{len(df)}</div>
+                    <div style="font-size:0.65rem;color:#555;margin-top:4px">{desc}</div>
+                    <div style="margin-top:10px;font-size:0.7rem;color:#666;line-height:1.8">
+                        {"<br>".join([f"<span style='color:#888'>{r['company_name']}</span> <span style='color:{color}'>{r['hiring_intensity_pct']}%</span>" for _, r in df.head(5).iterrows()])}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        # Bubble chart
+        st.markdown("<div class='section-header'>Roles vs Headcount — Bubble = Intensity</div>", unsafe_allow_html=True)
+
+        chart_df = intensity_data[intensity_data['employee_count'] > 0].copy()
+        chart_df['size'] = chart_df['hiring_intensity_pct'].clip(upper=10)
+        chart_df['label'] = chart_df['company_name'] + "<br>" + chart_df['hiring_intensity_pct'].apply(lambda x: f"{x:.1f}%")
+
+        fig = px.scatter(
+            chart_df,
+            x='employee_count', y='active_roles',
+            size='size', color='hiring_intensity_pct',
+            color_continuous_scale=[[0,'#1a1a2e'],[0.3,'#333366'],[0.7,'#ffd166'],[1,'#ff6b6b']],
+            hover_name='company_name',
+            hover_data={'sector': True, 'hiring_intensity_pct': ':.2f', 'employee_count': ':,', 'active_roles': True, 'size': False},
+            labels={'employee_count': 'Total Employees', 'active_roles': 'Active Data/ML Roles', 'hiring_intensity_pct': 'Intensity %'},
+            log_x=True,
+        )
+        fig.update_layout(
+            plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
+            font_color='#888', font_family='DM Mono',
+            height=480,
+            margin=dict(l=0, r=0, t=0, b=0),
+            xaxis=dict(showgrid=False, title='Total Employees (log scale)'),
+            yaxis=dict(showgrid=False, title='Active Data & ML Roles'),
+            coloraxis_colorbar=dict(title='Intensity %', tickfont=dict(color='#888')),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Full table
+        st.markdown("<div class='section-header'>Full Rankings</div>", unsafe_allow_html=True)
+
+        display = intensity_data.copy()
+        display['hiring_intensity_pct'] = display['hiring_intensity_pct'].apply(lambda x: f"{x:.2f}%")
+        display['avg_max_salary'] = display['avg_max_salary'].apply(lambda x: f"${int(x):,}" if pd.notna(x) else "—")
+        display['employee_count'] = display['employee_count'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "—")
+
+        def tier_label(row):
+            pct = float(row['hiring_intensity_pct'].replace('%',''))
+            if pct >= 2: return "🔥 Hyper"
+            if pct >= 0.5: return "📈 Active"
+            return "🟢 Steady"
+
+        display['tier'] = display.apply(tier_label, axis=1)
+
+        st.dataframe(
+            display[['company_name','sector','tier','active_roles','employee_count','hiring_intensity_pct','avg_max_salary']]
+            .rename(columns={
+                'company_name':'Company', 'sector':'Sector', 'tier':'Tier',
+                'active_roles':'Active Roles', 'employee_count':'Employees',
+                'hiring_intensity_pct':'Intensity', 'avg_max_salary':'Avg Max Salary'
+            }),
+            use_container_width=True, hide_index=True
+        )
+    else:
+        st.markdown("<div style='color:#444;font-size:0.8rem'>No data available with current filters.</div>", unsafe_allow_html=True)
+
+
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div style="margin-top:48px;padding-top:16px;border-top:1px solid #1e1e2e;font-size:0.6rem;color:#333;display:flex;justify-content:space-between">
