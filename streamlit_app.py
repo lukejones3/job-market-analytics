@@ -1472,7 +1472,7 @@ elif page == "🔥 Hiring Intensity":
         FROM analytics_analytics.mart_company_scorecard
         WHERE {' AND '.join(hi_where)}
         ORDER BY {hi_sort} DESC NULLS LAST
-        LIMIT 200
+        LIMIT 500
     """)
 
     if not intensity_data.empty:
