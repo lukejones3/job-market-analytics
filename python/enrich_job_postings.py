@@ -524,6 +524,8 @@ def _to_dec(s: str) -> Optional[Decimal]:
     if s is None:
         return None
     s = s.strip().replace(" ", "")
+    # Strip trailing punctuation
+    s = s.rstrip(".,;:")
     # European thousands separator: 122.250,00 or 1.234.567
     # If dot appears before comma or before end with 3 digits after it, it's a thousands sep
     s = re.sub(r"\.(\d{3})(?=[,.]|$)", r"\1", s)
@@ -745,6 +747,141 @@ def _try_bare_range(tline: str):
     return None
 
 
+def _try_min_max_pay_range(tline: str):
+    """Ryder style: Minimum Pay Range : $X Maximum Pay Range : $Y"""
+    import re
+    m = re.search(
+        r"minimum\s+(?:pay\s+)?range\s*[:\s]+\$?\s*([\d,\.]+)\s+"
+        r"maximum\s+(?:pay\s+)?range\s*[:\s]+\$?\s*([\d,\.]+)",
+        tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1,v2), max(v1,v2)
+            p = _period_from_context(tline, lo)
+            if _sanity(lo, hi, p): return lo, hi, p
+    return None
+
+
+def _try_targeted_pay_range(tline: str):
+    """Dickssportinggoods: Targeted Pay Range: $X - $Y"""
+    import re
+    m = re.search(
+        r"targeted\s+pay\s+range[:\s]+\$?\s*([\d,\.]+)\s*[-–—]\s*\$?\s*([\d,\.]+)",
+        tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1,v2), max(v1,v2)
+            p = _period_from_context(tline, lo)
+            if _sanity(lo, hi, p): return lo, hi, p
+    return None
+
+
+def _try_annual_salary_range(tline: str):
+    """Dentsuaegis: The annual salary range for this position is $X - $Y"""
+    import re
+    m = re.search(
+        r"annual\s+(?:base\s+)?(?:salary|pay)\s+range\s+(?:for\s+this\s+(?:position|role)\s+)?is\s+\$?\s*([\d,\.]+[kK]?)\s*[-–—]\s*\$?\s*([\d,\.]+[kK]?)",
+        tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1,v2), max(v1,v2)
+            if _sanity(lo, hi, "year"): return lo, hi, "year"
+    return None
+
+
+def _try_spaced_number_range(tline: str):
+    """Fix numbers with internal spaces: $1 65,656 or $125 , 0 00 or $ 111 ,000"""
+    import re
+    # Normalize spaces within numbers then re-parse
+    normalized = re.sub(r'\$\s*(\d[\d\s,]*\d)', lambda m: '$' + re.sub(r'[\s]', '', m.group(1)), tline)
+    # Also normalize standalone spaced numbers after dash: - 125 , 0 00
+    normalized = re.sub(r'([-–—])\s*(\d[\d\s,]*\d)', lambda m: m.group(1) + re.sub(r'[\s]', '', m.group(2)), normalized)
+    if normalized != tline:
+        result = _try_labeled_range(normalized, normalized) or _try_bare_range(normalized)
+        if result and _sanity(result[0], result[1], result[2]):
+            return result
+    return None
+
+
+def _try_salary_slash_annually(tline: str):
+    """Relx: Salary: $72,500/annually"""
+    import re
+    m = re.search(r"\$\s*([\d,\.]+)\s*/\s*annual", tline, re.IGNORECASE)
+    if m:
+        v = _to_dec(m.group(1))
+        if v and _sanity(v, v, "year"): return v, v, "year"
+    return None
+
+
+def _try_salary_plus(tline: str):
+    """Utaustin: Salary Range $70,000 + depending"""
+    import re
+    m = re.search(r"salary\s+range\s+\$\s*([\d,\.]+)\s*\+", tline, re.IGNORECASE)
+    if m:
+        v = _to_dec(m.group(1))
+        if v and _sanity(v, v, "year"): return v, v, "year"
+    return None
+
+
+def _try_point72_typo(tline: str):
+    """Point72: $130,000-$1450,000 — second value has extra digit, likely $145,000"""
+    import re
+    from decimal import Decimal
+    m = re.search(r"\$\s*([\d,]+)\s*-\s*\$\s*(\d{4,}),000", tline, re.IGNORECASE)
+    if m:
+        v1 = _to_dec(m.group(1))
+        # $1450,000 -> strip leading extra digit if result > 1M
+        raw2 = m.group(2)
+        v2 = _to_dec(raw2 + "000")
+        if v2 and v2 > Decimal("1000000"):
+            # try removing first digit
+            v2 = _to_dec(raw2[1:] + "000") if len(raw2) > 3 else v2
+        if v1 and v2:
+            lo, hi = min(v1,v2), max(v1,v2)
+            if _sanity(lo, hi, "year"): return lo, hi, "year"
+    return None
+
+
+def _try_ford_salary_grades(tline: str):
+    """Ford: Salary grade 6 and ranges from $72,480-121,440"""
+    import re
+    m = re.search(r"ranges\s+from\s+\$([\d,]+)-([\d,]+)", tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1,v2), max(v1,v2)
+            if _sanity(lo, hi, "year"): return lo, hi, "year"
+    return None
+
+
+def _try_twilio_colon_range(tline: str):
+    """Twilio: Washington D.C. : $188,240 - 235,300"""
+    import re
+    m = re.search(r":\s+\$([\d,\.]+)\s*[-–—]\s*([\d,\.]+)(?:\.|\s|$)", tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1,v2), max(v1,v2)
+            p = _period_from_context(tline, lo)
+            if _sanity(lo, hi, p): return lo, hi, p
+    return None
+
+
+def _try_iqvia_french(tline: str):
+    """Iqvia french: est de $93,200.00 - $143,200.00"""
+    import re
+    m = re.search(r"est\s+de\s+\$([\d,\.]+)\s*[-–—]\s*\$?([\d,\.]+)", tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1,v2), max(v1,v2)
+            if _sanity(lo, hi, "year"): return lo, hi, "year"
+    return None
+
+
 def _try_single_value(tline: str, low: str):
     """Single salary values with explicit context."""
     # offering $X+ or offering $X
@@ -829,6 +966,16 @@ def parse_salary_range(text: str) -> tuple:
             _try_slash_period(tline) or
             _try_labeled_range(tline, window) or
             _try_min_max_labels(tline) or
+            _try_min_max_pay_range(tline) or
+            _try_targeted_pay_range(tline) or
+            _try_annual_salary_range(tline) or
+            _try_spaced_number_range(tline) or
+            _try_salary_slash_annually(tline) or
+            _try_salary_plus(tline) or
+            _try_point72_typo(tline) or
+            _try_ford_salary_grades(tline) or
+            _try_twilio_colon_range(tline) or
+            _try_iqvia_french(tline) or
             _try_bare_range(tline) or
             _try_single_value(tline, low)
         )
