@@ -882,6 +882,45 @@ def _try_iqvia_french(tline: str):
     return None
 
 
+def _try_low_high_range(tline: str):
+    """PebblePost: Salary range: Low: $170,000 - High: $190,000"""
+    import re
+    m = re.search(r"low[:\s]+\$?([\d,\.]+)\s*[-–—]\s*high[:\s]+\$?([\d,\.]+)", tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1,v2), max(v1,v2)
+            if _sanity(lo, hi, "year"): return lo, hi, "year"
+    return None
+
+
+def _try_cad_between(tline: str):
+    """Fullscript: between $110,000 CAD and $140,000 CAD"""
+    import re
+    m = re.search(r"between\s+\$?([\d,\.]+)\s*CAD\s+and\s+\$?([\d,\.]+)\s*CAD", tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1,v2), max(v1,v2)
+            if _sanity(lo, hi, "year"): return lo, hi, "year"
+    return None
+
+
+def _try_kobold_truncated(tline: str):
+    """KoBold: $140,00 - $240,000 — first value missing last digit"""
+    import re
+    from decimal import Decimal
+    m = re.search(r"\$\s*(\d+),(\d{2})\s*[-–—]\s*\$?([\d,]+)", tline)
+    if m and len(m.group(2)) == 2:
+        # $140,00 -> try as $140,000
+        v1 = _to_dec(m.group(1) + "000")
+        v2 = _to_dec(m.group(3))
+        if v1 and v2:
+            lo, hi = min(v1,v2), max(v1,v2)
+            if _sanity(lo, hi, "year"): return lo, hi, "year"
+    return None
+
+
 def _try_single_value(tline: str, low: str):
     """Single salary values with explicit context."""
     # offering $X+ or offering $X
@@ -976,6 +1015,9 @@ def parse_salary_range(text: str) -> tuple:
             _try_ford_salary_grades(tline) or
             _try_twilio_colon_range(tline) or
             _try_iqvia_french(tline) or
+            _try_low_high_range(tline) or
+            _try_cad_between(tline) or
+            _try_kobold_truncated(tline) or
             _try_bare_range(tline) or
             _try_single_value(tline, low)
         )
