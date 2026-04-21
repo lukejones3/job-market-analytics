@@ -160,7 +160,7 @@ with st.sidebar:
 
     page = st.radio(
         "Navigate",
-        ["📊 Overview", "🏢 Company Scorecard", "🔧 Skill Premiums", "🏭 Sector Dashboard", "🎯 Role Explorer"],
+        ["📊 Overview", "🏢 Company Scorecard", "🔧 Skill Premiums", "🏭 Sector Dashboard", "🎯 Role Explorer", "📖 Metrics Guide"],
         label_visibility="collapsed"
     )
 
@@ -1270,6 +1270,171 @@ elif page == "🎯 Role Explorer":
                 use_container_width=True, hide_index=True
             )
 
+
+
+
+elif page == "📖 Metrics Guide":
+
+    st.markdown("""
+    <div style="margin-bottom:32px">
+        <div style="font-family:'Syne',sans-serif;font-size:0.65rem;color:#444;
+            text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px">Documentation</div>
+        <h1 style="font-family:'Syne',sans-serif;font-size:2.2rem;font-weight:800;
+            color:#e8e6e0;margin:0;line-height:1.1">How Our Metrics Work</h1>
+        <p style="color:#555;margin-top:12px;max-width:600px;font-size:0.85rem;line-height:1.7">
+            Every score on this platform is derived from live ATS data — not surveys, not estimates.
+            Here's exactly how each metric is calculated.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#0f0f18;border:1px solid #1e1e2e;border-radius:6px;padding:28px 32px;margin-bottom:16px">
+        <div style="display:flex;align-items:flex-start;gap:20px">
+            <div style="font-size:2rem;line-height:1;flex-shrink:0">👻</div>
+            <div style="flex:1">
+                <div style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:#e8e6e0;margin-bottom:6px">Ghost Job Probability</div>
+                <div style="font-size:0.75rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px">0–100 · Higher = More Likely a Ghost</div>
+                <p style="color:#888;font-size:0.85rem;line-height:1.7;margin-bottom:16px">
+                    A ghost job is a posting that is no longer actively being filled — the position may be on hold,
+                    already filled internally, or posted to build a pipeline. We calculate ghost probability using three signals:
+                </p>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
+                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Days Active</div>
+                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">40%</div>
+                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Postings older than 30 days score higher. After 60 days the signal is strong. Most legitimate openings fill within 45 days.</div>
+                    </div>
+                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
+                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Repost Count</div>
+                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">35%</div>
+                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Jobs taken down and reposted repeatedly are a strong signal of pipeline-building rather than active hiring.</div>
+                    </div>
+                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
+                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Company Velocity</div>
+                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">25%</div>
+                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Companies with rapidly declining active role counts are more likely to have stale postings not yet cleaned up.</div>
+                    </div>
+                </div>
+                <div style="background:#0a0a0f;border-left:3px solid #c8f542;padding:12px 16px;border-radius:0 4px 4px 0">
+                    <div style="font-size:0.75rem;color:#888;line-height:1.6">
+                        <strong style="color:#c8f542">Tiers:</strong>
+                        &nbsp;🔴 High (75+) · 🟡 Medium (40–74) · 🟢 Low (15–39) · ✨ Fresh (&lt;15)
+                        &nbsp;·&nbsp; Fresh jobs are under 7 days old and score near zero regardless of other signals.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#0f0f18;border:1px solid #1e1e2e;border-radius:6px;padding:28px 32px;margin-bottom:16px">
+        <div style="display:flex;align-items:flex-start;gap:20px">
+            <div style="font-size:2rem;line-height:1;flex-shrink:0">🎯</div>
+            <div style="flex:1">
+                <div style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:#e8e6e0;margin-bottom:6px">Honesty Score</div>
+                <div style="font-size:0.75rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px">0–100 · Higher = More Transparent</div>
+                <p style="color:#888;font-size:0.85rem;line-height:1.7;margin-bottom:16px">
+                    Measures how transparent and specific a job posting is. Vague postings with no salary,
+                    generic requirements, and boilerplate descriptions score low. Honest postings score high.
+                </p>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:16px">
+                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
+                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Salary Disclosed</div>
+                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">+40 pts</div>
+                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Disclosing a salary range is the single biggest honesty signal.</div>
+                    </div>
+                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
+                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Description Quality</div>
+                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">+30 pts</div>
+                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Scored on length, specificity, and ratio of responsibilities to boilerplate.</div>
+                    </div>
+                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
+                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Requirement Fit</div>
+                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">+20 pts</div>
+                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Checks whether years of experience match the stated level. "Entry level: 5+ years" scores a penalty.</div>
+                    </div>
+                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
+                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Location Clarity</div>
+                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">+10 pts</div>
+                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Specifying city/state or clearly stating remote earns full credit.</div>
+                    </div>
+                </div>
+                <div style="background:#0a0a0f;border-left:3px solid #c8f542;padding:12px 16px;border-radius:0 4px 4px 0">
+                    <div style="font-size:0.75rem;color:#888;line-height:1.6">
+                        <strong style="color:#c8f542">Interpretation:</strong>
+                        &nbsp;80–100 = High quality · 60–79 = Acceptable · Below 60 = Proceed with caution
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#0f0f18;border:1px solid #1e1e2e;border-radius:6px;padding:28px 32px;margin-bottom:16px">
+        <div style="display:flex;align-items:flex-start;gap:20px">
+            <div style="font-size:2rem;line-height:1;flex-shrink:0">🔥</div>
+            <div style="flex:1">
+                <div style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:#e8e6e0;margin-bottom:6px">Hiring Intensity</div>
+                <div style="font-size:0.75rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px">Active Roles ÷ Total Employees × 100</div>
+                <p style="color:#888;font-size:0.85rem;line-height:1.7;margin-bottom:16px">
+                    The percentage of a company's workforce they are actively trying to hire for in data and ML roles right now.
+                    Normalizes for company size — a startup with 5 open roles is hiring more aggressively than a Fortune 500 with 50.
+                </p>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
+                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px;text-align:center">
+                        <div style="font-family:'Syne',sans-serif;font-size:1.6rem;font-weight:800;color:#c8f542">&lt;0.5%</div>
+                        <div style="font-size:0.7rem;color:#666;margin-top:6px;text-transform:uppercase;letter-spacing:0.08em">Steady State</div>
+                        <div style="font-size:0.75rem;color:#555;margin-top:6px;line-height:1.5">Normal ongoing hiring. No urgency signal.</div>
+                    </div>
+                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px;text-align:center">
+                        <div style="font-family:'Syne',sans-serif;font-size:1.6rem;font-weight:800;color:#c8f542">0.5–2%</div>
+                        <div style="font-size:0.7rem;color:#666;margin-top:6px;text-transform:uppercase;letter-spacing:0.08em">Active Build-Out</div>
+                        <div style="font-size:0.75rem;color:#555;margin-top:6px;line-height:1.5">Actively scaling the data team. Good signal for recruiters.</div>
+                    </div>
+                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px;text-align:center">
+                        <div style="font-family:'Syne',sans-serif;font-size:1.6rem;font-weight:800;color:#c8f542">&gt;2%</div>
+                        <div style="font-size:0.7rem;color:#666;margin-top:6px;text-transform:uppercase;letter-spacing:0.08em">Hyper-Growth</div>
+                        <div style="font-size:0.75rem;color:#555;margin-top:6px;line-height:1.5">Major data team expansion. High urgency. Act fast.</div>
+                    </div>
+                </div>
+                <div style="background:#0a0a0f;border-left:3px solid #c8f542;padding:12px 16px;border-radius:0 4px 4px 0">
+                    <div style="font-size:0.75rem;color:#888;line-height:1.6">
+                        <strong style="color:#c8f542">Data source:</strong>
+                        &nbsp;Employee counts sourced from Wikipedia, public filings, and verified company data.
+                        Intensity is scoped to <em>data and ML roles only</em> — not total company hiring.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("""
+    <div style="background:#0f0f18;border:1px solid #1e1e2e;border-radius:6px;padding:28px 32px;margin-bottom:16px">
+        <div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:#e8e6e0;margin-bottom:16px">📡 Data Sources & Methodology</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
+            <div>
+                <div style="font-size:0.7rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">ATS Sources (Tier 1)</div>
+                <div style="font-size:0.8rem;color:#666;line-height:2">Greenhouse · Lever · Ashby · Workday · Eightfold · Amazon<br><span style="color:#444">Full job descriptions, salary data, and metadata</span></div>
+            </div>
+            <div>
+                <div style="font-size:0.7rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Update Cadence</div>
+                <div style="font-size:0.8rem;color:#666;line-height:2">All sources crawled nightly at 6am UTC<br>Scores rebuilt daily at 11am UTC<br><span style="color:#444">~6,000 active Tier 1 jobs tracked</span></div>
+            </div>
+            <div>
+                <div style="font-size:0.7rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Scope</div>
+                <div style="font-size:0.8rem;color:#666;line-height:2">Data, ML, and analytics roles only<br>US market focus · Remote roles included<br><span style="color:#444">500+ companies with headcount data</span></div>
+            </div>
+            <div>
+                <div style="font-size:0.7rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Salary Data</div>
+                <div style="font-size:0.8rem;color:#666;line-height:2">Parsed directly from job descriptions<br>Annualized from hourly/monthly where needed<br><span style="color:#444">~55% of active jobs have salary data</span></div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 # ── Footer ────────────────────────────────────────────────────────────────────
