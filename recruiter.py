@@ -495,17 +495,15 @@ else:
         source_display = {"greenhouse": "GH", "workday": "WD", "lever": "LV",
                           "ashby": "AS", "eightfold": "EF"}.get(row["source"], row["source"][:2].upper())
 
-        sal_badge = f"<span class='badge badge-salary'>💰 {sal_str}</span>" if sal_str else ""
-        sector_badge = f"<span class='badge badge-sector'>{row['sector']}</span>" if pd.notna(row['sector']) and row['sector'] else ""
-        wp_badge = f"<span class='badge badge-sector'>{wp}</span>" if wp else ""
-        exp_badge = f"<span class='badge badge-sector'>{exp}</span>" if exp else ""
-        badges = f"""
-            <span class='badge badge-age'>{icon} {age_str}</span>
-            <span class='badge badge-quality'>Quality {qs}</span>
-            <span class='badge badge-urgency'>Urgency {us}</span>
-            {sal_badge}{sector_badge}{wp_badge}{exp_badge}
-            <span class='badge badge-source'>{source_display}</span>
-        """
+        sal_badge = ("<span class=\"badge badge-salary\">💰 " + sal_str + "</span>") if sal_str else ""
+        sector_badge = ("<span class=\"badge badge-sector\">" + str(row["sector"]) + "</span>") if pd.notna(row["sector"]) and row["sector"] else ""
+        wp_badge = ("<span class=\"badge badge-sector\">" + wp + "</span>") if wp else ""
+        exp_badge = ("<span class=\"badge badge-sector\">" + exp + "</span>") if exp else ""
+        age_badge = "<span class=\"badge badge-age\">" + icon + " " + age_str + "</span>"
+        q_badge = "<span class=\"badge badge-quality\">Quality " + qs + "</span>"
+        u_badge = "<span class=\"badge badge-urgency\">Urgency " + us + "</span>"
+        src_badge = "<span class=\"badge badge-source\">" + source_display + "</span>"
+        badges = age_badge + q_badge + u_badge + sal_badge + sector_badge + wp_badge + exp_badge + src_badge
 
         company_display = row['company_name'] or '—'
         sector_sub = f" · {row['sector']}" if pd.notna(row['sector']) and row['sector'] else ""
