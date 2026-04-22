@@ -336,13 +336,14 @@ END
 where_clauses = [
     "jp.data_tier = 1",
     "jp.status = 'raw'",
-    f"jp.date_found > NOW() - INTERVAL '{days_back} days'",
-    """(jp.source != 'workday' OR NOT EXISTS (
-        SELECT 1 FROM discovered_companies dc
-        WHERE lower(dc.company_name) = lower(c.company_name)
-          AND dc.ats_source = 'workday'
-          AND dc.first_seen_at > NOW() - INTERVAL '14 days'
-    ))"""
+    f"(CASE WHEN jp.source = 'workday' AND jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END) > NOW() - INTERVAL '{days_back} days'",
+    -- For Workday, only show jobs found on days where fewer than 200 WD jobs came in (not bulk import days)
+    """(jp.source != 'workday' OR (
+        SELECT COUNT(*) FROM job_postings jp2
+        WHERE jp2.source = 'workday'
+          AND DATE(jp2.date_found) = DATE(jp.date_found)
+          AND jp2.data_tier = 1
+    ) < 300)"""
 ]
 
 if sector_filter:
@@ -386,7 +387,7 @@ fresh_jobs = query(f"""
         jp.experience_level,
         jh.honesty_score,
         gi.ghost_probability,
-        EXTRACT(EPOCH FROM (NOW() - jp.date_found))/3600 as hours_old,
+        EXTRACT(EPOCH FROM (NOW() - CASE WHEN jp.source = 'workday' AND jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END))/3600 as hours_old,
         STRING_AGG(DISTINCT s.skill_name, ', ' ORDER BY s.skill_name) as skills,
         ch.employee_count,
         {role_family_sql} as role_family
@@ -498,8 +499,16 @@ else:
         # Workplace
         wp = (row["workplace_type"] if pd.notna(row["workplace_type"]) else "").capitalize()
         exp = (row["experience_level"] if pd.notna(row["experience_level"]) else "").capitalize()
-        source_display = {"greenhouse": "GH", "workday": "WD", "lever": "LV",
-                          "ashby": "AS", "eightfold": "EF"}.get(row["source"], row["source"][:2].upper())
+        source_map = {
+            "greenhouse": ("GH", "#22c55e", "#052e16"),
+            "workday":    ("WD", "#38bdf8", "#0c1a2e"),
+            "lever":      ("LV", "#f97316", "#2a1000"),
+            "ashby":      ("AS", "#e879f9", "#1a0a1e"),
+            "eightfold":  ("EF", "#facc15", "#1a1400"),
+            "amazon":     ("AMZ","#fb923c", "#1a0800"),
+        }
+        src_info = source_map.get(row["source"], (row["source"][:2].upper(), "#71717a", "#111"))
+        source_display, src_color, src_bg = src_info
 
         sal_badge = ("<span class=\"badge badge-salary\">💰 " + sal_str + "</span>") if sal_str else ""
         sector_badge = ("<span class=\"badge badge-sector\">" + str(row["sector"]) + "</span>") if pd.notna(row["sector"]) and row["sector"] else ""
@@ -508,7 +517,7 @@ else:
         age_badge = "<span class=\"badge badge-age\">" + icon + " " + age_str + "</span>"
         q_badge = "<span class=\"badge badge-quality\">Quality " + qs + "</span>"
         u_badge = "<span class=\"badge badge-urgency\">Urgency " + us + "</span>"
-        src_badge = "<span class=\"badge badge-source\">" + source_display + "</span>"
+        src_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:0.05em;background:{src_bg};color:{src_color};border:1px solid {src_color}33">{source_display}</span>'
         badges = age_badge + q_badge + u_badge + sal_badge + sector_badge + wp_badge + exp_badge + src_badge
 
         company_display = row['company_name'] or '—'

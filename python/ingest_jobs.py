@@ -2178,6 +2178,24 @@ def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) ->
                     elif "hybrid" in loc_lower:
                         workplace_type = "hybrid"
 
+                # Parse postedOn into a date
+                posted_date = None
+                posted_on = p.get("postedOn", "")
+                if posted_on:
+                    posted_on_lower = posted_on.lower()
+                    from datetime import date, timedelta
+                    today = date.today()
+                    if "today" in posted_on_lower:
+                        posted_date = str(today)
+                    elif "yesterday" in posted_on_lower:
+                        posted_date = str(today - timedelta(days=1))
+                    else:
+                        import re as _re
+                        m = _re.search(r"(\d+)\+?\s*days?\s+ago", posted_on_lower)
+                        if m:
+                            days_ago = int(m.group(1))
+                            posted_date = str(today - timedelta(days=days_ago))
+
                 jobs.append(RawJob(
                     source="workday",
                     source_id=job_id,
@@ -2190,6 +2208,7 @@ def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) ->
                     salary_max=None,
                     salary_period=None,
                     workplace_type=workplace_type,
+                    posted_date=posted_date,
                 ))
 
             offset += limit
