@@ -16,4 +16,3 @@ python -u python/score_resume.py \
   --top-jobs 500 \
   --workplace any \
   --level any
-

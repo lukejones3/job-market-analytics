@@ -87,4 +87,3 @@ echo "✅ Compile OK"
 echo ""
 echo "Next step (recommended):"
 echo "  python -u python/enrich_job_postings.py --rescan-skills"
-

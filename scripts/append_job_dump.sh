@@ -30,4 +30,3 @@ CLIP="${CLIP//$'\r'/$'\n'}"
 } >> "$DUMP_FILE"
 
 osascript -e 'display notification "Appended job to dump file" with title "Job Dump"'
-

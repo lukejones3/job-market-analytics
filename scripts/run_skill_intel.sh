@@ -17,4 +17,3 @@ echo "▶️  Top emerging skills (MoM, top 25):"
 psql "$DB" -v ON_ERROR_STOP=1 -c "SELECT * FROM v_skill_emerging_mom LIMIT 25;"
 
 echo "✅ Done. run_id=$RUN_ID"
-

@@ -180,7 +180,7 @@ def resolve_workday_instance(subdomain: str, tenant_name: str) -> tuple[str, str
     base = tenant_name.split("/")[0] if "/" in tenant_name else tenant_name
     candidates = [tenant_name, base, f"{subdomain}careers", f"{subdomain}Careers",
                   "External", "Careers", f"{subdomain}External"]
-    
+
     for tenant in candidates:
         vanity_url = f"https://{subdomain}.myworkdayjobs.com/{tenant}"
         try:
@@ -206,10 +206,10 @@ def probe_workday_tenant(subdomain: str, tenant_name: str) -> tuple[bool, int, s
     Returns (has_roles, count, working_url_info)
     """
     resolved_sub, resolved_tenant = resolve_workday_instance(subdomain, tenant_name)
-    
+
     if not resolved_sub:
         return False, 0, ""
-    
+
     # Extract just the wd{N} part for the CXS URL
     # resolved_sub is like "accenture.wd103"
     headers = {
@@ -217,11 +217,11 @@ def probe_workday_tenant(subdomain: str, tenant_name: str) -> tuple[bool, int, s
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    
+
     # Try CXS API with resolved info
-    tenant_candidates = [resolved_tenant, tenant_name, 
+    tenant_candidates = [resolved_tenant, tenant_name,
                         tenant_name.split("/")[0] if "/" in tenant_name else tenant_name]
-    
+
     for tenant in tenant_candidates:
         url = f"https://{resolved_sub}.myworkdayjobs.com/wday/cxs/{subdomain}/{tenant}/jobs"
         try:
@@ -239,7 +239,7 @@ def probe_workday_tenant(subdomain: str, tenant_name: str) -> tuple[bool, int, s
                     return len(target) > 0, len(target), f"{resolved_sub}/{tenant}"
         except Exception:
             continue
-    
+
     return False, 0, resolved_sub
 
 def get_conn():
@@ -279,7 +279,7 @@ def main():
         # Check if already tracked
         token_key = f"{subdomain}/{tenant}".lower()
         simple_key = subdomain.lower()
-        
+
         if any(simple_key in k for k in existing.keys()):
             log.info(f"  ⏭️  {company_name} — already tracked")
             continue

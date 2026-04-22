@@ -42,9 +42,9 @@ Get AI-powered advice on this job and more exclusive features with Premium. Try
 
 
 People you can reach out to
-* 		
+*
 * ￼
-* 		
+*
 Iowa State University - Ivy College of Business logo
 School alumni from Iowa State University - Ivy College of Business
 Show all
@@ -73,7 +73,7 @@ We seek an analytical and detail-oriented Information Management Analyst to join
 You will be responsible for…
 * Working with senior team members to analyze multiple enterprise-grade projects focusing on data-driven solutions.
 * Learning subject matter expertise for business, functional, and technical data analysis.
-* Interpret data and analyze results to map data into new data models or to enhance existing data models, collaborate on remediation plans, and track progress. 
+* Interpret data and analyze results to map data into new data models or to enhance existing data models, collaborate on remediation plans, and track progress.
 * Assisting business and product owners in clarifying their vision to illuminate the key features of the minimally viable product.
 * Collaborating with the team to create testing plans and execute test cases.
 * Identify, analyze, and interpret trends or patterns in complete data sets.
@@ -148,11 +148,11 @@ Get AI-powered advice on this job and more exclusive features with Premium. Try
 
 
 People you can reach out to
-* 		
+*
 * ￼
-* 		
+*
 Monique profile photo
-Monique P. 
+Monique P.
 Monique P. is verified
  
 · 3rd
@@ -286,7 +286,7 @@ Desired Skills & Experience
 * Experience working with international or non-English datasets 
 The target base salary for this position is $85,000-$100,000 plus company bonus and equity. Final offer amounts are determined by multiple factors including location, local market variances, candidate experience and expertise, internal peer equity, and may vary from the amounts listed above.
 
-Benefits: 
+Benefits:
 
 * 100% fully paid medical, vision, and dental for employees and their dependents
 * Generous time off; we observe all US federal holidays, close our office for a winter break (12/24-12/31), in addition to granting 18 PTO days and 10 sick days
@@ -563,9 +563,9 @@ Find jobs where you’re a top applicant and tailor your resume with the help of
 
 Try Premium for $0
 People you can reach out to
-* 		
+*
 * ￼
-* 		
+*
 KeyBank logo
 Company alumni from KeyBank and others in your network
 Show all
@@ -668,14 +668,14 @@ Find jobs where you’re a top applicant and tailor your resume with the help of
 
 Try Premium for $0
 People you can reach out to
-* 		
+*
 * ￼
-* 		
+*
 Mohammed profile photo
 Mohammed Hassan
  
 · 3rd
-Software Engineer | MS in CS @ Georgia Tech 
+Software Engineer | MS in CS @ Georgia Tech
 Company alum from KeyBank
 
 Message
@@ -773,71 +773,71 @@ Try Premium for $0
 
 About the job
 Are you looking to jump start your career?   At XiFin, we believe a healthier, more efficient healthcare system starts with strong financial and operational foundations. Our innovative technologies help diagnostic providers, laboratories, and healthcare systems manage complexity, drive better outcomes, and stay focused on what matters most: patient care.  One of the ways we are achieving this is through our Career Development Program. The Career Development Program offers long-term employment and is designed to empower, develop, and inspire new graduates and emerging talent by providing meaningful opportunities to learn, grow, and thrive. We are committed to fostering a culture of inclusion, mentorship, and innovation, where early-career professionals can build the skills, confidence, and networks needed to create impact today and become the leaders of tomorrow.  Through structured learning, real-world experiences, and community-building, you will: 
-*  Receive accelerated professional growth through mentorship, learning, and hands-on experiences. 
-*  Discover your voice and impact by contributing to meaningful work. 
+*  Receive accelerated professional growth through mentorship, learning, and hands-on experiences.
+*  Discover your voice and impact by contributing to meaningful work.
 *  Find community and belonging in an environment that celebrates collaboration and individuality.   
 About The Role
 
 As an Associate Data Engineer in XiFin’s Career Development Program you will be part of a team of dynamic professionals reportingdirectly to the Sr. Data Engineer. In your day-to-day, you’ll play a critical part in developing, testing, and supporting data pipelines and transformations, specifically within intricate healthcare and financial domains. You will not only collaborate with various departments but also play a pivotal role in extracting innovative insights from vast datasets. This is an exciting opportunity to join a team that values continuous learning, mentorship, and operational excellence. This position will be located at our office in San Diego, CA.
 
- How you will make an impact: 
+ How you will make an impact:
 
 In this role, you’ll:
 
-*  Collaborate with various teams to architect and deliver robust data solutions. 
-*  Extract valuable insights from complex datasets to drive business decisions. 
-*  Design, develop, test, and maintain data pipelines, transformations as well as ML webservices, especially for intricate healthcare and financial datasets. 
-*  Engineer and support high-quality ETL or ELT data pipelines using tools like Talend, Python, Java, SQL, and/or SAP DI or any other cloud data services. 
-*  Integrate data from diverse sources, ensuring it's cleaned, standardized, and seamlessly loaded into both OLTP systems and data warehouses. 
-*  Proactively identify, diagnose, and rectify any issues within production pipelines and integration tasks. 
+*  Collaborate with various teams to architect and deliver robust data solutions.
+*  Extract valuable insights from complex datasets to drive business decisions.
+*  Design, develop, test, and maintain data pipelines, transformations as well as ML webservices, especially for intricate healthcare and financial datasets.
+*  Engineer and support high-quality ETL or ELT data pipelines using tools like Talend, Python, Java, SQL, and/or SAP DI or any other cloud data services.
+*  Integrate data from diverse sources, ensuring it's cleaned, standardized, and seamlessly loaded into both OLTP systems and data warehouses.
+*  Proactively identify, diagnose, and rectify any issues within production pipelines and integration tasks.
 *  Engage closely with reporting, analytics team members, as part of machine learning team to understand requirements, assist in testing, and address any operational challenges.   
- What you will bring to the team: 
+ What you will bring to the team:
 
 We’re looking for someone with a growth mindset and a passion for learning. You might be a great fit if you:
 
-*  Are a new graduate with a bachelor’s or master’s degree 
-*  Communicate clearly and confidently, both in writing and in conversation 
-*  Are eager to learn, ask great questions, and work with others to solve problems 
+*  Are a new graduate with a bachelor’s or master’s degree
+*  Communicate clearly and confidently, both in writing and in conversation
+*  Are eager to learn, ask great questions, and work with others to solve problems
 *  Willing to collaborate across the organization to drive XiFin’s business forward   
- Skills and experience you have: 
+ Skills and experience you have:
 
 You don’t need to check every box. We will consider a combination of education and experience, including:
 
-*  Must have obtained a bachelor’s or master’s degree in computer science, engineering or a related technical field, by or within the 6 months preceding the start date of June 2026 
-*  Located in the greater San Diego area 
+*  Must have obtained a bachelor’s or master’s degree in computer science, engineering or a related technical field, by or within the 6 months preceding the start date of June 2026
+*  Located in the greater San Diego area
 *  Demonstrated knowledge of Python, Java, and SQL   
- Why XiFin? 
+ Why XiFin?
 
 We’re more than just a healthcare technology company—we’re a team that cares about people.
 
 Here’s a glimpse at what we offer:
 
-*  Comprehensive health benefits including medical, dental, vision, and telehealth 
-*  401(k) with company match and personalized financial coaching to support your financial future 
-*  Health Savings Account (HSA) with company contributions 
-*  Wellness incentive that rewards your preventive healthcare activities 
-*  Tuition assistance to support your further education and growth 
-*  Annual volunteer event 
-*  Flexible time off and company-paid holidays 
+*  Comprehensive health benefits including medical, dental, vision, and telehealth
+*  401(k) with company match and personalized financial coaching to support your financial future
+*  Health Savings Account (HSA) with company contributions
+*  Wellness incentive that rewards your preventive healthcare activities
+*  Tuition assistance to support your further education and growth
+*  Annual volunteer event
+*  Flexible time off and company-paid holidays
 *  Social and fun events to build community at our locations!   
- Pay Transparency 
+ Pay Transparency
 
 At XiFin, we believe in pay transparency and fairness. Expected annualized salary range based on department placement as well as degree level achieved:
 
-$70,300 - $90,000 
+$70,300 - $90,000
 
 Final compensation will be determined during the selection process and may vary accordingly. *
 
 * Specific roles may fall outside of the ranges listed above and are compensated differently based on market conditions and specialized skill requirements.  
- Accessibility & Accommodations 
+ Accessibility & Accommodations
 
 We’re committed to providing an inclusive and accessible experience for all applicants. If you need a reasonable accommodation during the application process, please contact us at 858-436-2901.
 
- Equal Opportunity Employer 
+ Equal Opportunity Employer
 
 XiFin is proud to be an equal opportunity employer. We value diverse voices and do not discriminate on the basis of race, color, religion, national origin, gender, gender identity, sexual orientation, disability, age, veteran status or any other basis protected by law.
 
- Ready to apply? 
+ Ready to apply?
 
 We’d love to hear from you—even if you’re not sure you meet every qualification. If you're excited about the role and believe you can contribute to our team, please apply. Let's build something meaningful together.
 
@@ -945,7 +945,7 @@ Preferred Qualifications
 * Knowledge of NoSQL databases (MongoDB, Cassandra, DynamoDB)
 * Exposure to CI/CD practices and DevOps principles
 * Understanding of data governance and compliance concepts 
-Special Work Conditions 
+Special Work Conditions
 
 * Sedentary – Involves sitting most of the time but may involve walking or standing for brief periods of time. Some positions may entail exerting up to 15 lbs. of force occasionally and/or a negligible amount of force to lift, carry, push, or pull. 
 Why Join Us?
@@ -1028,29 +1028,29 @@ Try Premium for $0
 
 About the job
 Data Engineer Job Description:   Mod Op is a full-service advertising agency with offices across several US locations, Panama City, Panama, and Canada. With continued growth and a dynamic leadership team, we offer a generous time-off package, access to high-quality healthcare options, and a collaborative team dedicated to career and personal development. We believe in teamwork, client collaboration, storytelling, stunning design, and solving complex problems with innovative solutions. We are a 360° agency providing strategy, design, and production across all channels, with clients representing a variety of industries, offering diverse and exciting challenges. We are committed to working smart and enjoying the work we do.  About You:   As a Data Engineer with (1-2) years of experience, you will be responsible for designing and implementing robust data pipelines, optimizing data workflows, and supporting analytics initiatives. You will work with AWS and GCP cloud services, integrate with CRM and marketing platforms, and enable data-driven decision-making through visualization tools like Google Looker and Tableau.   Key Responsibilities:  
-* Data Pipeline Development: Design, develop, and maintain scalable ETL/ELT pipelines in GCP, Azure & AWS using various services including Data Flow, Composer, Azure Synapse, AWS Data Pipelines and etc 
-* Data Integration: Work with structured and unstructured data sources, including CRM and marketing data platforms. 
-* Database Management: Develop and optimize queries for SQL & NoSQL databases (Teradata, BigQuery, Cassandra, etc.). 
-* Data Science & ML: Implementing Models using GCP Vertex ai and utilizing Python and its data science libraries (Pandas, NumPy, Scikit-learn, etc.) for data analysis and ML model deployment. 
-* Data Visualization: Build and manage dashboards using Google Looker and Tableau to provide business insights. 
-* Collaboration: Work closely with data analysts, marketing teams, and other stakeholders to understand business needs and implement effective data solutions. 
+* Data Pipeline Development: Design, develop, and maintain scalable ETL/ELT pipelines in GCP, Azure & AWS using various services including Data Flow, Composer, Azure Synapse, AWS Data Pipelines and etc
+* Data Integration: Work with structured and unstructured data sources, including CRM and marketing data platforms.
+* Database Management: Develop and optimize queries for SQL & NoSQL databases (Teradata, BigQuery, Cassandra, etc.).
+* Data Science & ML: Implementing Models using GCP Vertex ai and utilizing Python and its data science libraries (Pandas, NumPy, Scikit-learn, etc.) for data analysis and ML model deployment.
+* Data Visualization: Build and manage dashboards using Google Looker and Tableau to provide business insights.
+* Collaboration: Work closely with data analysts, marketing teams, and other stakeholders to understand business needs and implement effective data solutions.
 * The position operates under a hybrid work model, requiring in-office presence at the Grapevine, Texas location two days per week, with the remaining days worked remotely 
 Requirements
 
-Required Qualifications: 
+Required Qualifications:
 
-* Cloud Expertise: GCP or AWS (Data Engineering or ML focus) experience. 
-* Programming Skills: Strong proficiency in Python and experience with its data science libraries. 
-* Database Management: Experience with SQL (Teradata, BigQuery, etc.) and NoSQL databases. 
-* Data Visualization: Hands-on experience with Google Looker and Tableau for reporting and dashboards. 
-* CRM & Marketing Data: Experience working with CRM, marketing platforms, and analytics tools. 
-* Machine Learning Knowledge: working GCP/Azure/AWS Services with ML workflows, model training, AI Models and deployment. 
+* Cloud Expertise: GCP or AWS (Data Engineering or ML focus) experience.
+* Programming Skills: Strong proficiency in Python and experience with its data science libraries.
+* Database Management: Experience with SQL (Teradata, BigQuery, etc.) and NoSQL databases.
+* Data Visualization: Hands-on experience with Google Looker and Tableau for reporting and dashboards.
+* CRM & Marketing Data: Experience working with CRM, marketing platforms, and analytics tools.
+* Machine Learning Knowledge: working GCP/Azure/AWS Services with ML workflows, model training, AI Models and deployment.
 * Data Automation & Transformation: Knowledge with Alteryx for workflow automation and data preparation.  
- Preferred Qualifications: 
+ Preferred Qualifications:
 
-* Experience with data warehousing solutions (Snowflake, Redshift, etc.). 
-* GCP Certified focused on Data Engineering. 
-* Exposure to Apache Spark, Airflow, or other data orchestration tools. 
+* Experience with data warehousing solutions (Snowflake, Redshift, etc.).
+* GCP Certified focused on Data Engineering.
+* Exposure to Apache Spark, Airflow, or other data orchestration tools.
 * Strong understanding of data governance, security, and compliance.  
 Benefits
 
@@ -1134,54 +1134,54 @@ Find jobs where you’re a top applicant and tailor your resume with the help of
 
 Try Premium for $0
 People you can reach out to
-* 		
+*
 * ￼
-* 		
+*
 KeyBank logo
 Company alumni from KeyBank and others in your network
 Show all
 
 About the job
 Woodward is committed to creating a great workplace for all team members. Our company and its members are committed to acting with integrity, being respectful and accountable to one another, and staying humble and driven, while maintaining the highest professional and ethical standards.  We are steadfastly committed to attracting the best talent across our communities creating a rewarding workplace. Together we are fulfilling our purpose to design and deliver energy control solutions our partners count on to power a clean future.  Woodward supports our members’ wellbeing and regularly benchmarks with other companies in our industry to offer an extensive Total Reward package for this position. Salary will be determined by the applicant's education, experience, knowledge, skills, and abilities, as well as internal equity and alignment with market data.  Estimated annual base pay: 65,000.00 (minimum) - 85,000.00 (midpoint) - 104,000.00 (maximum)  All Levels are eligible for the benefits below: 
-* All members included in annual cash bonus opportunity. 
+* All members included in annual cash bonus opportunity.
 * 401(k) match (4.5%)
 * Annual Woodward stock contribution (5%)
-* Tuition reimbursement and Training/Professional Development opportunities for all members 
-* 12 paid holidays, including floating holidays. 
+* Tuition reimbursement and Training/Professional Development opportunities for all members
+* 12 paid holidays, including floating holidays.
 * Industry leading medical, dental, and vision Insurance upon date of hire
-* Vacation / Sick Time / Vacation Buy-up / Short Term Disability / Bereavement leave. 
-* Paid parental leave. 
-* Adoption Assistance 
-* Employee Assistance Program, including mental health benefits. 
-* Member Life & AD&D / Long Term Disability / Member Optional Life 
-* Member referral bonus 
-* Spouse / Child Optional Life / Optional AD&D / Healthcare and Dependent Care Flexible Spending 
+* Vacation / Sick Time / Vacation Buy-up / Short Term Disability / Bereavement leave.
+* Paid parental leave.
+* Adoption Assistance
+* Employee Assistance Program, including mental health benefits.
+* Member Life & AD&D / Long Term Disability / Member Optional Life
+* Member referral bonus
+* Spouse / Child Optional Life / Optional AD&D / Healthcare and Dependent Care Flexible Spending
 * Voluntary benefits, including:
-    * Home / Auto Insurance discounts 
-    * Whole Life Insurance / Critical Illness Insurance / Legal Assistance / Military Leave 
+    * Home / Auto Insurance discounts
+    * Whole Life Insurance / Critical Illness Insurance / Legal Assistance / Military Leave
 Key Responsibilities:
 
-* Monitor established data pipelines and scheduled jobs; build and validate basic ETL/ELT operations and simple data models. 
-* Become familiar with SAP S/4HANA and other enterprise source systems, assist analysts by locating fields, explaining basic table relationships, and answering questions about various business attributes. 
-* Support analysts and data scientists by gathering basic requirements; triage tickets and resolve routine incidents using the IT ticketing system. 
-* Provide support for Power BI, Fabric, and Business Objects users; troubleshoot common report issues and escalate complex problems. 
-* Perform routine platform administration tasks for on-prem servers and web/application stacks. Apply updates, monitor services, and escalate incidents. 
-* Follow defined processes to provision and revoke user access across cloud and on-prem platforms. 
+* Monitor established data pipelines and scheduled jobs; build and validate basic ETL/ELT operations and simple data models.
+* Become familiar with SAP S/4HANA and other enterprise source systems, assist analysts by locating fields, explaining basic table relationships, and answering questions about various business attributes.
+* Support analysts and data scientists by gathering basic requirements; triage tickets and resolve routine incidents using the IT ticketing system.
+* Provide support for Power BI, Fabric, and Business Objects users; troubleshoot common report issues and escalate complex problems.
+* Perform routine platform administration tasks for on-prem servers and web/application stacks. Apply updates, monitor services, and escalate incidents.
+* Follow defined processes to provision and revoke user access across cloud and on-prem platforms.
 * Contribute to documentation efforts, simple architecture notes and process steps.  
 Key Skills:
 
 * Proficient in SQL
 * Entry-level Python/PySpark, or comparable scripting languages (Scala, Java, etc.)
-* Entry-level experience with ETL/ELT using Azure Synapse pipelines, Azure Data Factory, or comparable tools (AWS Glue, Google Cloud Dataflow, Apache Airflow, etc.). Experience with SAP Data Services preferred. 
-* Beginner knowledge of SAP S/4HANA data structures and common data models. Experience with SLT sidecar for continuous replication preferred. 
-* Basic understanding of data warehouses (cloud or on-prem), relational databases and data modeling concepts. 
-* Basic proficiency with connecting to, extracting and loading data from REST APIs. 
-* Exposure to Microsoft Power BI and Fabric admin features (workspace and capacity management, security). Experience with SAP Business Objects and Power BI report development (including DAX and M languages) preferred. 
-* Familiarity with version control (Git), basic testing and CI/CD. 
+* Entry-level experience with ETL/ELT using Azure Synapse pipelines, Azure Data Factory, or comparable tools (AWS Glue, Google Cloud Dataflow, Apache Airflow, etc.). Experience with SAP Data Services preferred.
+* Beginner knowledge of SAP S/4HANA data structures and common data models. Experience with SLT sidecar for continuous replication preferred.
+* Basic understanding of data warehouses (cloud or on-prem), relational databases and data modeling concepts.
+* Basic proficiency with connecting to, extracting and loading data from REST APIs.
+* Exposure to Microsoft Power BI and Fabric admin features (workspace and capacity management, security). Experience with SAP Business Objects and Power BI report development (including DAX and M languages) preferred.
+* Familiarity with version control (Git), basic testing and CI/CD.
 * Clear communication to both technical and nontechnical people, receptive to peer feedback, problem-solving ability, team player, continuous learner.  
 Other Qualifications:
 
-* Bachelor’s Degree in Computer Science, Information Systems, Business Analytics, or related discipline is preferred. 
+* Bachelor’s Degree in Computer Science, Information Systems, Business Analytics, or related discipline is preferred.
 * 1-2 years in data engineering, ETL, data warehousing, or similar roles supporting enterprise analytics required.  
 Application window is anticipated to close 7 days from original posting date.
 
@@ -1251,9 +1251,9 @@ Find jobs where you’re a top applicant and tailor your resume with the help of
 
 Try Premium for $0
 People you can reach out to
-* 		
+*
 * ￼
-* 		
+*
 KeyBank logo
 Company alumni from KeyBank and others in your network
 Show all
@@ -1265,14 +1265,14 @@ Location - Boston, MA / Minneapolis, MN
 Job Type - Full Time
 
 Key Skills
- 
+
 * Programming: Expert level SQL, Proficiency in Python, Scala or Java is required
 * Cloud/Data platform: Databricks, AWS
 * Tools/Technologies: Apache Spark, Pyspark, Kafka, Hadoop
 * Education: Bachelor or Masters in Computer science, Data or related field
- 
+
  Core Responsibilities
- 
+
 * Data pipeline development to design, manage ETL processes
 * Build and maintain scalable architectures including Data lakehouses in Databricks
 * Architect dimensional data models and schemas
@@ -1442,9 +1442,9 @@ Find jobs where you’re a top applicant and tailor your resume with the help of
 
 Try Premium for $0
 People you can reach out to
-* 		
+*
 * ￼
-* 		
+*
 KeyBank logo
 Company alumni from KeyBank and others in your network
 Show all
@@ -1575,37 +1575,37 @@ Try Premium for $0
 
 About the job
 Data Analyst Engineer I – Onsite Role in Norco, CA  Job Summary:  The Data Analyst Engineer I will provide critical support to Navy operations by developing, maintaining, and enhancing data visualization, reporting, and collaboration platforms. This entry-level role focuses on leveraging tools such as Power BI, Splunk, Tableau, and SharePoint to deliver actionable insights, automate reporting processes, and streamline workflows across teams. The ideal candidate will be a self-motivated individual with strong analytical skills, capable of transforming raw data into clear, value-added reports that improve decision-making and operational effectiveness. This position requires the ability to work in a fast-paced environment and proactively solve problems while supporting mission-critical Navy requirements.  As with any position, additional expectations exist. Some of these include, but are not limited to, adhering to normal working hours, meeting deadlines, following company policies as outlined by the Employee Handbook, communicating regularly with assigned supervisor(s), staying focused on the assigned tasks, and completing other tasks as assigned  Responsibilities:  
-*  Develop, design, and maintain interactive dashboards and reports in Power BI, Tableau, and Splunk to support leadership decision-making 
-*  Build and manage SharePoint sites to enhance collaboration, document sharing, and workflow efficiency 
-*  Perform advanced data analysis, including cleaning, structuring, and interpreting large datasets to identify trends and provide actionable recommendations 
-*  Automate recurring reporting processes and data pipelines to improve accuracy and reduce manual effort 
-*  Collaborate with stakeholders to understand requirements and deliver tailored data-driven solutions 
-*  Integrate data from multiple sources, ensuring consistency, accuracy, and security in reports and dashboards 
-*  Provide ongoing monitoring, troubleshooting, and improvement of existing dashboards and platforms 
-*  Recommend and implement workflow improvements, applying independent judgment to enhance performance and system stability 
-*  Document reporting logic, processes, and system configurations for transparency and repeatability 
+*  Develop, design, and maintain interactive dashboards and reports in Power BI, Tableau, and Splunk to support leadership decision-making
+*  Build and manage SharePoint sites to enhance collaboration, document sharing, and workflow efficiency
+*  Perform advanced data analysis, including cleaning, structuring, and interpreting large datasets to identify trends and provide actionable recommendations
+*  Automate recurring reporting processes and data pipelines to improve accuracy and reduce manual effort
+*  Collaborate with stakeholders to understand requirements and deliver tailored data-driven solutions
+*  Integrate data from multiple sources, ensuring consistency, accuracy, and security in reports and dashboards
+*  Provide ongoing monitoring, troubleshooting, and improvement of existing dashboards and platforms
+*  Recommend and implement workflow improvements, applying independent judgment to enhance performance and system stability
+*  Document reporting logic, processes, and system configurations for transparency and repeatability
 *  Support Navy compliance and security requirements when handling and presenting sensitive data   
 Basic Qualifications:
 
 
-*  Bachelor’s degree in Data Analytics, Computer Science, Information Systems, Engineering, or a related field 
-*  0–2 years of experience in data analytics, business intelligence, or a related technical role 
-*  Proficiency with Power BI, Tableau, Splunk, and SharePoint 
-*  Strong SQL and database query skills, with the ability to handle large datasets 
-*  Demonstrated ability to automate data workflows and reporting pipelines 
-*  Excellent problem-solving skills with strong attention to detail 
-*  Effective written and verbal communication skills for both technical and non-technical audiences 
-*  Must be a U.S Citizen 
-*  Must be able to obtain and maintain Secret level clearance 
+*  Bachelor’s degree in Data Analytics, Computer Science, Information Systems, Engineering, or a related field
+*  0–2 years of experience in data analytics, business intelligence, or a related technical role
+*  Proficiency with Power BI, Tableau, Splunk, and SharePoint
+*  Strong SQL and database query skills, with the ability to handle large datasets
+*  Demonstrated ability to automate data workflows and reporting pipelines
+*  Excellent problem-solving skills with strong attention to detail
+*  Effective written and verbal communication skills for both technical and non-technical audiences
+*  Must be a U.S Citizen
+*  Must be able to obtain and maintain Secret level clearance
 *  If applicable: If you are or have been recently employed by the U.S. government, a post-employment ethics letter will be required if employment with VSolvit is offered   
 Preferred Qualifications:
 
 
-*  Master’s degree in Data Analytics, Information Systems, or related technical discipline 
-*  2–4 years of professional experience in data analytics, preferably within defense or government environments 
-*  Familiarity with Navy systems, compliance standards, and data security practices 
-*  Knowledge of scripting languages (Python, R, or similar) for advanced data processing and automation 
-*  Prior experience in workflow analysis and systems improvement to enhance stability and performance 
+*  Master’s degree in Data Analytics, Information Systems, or related technical discipline
+*  2–4 years of professional experience in data analytics, preferably within defense or government environments
+*  Familiarity with Navy systems, compliance standards, and data security practices
+*  Knowledge of scripting languages (Python, R, or similar) for advanced data processing and automation
+*  Prior experience in workflow analysis and systems improvement to enhance stability and performance
 *  Active DoD Secret clearance   
 Company Summary:
 
@@ -1672,14 +1672,14 @@ Find jobs where you’re a top applicant and tailor your resume with the help of
 
 Try Premium for $0
 People you can reach out to
-* 		
+*
 * ￼
-* 		
+*
 Mohammad Rahman profile photo
 Mohammad Rahman Shahzad
  
 · 3rd
-Looking for a new role in Purchasing, buying and contract management 
+Looking for a new role in Purchasing, buying and contract management
 Company alum from KeyBank
 
 Message
@@ -1737,4 +1737,3 @@ Maximum Salary
 
 
 ===JOB END===
-

@@ -42,4 +42,3 @@ models:
     columns:
       - name: company_id
         tests: [not_null, unique]
-

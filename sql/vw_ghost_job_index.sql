@@ -9,7 +9,7 @@
 CREATE OR REPLACE VIEW vw_ghost_job_index AS
 
 WITH capped_ages AS (
-    SELECT 
+    SELECT
         jp.job_id,
         c.sector,
         jp.ingestion_source,
@@ -26,7 +26,7 @@ WITH capped_ages AS (
 ),
 
 sector_medians AS (
-    SELECT 
+    SELECT
         sector,
         PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY days_open_capped) as median_days_open,
         COUNT(*) as sector_job_count
@@ -41,7 +41,7 @@ global_median AS (
 ),
 
 job_scores AS (
-    SELECT 
+    SELECT
         ca.job_id,
         ca.sector,
         ca.ingestion_source,
@@ -62,7 +62,7 @@ job_scores AS (
     CROSS JOIN global_median gm
 )
 
-SELECT 
+SELECT
     jp.job_id,
     c.company_name,
     c.sector,
@@ -73,7 +73,7 @@ SELECT
     js.days_open_capped,
     ROUND(js.sector_median::numeric) as sector_median_days,
     js.ghost_probability,
-    CASE 
+    CASE
         WHEN js.ghost_probability >= 75 THEN 'high'
         WHEN js.ghost_probability >= 50 THEN 'medium'
         WHEN js.ghost_probability >= 25 THEN 'low'

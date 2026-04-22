@@ -8,11 +8,11 @@
 
 CREATE OR REPLACE VIEW vw_hiring_difficulty AS
 
-WITH 
+WITH
 
 skill_freq AS (
     SELECT js.skill_id,
-        COUNT(DISTINCT js.job_id)::float / 
+        COUNT(DISTINCT js.job_id)::float /
         (SELECT COUNT(*) FROM job_postings WHERE data_tier = 1) as pct
     FROM job_skills js
     JOIN job_postings jp ON jp.job_id = js.job_id
@@ -73,7 +73,7 @@ job_niche_ratio AS (
 ),
 
 company_base AS (
-    SELECT 
+    SELECT
         c.company_id,
         c.company_name,
         c.sector,
@@ -94,12 +94,12 @@ company_base AS (
 ),
 
 scored AS (
-    SELECT 
+    SELECT
         cb.*,
         sm.median_max as sector_median,
         ssa.avg_skills as sector_avg_skills,
         ROUND((100 - cb.transparency_pct)::numeric, 1) as opacity_score,
-        CASE 
+        CASE
             WHEN cb.avg_max_salary IS NOT NULL AND sm.median_max IS NOT NULL THEN
                 CASE
                     WHEN cb.avg_max_salary >= sm.median_max THEN 0
@@ -135,7 +135,7 @@ normalized AS (
     FROM raw_scores
 )
 
-SELECT 
+SELECT
     company_name,
     sector,
     total_roles,

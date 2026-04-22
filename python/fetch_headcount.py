@@ -39,27 +39,27 @@ def parse_employee_count(raw: str) -> int | None:
     raw = re.sub(r'\[\[[^\]]+\]\]', '', raw)
     raw = re.sub(r'<[^>]+>', '', raw)
     raw = raw.strip().rstrip('|').strip()
-    
+
     # Handle ranges like "10,000-15,000" — take midpoint
     range_match = re.search(r'([\d,]+)\s*[-–]\s*([\d,]+)', raw)
     if range_match:
         low = int(range_match.group(1).replace(',', ''))
         high = int(range_match.group(2).replace(',', ''))
         return (low + high) // 2
-    
-    # Handle "~10,000" or "10,000+" 
+
+    # Handle "~10,000" or "10,000+"
     num_match = re.search(r'([\d,]+)', raw)
     if num_match:
         val = int(num_match.group(1).replace(',', ''))
         if 10 <= val <= 500000:  # sanity check
             return val
-    
+
     return None
 
 def fetch_wiki_headcount(company_name: str) -> tuple[str | None, int | None]:
     """Fetch employee count from Wikipedia infobox."""
     base = "https://en.wikipedia.org/w/api.php"
-    
+
     # Step 1 — find the page
     try:
         r = requests.get(base, params={
@@ -127,13 +127,13 @@ def main():
 
     conn = get_conn()
     cur = conn.cursor(cursor_factory=DictCursor)
-    
+
     ensure_table(cur)
     conn.commit()
 
     # Get all active companies
     cur.execute("""
-        SELECT DISTINCT company_name 
+        SELECT DISTINCT company_name
         FROM discovered_companies
         WHERE active_roles > 0
         ORDER BY company_name
@@ -149,7 +149,7 @@ def main():
     for name in companies:
         page, count = fetch_wiki_headcount(name)
         time.sleep(0.5)  # be polite to Wikipedia
-        
+
         if count:
             print(f"  ✅ {name:<30} {count:>8,} employees (wiki: {page})")
             found += 1
@@ -172,7 +172,7 @@ def main():
             """, (name, count, page))
         conn.commit()
         print(f"\n✅ Saved {len(results)} headcount records")
-        
+
         # Show hiring intensity preview
         cur.execute("""
             SELECT dc.company_name, dc.active_roles, ch.employee_count,

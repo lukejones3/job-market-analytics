@@ -31,4 +31,3 @@ This structure enabled:
 
 ## Migration to PostgreSQL
 Because the data was modeled relationally from the start, migrating from Google Sheets to PostgreSQL required minimal transformation beyond type enforcement and indexing.
-

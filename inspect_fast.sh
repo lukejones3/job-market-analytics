@@ -4,7 +4,7 @@ set -euo pipefail
 OUTFILE="job_analytics_inspection.txt"
 : > "$OUTFILE"
 
-echo "Scanning key files only..." 
+echo "Scanning key files only..."
 
 # Only scan relevant files (skip heavy dirs)
 grep -RInE \

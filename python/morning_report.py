@@ -13,7 +13,7 @@ from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env", override=True)
 
 GMAIL_USER     = "jones31luke@gmail.com"
 GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASSWORD")
@@ -232,7 +232,9 @@ def send_email(html: str):
     msg["To"]      = TO_EMAIL
     msg.attach(MIMEText(html, "html"))
 
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+        server.ehlo()
+        server.starttls()
         server.login(GMAIL_USER, GMAIL_APP_PASS)
         server.sendmail(GMAIL_USER, TO_EMAIL, msg.as_string())
     print("✅ Morning report sent")

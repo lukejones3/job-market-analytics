@@ -51,7 +51,7 @@ def main():
     # 2. New vs reactivated jobs last 24h
     print("\n📥 JOBS ACTIVITY (last 24h):")
     cur.execute("""
-        SELECT 
+        SELECT
             COALESCE(ingestion_source, 'manual') as source,
             COUNT(*) FILTER (WHERE ingested_at > now() - interval '24 hours') as truly_new,
             COUNT(*) FILTER (
@@ -79,7 +79,7 @@ def main():
     # 3. Total DB state (Tier 1 only)
     print("\n📦 TIER 1 DATABASE STATE:")
     cur.execute("""
-        SELECT 
+        SELECT
             COALESCE(ingestion_source, 'manual') as source,
             COUNT(*) as total,
             COUNT(*) FILTER (WHERE status = 'raw') as active,
@@ -116,7 +116,7 @@ def main():
     # 5. Expiry health
     print("\n💀 EXPIRY HEALTH (last 24h):")
     cur.execute("""
-        SELECT 
+        SELECT
             COALESCE(ingestion_source, 'manual') as source,
             COUNT(*) as expired_today
         FROM job_postings
@@ -141,12 +141,12 @@ def main():
             SELECT ghost_tier, COUNT(*) as jobs
             FROM vw_ghost_job_index
             GROUP BY ghost_tier
-            ORDER BY 
-                CASE ghost_tier 
-                    WHEN 'high' THEN 1 
-                    WHEN 'medium' THEN 2 
-                    WHEN 'low' THEN 3 
-                    ELSE 4 
+            ORDER BY
+                CASE ghost_tier
+                    WHEN 'high' THEN 1
+                    WHEN 'medium' THEN 2
+                    WHEN 'low' THEN 3
+                    ELSE 4
                 END
         """)
         for r in cur.fetchall():
@@ -173,7 +173,7 @@ def main():
     # 8. Sector snapshot
     print("\n🏭 SECTOR SNAPSHOT (active Tier 1, top 10):")
     cur.execute("""
-        SELECT 
+        SELECT
             COALESCE(c.sector, 'Unclassified') as sector,
             COUNT(*) as active_roles,
             ROUND(AVG(CASE WHEN jp.salary_max_annual IS NOT NULL THEN 1.0 ELSE 0.0 END) * 100) as transparency_pct
@@ -190,7 +190,7 @@ def main():
     # 9. 7-day trend
     print("\n📈 7-DAY INGESTION TREND (Tier 1):")
     cur.execute("""
-        SELECT 
+        SELECT
             DATE(ingested_at) as date,
             COUNT(*) as new_jobs,
             COUNT(*) FILTER (WHERE ingestion_source = 'greenhouse') as gh,

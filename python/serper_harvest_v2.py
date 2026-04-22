@@ -26,16 +26,18 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
-SERPER_API_KEY = os.getenv("SERPER_API_KEY", "REMOVED_SERPER_API_KEY")
+SERPER_API_KEY = os.getenv("SERPER_API_KEY")
+if not SERPER_API_KEY:
+    raise ValueError("SERPER_API_KEY not set in .env")
 SERPER_URL     = "https://google.serper.dev/search"
 REQUEST_DELAY  = 0.5
 
 DB_CONFIG = dict(
-    host=os.getenv("PGHOST", "REMOVED_DB_HOST"),
+    host=os.getenv("PGHOST"),
     port=int(os.getenv("PGPORT", 5432)),
     dbname=os.getenv("PGDATABASE", "job_analytics"),
     user=os.getenv("PGUSER", "lukejones"),
-    password=os.getenv("PGPASSWORD", "REMOVED_DB_PASSWORD"),
+    password=os.getenv("PGPASSWORD"),
 )
 
 # ── Expanded query set (~100 queries, ~100 credits) ───────────────────────────

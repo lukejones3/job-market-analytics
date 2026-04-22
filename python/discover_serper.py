@@ -230,7 +230,7 @@ def extract_icims_token(url: str) -> Optional[str]:
     return None
 
 def extract_workday_dork_token(url: str) -> Optional[str]:
-    """Extract company slug and instance from real Workday URLs like 
+    """Extract company slug and instance from real Workday URLs like
     accenture.wd103.myworkdayjobs.com/AccentureCareers/..."""
     import re as _re
     m = _re.search(r"([a-z0-9\-]+)\.(wd\d+)\.myworkdayjobs\.com/([^/?#\s]+)", url, _re.IGNORECASE)
@@ -263,7 +263,7 @@ def serper_search(query: str, num: int = 10) -> list[str]:
     """Run a Serper.dev search and return URLs."""
     if not SERPER_API_KEY:
         raise ValueError("SERPER_API_KEY not set in .env")
-    
+
     resp = requests.post(
         "https://google.serper.dev/search",
         headers={
@@ -275,7 +275,7 @@ def serper_search(query: str, num: int = 10) -> list[str]:
     )
     resp.raise_for_status()
     data = resp.json()
-    
+
     urls = []
     for result in data.get("organic", []):
         if link := result.get("link"):
@@ -361,13 +361,13 @@ def probe_workday(subdomain: str) -> tuple[bool, int, str]:
         f"{subdomain}Careers",
         f"{subdomain}_Career",
     ]
-    
+
     headers = {
         "User-Agent": "Mozilla/5.0",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    
+
     for tenant in tenant_candidates:
         try:
             url = f"https://{subdomain}.myworkdayjobs.com/wday/cxs/{subdomain}/{tenant}/jobs"
@@ -402,14 +402,14 @@ def probe_icims(subdomain: str) -> tuple[bool, int, str]:
                         headers={"User-Agent": "Mozilla/5.0"})
         if r.status_code != 200:
             return False, 0, ""
-        
+
         # Parse job titles from response
         import re as _re
         titles = _re.findall(r'<span[^>]*class="[^"]*job-title[^"]*"[^>]*>([^<]+)<', r.text)
         if not titles:
             # Try alternate pattern
             titles = _re.findall(r'"jobTitle"\s*:\s*"([^"]+)"', r.text)
-        
+
         target = [t for t in titles if TARGET_ROLE_RE.search(t)]
         name = subdomain.replace("careers-", "").replace("-jobs", "").replace("-", " ").title()
         return len(target) > 0, len(target), name
@@ -477,7 +477,7 @@ def load_existing_tokens(cur, source: str) -> set[str]:
     )
     return {r["board_token"] for r in cur.fetchall()}
 
-def insert_company(cur, source: str, token: str, name: str, 
+def insert_company(cur, source: str, token: str, name: str,
                    active_roles: int, apply: bool) -> bool:
     # For workday_dork, extract real board_token and use "workday" as source
     real_source = source
@@ -491,22 +491,22 @@ def insert_company(cur, source: str, token: str, name: str,
             company, instance, tenant = parts
             real_source = "workday"
             real_token = f"{company}/{instance}/{tenant}"
-    
+
     company_id = "C" + hashlib.md5(f"{real_source}:{real_token}".encode()).hexdigest()[:9]
     if apply:
         cur.execute("""
-            INSERT INTO discovered_companies 
-                (company_id, company_name, ats_source, board_token, 
+            INSERT INTO discovered_companies
+                (company_id, company_name, ats_source, board_token,
                  active_roles, total_seen, discovery_source, enabled)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (ats_source, board_token) DO UPDATE SET
                 last_seen_at = now(),
                 active_roles = EXCLUDED.active_roles,
-                last_had_roles = CASE 
-                    WHEN EXCLUDED.active_roles > 0 THEN now() 
-                    ELSE discovered_companies.last_had_roles 
+                last_had_roles = CASE
+                    WHEN EXCLUDED.active_roles > 0 THEN now()
+                    ELSE discovered_companies.last_had_roles
                 END
-        """, (company_id, name or token, real_source, real_token, 
+        """, (company_id, name or token, real_source, real_token,
               active_roles, active_roles, "serper_dork", True))
     return True
 
