@@ -407,15 +407,14 @@ fresh_jobs = query(f"""
     LEFT JOIN skills s ON s.skill_id = js.skill_id
     LEFT JOIN company_headcount ch ON ch.company_name = c.company_name
     LEFT JOIN locations l ON l.location_id = jp.location_id
-    LEFT JOIN company_contacts cc ON cc.company_id = jp.company_id
-        AND cc.email IS NOT NULL
-        AND cc.fetched_at > NOW() - INTERVAL '30 days'
-        AND cc.contact_id = (
-            SELECT contact_id FROM company_contacts cc2
-            WHERE cc2.company_id = jp.company_id
-              AND cc2.email IS NOT NULL
-            ORDER BY cc2.fetched_at DESC LIMIT 1
-        )
+    LEFT JOIN LATERAL (
+        SELECT full_name, title, email, linkedin_url
+        FROM company_contacts cc2
+        WHERE cc2.company_id = jp.company_id
+          AND cc2.email IS NOT NULL
+        ORDER BY cc2.fetched_at DESC
+        LIMIT 1
+    ) cc ON true
     WHERE {where_sql}
     GROUP BY jp.job_id, r.role_name, c.company_name, c.sector, jp.source,
              jp.ingested_at, jp.salary_min_annual, jp.salary_max_annual,
