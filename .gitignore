@@ -7,3 +7,12 @@ backups/
 data/
 logs/
 *.bak
+.venv/
+backups/
+data/
+logs/
+*.bak
+*.log
+__pycache__/
+*.pyc
+patches/
