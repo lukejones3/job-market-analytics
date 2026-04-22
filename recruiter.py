@@ -386,6 +386,10 @@ fresh_jobs = query(f"""
         jp.salary_max_annual,
         jp.workplace_type,
         jp.experience_level,
+        cc.full_name as contact_name,
+        cc.title as contact_title,
+        cc.email as contact_email,
+        cc.linkedin_url as contact_linkedin,
         l.location,
         l.state,
         jh.honesty_score,
@@ -403,11 +407,21 @@ fresh_jobs = query(f"""
     LEFT JOIN skills s ON s.skill_id = js.skill_id
     LEFT JOIN company_headcount ch ON ch.company_name = c.company_name
     LEFT JOIN locations l ON l.location_id = jp.location_id
+    LEFT JOIN company_contacts cc ON cc.company_id = jp.company_id
+        AND cc.email IS NOT NULL
+        AND cc.fetched_at > NOW() - INTERVAL '30 days'
+        AND cc.contact_id = (
+            SELECT contact_id FROM company_contacts cc2
+            WHERE cc2.company_id = jp.company_id
+              AND cc2.email IS NOT NULL
+            ORDER BY cc2.fetched_at DESC LIMIT 1
+        )
     WHERE {where_sql}
     GROUP BY jp.job_id, r.role_name, c.company_name, c.sector, jp.source,
              jp.ingested_at, jp.salary_min_annual, jp.salary_max_annual,
              jp.workplace_type, jp.experience_level, jh.honesty_score,
              l.location, l.state,
+             cc.full_name, cc.title, cc.email, cc.linkedin_url,
              gi.ghost_probability, ch.employee_count
     ORDER BY jp.date_found DESC, jp.source DESC
     LIMIT 500
@@ -534,6 +548,23 @@ else:
         u_badge = "<span class=\"badge badge-urgency\">Urgency " + us + "</span>"
         src_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:0.05em;background:{src_bg};color:{src_color};border:1px solid {src_color}33">{source_display}</span>'
         badges = age_badge + q_badge + u_badge + sal_badge + loc_badge + sector_badge + wp_badge + exp_badge + src_badge
+
+        # Build contact HTML
+        if pd.notna(row.get('contact_name')) and row.get('contact_name'):
+            li_url = row.get('contact_linkedin', '')
+            email = row.get('contact_email', '')
+            contact_html = (
+                f'<div style="font-size:0.72rem;color:#e2ff5d;font-weight:500">{row["contact_name"]}</div>'
+                f'<div style="font-size:0.62rem;color:#666;margin:2px 0">{(row.get("contact_title") or "")[:35]}</div>'
+                f'<div style="margin-top:4px;display:flex;gap:6px;justify-content:flex-end">'
+            )
+            if email:
+                contact_html += f'<a href="mailto:{email}" style="font-size:0.6rem;color:#4ade80;text-decoration:none;border:1px solid #4ade8044;padding:2px 6px;border-radius:2px">✉ Email</a>'
+            if li_url:
+                contact_html += f'<a href="{li_url}" target="_blank" style="font-size:0.6rem;color:#38bdf8;text-decoration:none;border:1px solid #38bdf844;padding:2px 6px;border-radius:2px">in</a>'
+            contact_html += '</div>'
+        else:
+            contact_html = '<div style="font-size:0.65rem;color:#333;font-style:italic">No contact found</div>'
 
         company_display = row['company_name'] or '—'
         sector_sub = f" · {row['sector']}" if pd.notna(row['sector']) and row['sector'] else ""
