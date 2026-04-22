@@ -248,7 +248,7 @@ if not token or (not client and not is_preview):
         <div style="font-size:0.65rem;color:#444;margin-bottom:24px">
             Cancel anytime · One placement pays for months of access
         </div>
-        <a href="mailto:jones31luke@gmail.com?subject=DataHiringIQ Recruiter Access"
+        <a href="https://buy.stripe.com/6oUbIUeBO1S7bQD8WYfnO00"
            style="background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
                font-size:0.75rem;font-weight:500;padding:12px 28px;border-radius:3px;
                text-decoration:none;letter-spacing:0.05em;text-transform:uppercase">
