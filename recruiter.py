@@ -580,7 +580,7 @@ else:
             f"<div style=\"text-align:right;min-width:140px;padding-left:16px\">"
             f"<div style=\"font-size:0.6rem;color:#333;text-transform:uppercase;"
             f"letter-spacing:0.1em;margin-bottom:4px\">Hiring Contact</div>"
-            f"<div class=\"hiring-manager-empty\">Add via Apollo →</div>"
+            f"<div>{contact_html}</div>"
             f"</div></div></div>"
         )
         st.markdown(card_html, unsafe_allow_html=True)
