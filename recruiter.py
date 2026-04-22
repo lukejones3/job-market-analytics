@@ -507,26 +507,25 @@ else:
             <span class='badge badge-source'>{source_display}</span>
         """
 
-        st.markdown(f"""
-        <div class="job-card signal-{signal}">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start">
-                <div style="flex:1">
-                    <div class="job-title">{row['role_name']}</div>
-                    <div class="job-company">{row['company_name'] or '—'}
-                        {f" · {row['sector']}" if row['sector'] else ""}
-                        {f" · {int(row['employee_count']):,} employees" if pd.notna(row.get('employee_count')) else ""}
-                    </div>
-                    <div style="margin-bottom:8px">{badges}</div>
-                    <div>{skills_html}</div>
-                </div>
-                <div style="text-align:right;min-width:140px;padding-left:16px">
-                    <div style="font-size:0.6rem;color:#333;text-transform:uppercase;
-                        letter-spacing:0.1em;margin-bottom:4px">Hiring Contact</div>
-                    <div class="hiring-manager-empty">Add via Apollo →</div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        company_display = row['company_name'] or '—'
+        sector_sub = f" · {row['sector']}" if pd.notna(row['sector']) and row['sector'] else ""
+        emp_sub = f" · {int(row['employee_count']):,} employees" if pd.notna(row.get('employee_count')) else ""
+        card_html = (
+            f"<div class=\"job-card signal-{signal}\">"
+            f"<div style=\"display:flex;justify-content:space-between;align-items:flex-start\">"
+            f"<div style=\"flex:1\">"
+            f"<div class=\"job-title\">{row['role_name']}</div>"
+            f"<div class=\"job-company\">{company_display}{sector_sub}{emp_sub}</div>"
+            f"<div style=\"margin-bottom:8px\">{badges}</div>"
+            f"<div>{skills_html}</div>"
+            f"</div>"
+            f"<div style=\"text-align:right;min-width:140px;padding-left:16px\">"
+            f"<div style=\"font-size:0.6rem;color:#333;text-transform:uppercase;"
+            f"letter-spacing:0.1em;margin-bottom:4px\">Hiring Contact</div>"
+            f"<div class=\"hiring-manager-empty\">Add via Apollo →</div>"
+            f"</div></div></div>"
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
 
 # ── FOOTER ────────────────────────────────────────────────────────────────────
 st.markdown("""
