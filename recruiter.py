@@ -336,7 +336,13 @@ END
 where_clauses = [
     "jp.data_tier = 1",
     "jp.status = 'raw'",
-    f"jp.ingested_at > NOW() - INTERVAL '{days_back} days'"
+    f"jp.ingested_at > NOW() - INTERVAL '{days_back} days'",
+    """(jp.source != 'workday' OR NOT EXISTS (
+        SELECT 1 FROM discovered_companies dc
+        WHERE lower(dc.company_name) = lower(c.company_name)
+          AND dc.ats_source = 'workday'
+          AND dc.first_seen_at > NOW() - INTERVAL '7 days'
+    ))"""
 ]
 
 if sector_filter:
