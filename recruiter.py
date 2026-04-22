@@ -336,12 +336,12 @@ END
 where_clauses = [
     "jp.data_tier = 1",
     "jp.status = 'raw'",
-    f"jp.ingested_at > NOW() - INTERVAL '{days_back} days'",
+    f"jp.date_found > NOW() - INTERVAL '{days_back} days'",
     """(jp.source != 'workday' OR NOT EXISTS (
         SELECT 1 FROM discovered_companies dc
         WHERE lower(dc.company_name) = lower(c.company_name)
           AND dc.ats_source = 'workday'
-          AND dc.first_seen_at > NOW() - INTERVAL '7 days'
+          AND dc.first_seen_at > NOW() - INTERVAL '14 days'
     ))"""
 ]
 
@@ -386,7 +386,7 @@ fresh_jobs = query(f"""
         jp.experience_level,
         jh.honesty_score,
         gi.ghost_probability,
-        EXTRACT(EPOCH FROM (NOW() - jp.ingested_at))/3600 as hours_old,
+        EXTRACT(EPOCH FROM (NOW() - jp.date_found))/3600 as hours_old,
         STRING_AGG(DISTINCT s.skill_name, ', ' ORDER BY s.skill_name) as skills,
         ch.employee_count,
         {role_family_sql} as role_family
@@ -403,7 +403,7 @@ fresh_jobs = query(f"""
              jp.ingested_at, jp.salary_min_annual, jp.salary_max_annual,
              jp.workplace_type, jp.experience_level, jh.honesty_score,
              gi.ghost_probability, ch.employee_count
-    ORDER BY jp.ingested_at DESC
+    ORDER BY jp.date_found DESC, jp.source DESC
     LIMIT 500
 """)
 
