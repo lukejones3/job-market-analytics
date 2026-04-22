@@ -244,9 +244,9 @@ if not token or (not client and not is_preview):
             </div>
         </div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:2rem;color:#e2ff5d;
-            margin-bottom:4px">$200 / month</div>
+            margin-bottom:4px">$500 / month</div>
         <div style="font-size:0.65rem;color:#444;margin-bottom:24px">
-            Cancel anytime · One placement pays for years of access
+            Cancel anytime · One placement pays for months of access
         </div>
         <a href="mailto:jones31luke@gmail.com?subject=DataHiringIQ Recruiter Access"
            style="background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
