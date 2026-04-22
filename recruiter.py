@@ -227,19 +227,18 @@ if not token or (not client and not is_preview):
         </div>
         <p style="color:#666;font-size:0.85rem;line-height:1.7;margin-bottom:28px">
             Live data & ML job intelligence — updated nightly from Greenhouse,
-            Workday, Lever, Ashby, and Eightfold. See fresh postings before they hit LinkedIn,
-            ranked by posting quality and hiring urgency.
+            Workday, Lever, Ashby, and Eightfold. See fresh data & ML postings before they hit LinkedIn — with verified hiring manager contacts so you can reach out before anyone else.
         </p>
         <div style="background:#080810;border:1px solid #1e1e32;border-radius:4px;
             padding:20px;margin-bottom:28px;text-align:left">
             <div style="font-size:0.6rem;color:#444;text-transform:uppercase;
                 letter-spacing:0.15em;margin-bottom:12px">What you get</div>
             <div style="font-size:0.75rem;color:#888;line-height:2">
+                👤 Verified hiring manager contact — name, email & LinkedIn for data & ML teams<br>
                 ⚡ Fresh postings — last 5 days, updated nightly<br>
                 📊 Posting Quality Score — how complete & specific the role is<br>
                 🎯 Hiring Urgency Score — likelihood the role is actively filling<br>
                 💰 Salary data where disclosed (55%+ of roles)<br>
-                👤 Hiring manager name, email & LinkedIn for each company<br>
                 🔧 Required skills for each role<br>
                 🏢 Company sector, size, and hiring intensity
             </div>
