@@ -490,13 +490,13 @@ else:
                 skills_html += f"<span class='skill-tag'>{sk.strip()}</span>"
 
         # Workplace
-        wp = (row["workplace_type"] or "").capitalize()
-        exp = (row["experience_level"] or "").capitalize()
+        wp = (row["workplace_type"] if pd.notna(row["workplace_type"]) else "").capitalize()
+        exp = (row["experience_level"] if pd.notna(row["experience_level"]) else "").capitalize()
         source_display = {"greenhouse": "GH", "workday": "WD", "lever": "LV",
                           "ashby": "AS", "eightfold": "EF"}.get(row["source"], row["source"][:2].upper())
 
         sal_badge = f"<span class='badge badge-salary'>💰 {sal_str}</span>" if sal_str else ""
-        sector_badge = f"<span class='badge badge-sector'>{row['sector']}</span>" if row['sector'] else ""
+        sector_badge = f"<span class='badge badge-sector'>{row['sector']}</span>" if pd.notna(row['sector']) and row['sector'] else ""
         wp_badge = f"<span class='badge badge-sector'>{wp}</span>" if wp else ""
         exp_badge = f"<span class='badge badge-sector'>{exp}</span>" if exp else ""
         badges = f"""
