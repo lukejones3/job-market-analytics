@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 
 import psycopg2
 import psycopg2.pool
+import stripe
 from psycopg2.extras import RealDictCursor
 from fastapi import FastAPI, HTTPException, Depends, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,6 +42,14 @@ DB_CONFIG = dict(
     user=os.getenv("PGUSER"),
     password=os.getenv("PGPASSWORD"),
 )
+
+# ── Stripe config ────────────────────────────────────────────────────────────
+STRIPE_SECRET_KEY    = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+STRIPE_PRICE_ID      = "price_1TP72k5EYUntcUuPzCr6ym84"
+
+if STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
 
 # ── Connection pool ───────────────────────────────────────────────────────────
 pool: psycopg2.pool.ThreadedConnectionPool = None
@@ -738,6 +747,133 @@ def generate_key(client_name: str, client_email: str, tier: str = "free"):
     print(f"   API Key:    {raw_key}")
     print(f"\n⚠️  Save this key — it cannot be recovered (only the hash is stored)\n")
     conn.close()
+
+
+
+# ── Stripe Webhook ────────────────────────────────────────────────────────────
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    try:
+        event = stripe.Webhook.construct_event(
+            payload, sig_header, STRIPE_WEBHOOK_SECRET
+        )
+    except Exception as e:
+        log.warning(f"Stripe webhook error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        customer_email = session.get("customer_details", {}).get("email", "")
+        customer_name  = session.get("customer_details", {}).get("name", "unknown")
+
+        if customer_email:
+            # Generate access token
+            raw_key   = secrets.token_urlsafe(32)
+            key_hash  = hashlib.sha256(raw_key.encode()).hexdigest()
+            key_prefix = raw_key[:8]
+
+            conn = pool.getconn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO api_keys
+                            (client_name, client_email, api_key_hash, api_key_prefix,
+                             tier, active, created_at)
+                        VALUES (%s, %s, %s, %s, 'pro', true, NOW())
+                    """, (customer_name, customer_email, key_hash, key_prefix))
+                    conn.commit()
+                log.info(f"New subscriber: {customer_email} — token prefix: {key_prefix}")
+
+                # Send welcome email via Gmail
+                import smtplib
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+
+                access_url = f"https://job-market-analytics-nyz8zrrujh8bafgniqhjyw.streamlit.app/?token={raw_key}"
+
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = "Your DataHiringIQ Access"
+                msg["From"]    = "jones31luke@gmail.com"
+                msg["To"]      = customer_email
+
+                html = f"""
+                <div style="font-family:monospace;background:#080810;color:#d4d4d8;padding:32px;max-width:560px">
+                    <div style="font-size:1.5rem;color:#e2ff5d;margin-bottom:8px">DATAHIRINGIQ</div>
+                    <p>Hi {customer_name},</p>
+                    <p>Your recruiter intelligence feed is ready. Click below to access:</p>
+                    <a href="{access_url}"
+                       style="display:inline-block;background:#e2ff5d;color:#080810;
+                              padding:12px 24px;text-decoration:none;font-weight:bold;
+                              margin:16px 0">
+                        Access Your Feed →
+                    </a>
+                    <p style="color:#666;font-size:0.8rem">
+                        Bookmark this link — it's your personal access URL.<br>
+                        Questions? Reply to this email.
+                    </p>
+                    <p style="color:#444;font-size:0.75rem">datahiringiq.com</p>
+                </div>
+                """
+                msg.attach(MIMEText(html, "html"))
+
+                gmail_pass = os.getenv("GMAIL_APP_PASSWORD", "")
+                if gmail_pass:
+                    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
+                        s.login("jones31luke@gmail.com", gmail_pass)
+                        s.sendmail("jones31luke@gmail.com", customer_email, msg.as_string())
+                    log.info(f"Welcome email sent to {customer_email}")
+
+            except Exception as e:
+                conn.rollback()
+                log.error(f"Error provisioning access: {e}")
+            finally:
+                pool.putconn(conn)
+
+    elif event["type"] == "customer.subscription.deleted":
+        # Deactivate key when subscription cancelled
+        session = event["data"]["object"]
+        customer_id = session.get("customer")
+        try:
+            customer = stripe.Customer.retrieve(customer_id)
+            email = customer.get("email", "")
+            if email:
+                conn = pool.getconn()
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "UPDATE api_keys SET active=false WHERE client_email=%s",
+                            (email,)
+                        )
+                        conn.commit()
+                    log.info(f"Deactivated access for {email}")
+                finally:
+                    pool.putconn(conn)
+        except Exception as e:
+            log.error(f"Error deactivating: {e}")
+
+    return {"status": "ok"}
+
+
+# ── Stripe Checkout Session ───────────────────────────────────────────────────
+@app.post("/stripe/create-checkout")
+async def create_checkout(request: Request):
+    body = await request.json()
+    email = body.get("email", "")
+    try:
+        session = stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            mode="subscription",
+            line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
+            customer_email=email or None,
+            success_url="https://job-market-analytics-nyz8zrrujh8bafgniqhjyw.streamlit.app/?payment=success",
+            cancel_url="https://job-market-analytics-nyz8zrrujh8bafgniqhjyw.streamlit.app/",
+        )
+        return {"checkout_url": session.url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
