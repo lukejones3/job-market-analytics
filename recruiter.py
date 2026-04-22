@@ -77,6 +77,7 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] {
 .badge-sector { background: #1a1a1a; color: #71717a; border: 1px solid #27272a; }
 .badge-age { background: #0a0a1a; color: #a78bfa; border: 1px solid #a78bfa33; }
 .badge-source { background: #0a1a1a; color: #22d3ee; border: 1px solid #22d3ee22; }
+.badge-location { background: #1a1a0a; color: #a3e635; border: 1px solid #a3e63533; }
 
 .signal-dot-fresh { color: #e2ff5d; }
 .signal-dot-strong { color: #4ade80; }
@@ -385,6 +386,8 @@ fresh_jobs = query(f"""
         jp.salary_max_annual,
         jp.workplace_type,
         jp.experience_level,
+        l.location,
+        l.state,
         jh.honesty_score,
         gi.ghost_probability,
         EXTRACT(EPOCH FROM (NOW() - CASE WHEN jp.source = 'workday' AND jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END))/3600 as hours_old,
@@ -399,10 +402,12 @@ fresh_jobs = query(f"""
     LEFT JOIN job_skills js ON js.job_id = jp.job_id
     LEFT JOIN skills s ON s.skill_id = js.skill_id
     LEFT JOIN company_headcount ch ON ch.company_name = c.company_name
+    LEFT JOIN locations l ON l.location_id = jp.location_id
     WHERE {where_sql}
     GROUP BY jp.job_id, r.role_name, c.company_name, c.sector, jp.source,
              jp.ingested_at, jp.salary_min_annual, jp.salary_max_annual,
              jp.workplace_type, jp.experience_level, jh.honesty_score,
+             l.location, l.state,
              gi.ghost_probability, ch.employee_count
     ORDER BY jp.date_found DESC, jp.source DESC
     LIMIT 500
@@ -513,12 +518,22 @@ else:
         sal_badge = ("<span class=\"badge badge-salary\">💰 " + sal_str + "</span>") if sal_str else ""
         sector_badge = ("<span class=\"badge badge-sector\">" + str(row["sector"]) + "</span>") if pd.notna(row["sector"]) and row["sector"] else ""
         wp_badge = ("<span class=\"badge badge-sector\">" + wp + "</span>") if wp else ""
+        loc_str = ""
+        if pd.notna(row.get("state")) and row["state"]:
+            loc_str = str(row["state"])
+            if pd.notna(row.get("location")) and row["location"] and len(str(row["location"])) < 30:
+                city = str(row["location"]).split(",")[0].strip()
+                if city.lower() not in ("remote","united states","us","usa",""):
+                    loc_str = city + ", " + str(row["state"])
+        elif wp == "remote":
+            loc_str = ""
+        loc_badge = ("<span class=\"badge badge-location\">" + loc_str + "</span>") if loc_str else ""
         exp_badge = ("<span class=\"badge badge-sector\">" + exp + "</span>") if exp else ""
         age_badge = "<span class=\"badge badge-age\">" + icon + " " + age_str + "</span>"
         q_badge = "<span class=\"badge badge-quality\">Quality " + qs + "</span>"
         u_badge = "<span class=\"badge badge-urgency\">Urgency " + us + "</span>"
         src_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:0.05em;background:{src_bg};color:{src_color};border:1px solid {src_color}33">{source_display}</span>'
-        badges = age_badge + q_badge + u_badge + sal_badge + sector_badge + wp_badge + exp_badge + src_badge
+        badges = age_badge + q_badge + u_badge + sal_badge + loc_badge + sector_badge + wp_badge + exp_badge + src_badge
 
         company_display = row['company_name'] or '—'
         sector_sub = f" · {row['sector']}" if pd.notna(row['sector']) and row['sector'] else ""
