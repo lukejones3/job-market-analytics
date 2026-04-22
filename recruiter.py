@@ -422,7 +422,9 @@ fresh_jobs = query(f"""
              l.location, l.state,
              cc.full_name, cc.title, cc.email, cc.linkedin_url,
              gi.ghost_probability, ch.employee_count
-    ORDER BY jp.date_found DESC, jp.source DESC
+    ORDER BY (CASE WHEN jp.source = 'workday' AND jp.posted_date IS NOT NULL
+                THEN jp.posted_date::timestamp
+                ELSE jp.date_found::timestamp END) DESC
     LIMIT 500
 """)
 
