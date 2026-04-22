@@ -337,7 +337,6 @@ where_clauses = [
     "jp.data_tier = 1",
     "jp.status = 'raw'",
     f"(CASE WHEN jp.source = 'workday' AND jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END) > NOW() - INTERVAL '{days_back} days'",
-    -- For Workday, only show jobs found on days where fewer than 200 WD jobs came in (not bulk import days)
     """(jp.source != 'workday' OR (
         SELECT COUNT(*) FROM job_postings jp2
         WHERE jp2.source = 'workday'
