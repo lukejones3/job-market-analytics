@@ -227,7 +227,7 @@ if not token or (not client and not is_preview):
         </div>
         <p style="color:#666;font-size:0.85rem;line-height:1.7;margin-bottom:28px">
             Live data & ML job intelligence — updated nightly from Greenhouse,
-            Workday, Lever, and Ashby. See fresh postings before they hit LinkedIn,
+            Workday, Lever, Ashby, and Eightfold. See fresh postings before they hit LinkedIn,
             ranked by posting quality and hiring urgency.
         </p>
         <div style="background:#080810;border:1px solid #1e1e32;border-radius:4px;
@@ -239,6 +239,7 @@ if not token or (not client and not is_preview):
                 📊 Posting Quality Score — how complete & specific the role is<br>
                 🎯 Hiring Urgency Score — likelihood the role is actively filling<br>
                 💰 Salary data where disclosed (55%+ of roles)<br>
+                👤 Hiring manager name, email & LinkedIn for each company<br>
                 🔧 Required skills for each role<br>
                 🏢 Company sector, size, and hiring intensity
             </div>
@@ -252,7 +253,7 @@ if not token or (not client and not is_preview):
            style="background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
                font-size:0.75rem;font-weight:500;padding:12px 28px;border-radius:3px;
                text-decoration:none;letter-spacing:0.05em;text-transform:uppercase">
-            Request Access →
+            Subscribe Now →
         </a>
         <div style="margin-top:20px;font-size:0.6rem;color:#333">
             datahiringiq.com · jones31luke@gmail.com
