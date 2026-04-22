@@ -541,14 +541,16 @@ def main():
     if args.apply and new_found:
         now = datetime.now(timezone.utc)
         inserted = 0
+        import uuid
         for tenant, (name, t, board, wd_srv, count) in new_found.items():
             token = f"{t}/{board}"
+            company_id = str(uuid.uuid4())
             cur.execute("""
                 INSERT INTO discovered_companies
-                    (company_name, ats_source, board_token, first_seen_at, last_seen_at, enabled)
-                VALUES (%s, 'workday', %s, %s, %s, true)
+                    (company_id, company_name, ats_source, board_token, first_seen_at, last_seen_at, enabled)
+                VALUES (%s, %s, 'workday', %s, %s, %s, true)
                 ON CONFLICT (ats_source, board_token) DO NOTHING
-            """, (name, token, now, now))
+            """, (company_id, name, token, now, now))
             if cur.rowcount:
                 inserted += 1
                 log.info(f"  ✅ Inserted: {name}")
