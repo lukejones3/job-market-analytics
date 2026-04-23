@@ -641,6 +641,24 @@ ROLE_TITLE_BLOCKLIST = [
     r"\bcfo\b",
     r"\bcto\b",
     r"\bceo\b",
+    # Non-analytics "data" roles (content ops, MDM, data entry, etc.)
+    r"\blocation data\b",
+    r"\bmaster data\b",
+    r"\bdata specialist\b",
+    r"\bdata entry\b",
+    r"\bdata steward\b",
+    r"\bdata management analyst\b",
+    r"\bdata governance analyst\b",
+    r"\bclinical data\b",
+    r"\bresearch data specialist\b",
+    r"\bdata quality specialist\b",
+    r"\bdata operations specialist\b",
+    r"\bdata coordinator\b",
+    r"\bdata processor\b",
+    r"\bdata administrator\b",
+    r"\bcontent data\b",
+    r"\bgis \b",
+    r"\bgeospatial analyst\b",
 ]
 
 # Pre-compile for performance

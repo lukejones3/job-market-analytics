@@ -800,21 +800,49 @@ async def stripe_webhook(request: Request):
                 msg["To"]      = customer_email
 
                 html = f"""
-                <div style="font-family:monospace;background:#080810;color:#d4d4d8;padding:32px;max-width:560px">
-                    <div style="font-size:1.5rem;color:#e2ff5d;margin-bottom:8px">DATAHIRINGIQ</div>
-                    <p>Hi {customer_name},</p>
-                    <p>Your 30-day access is ready. Click below to start your job search:</p>
-                    <a href="{access_url}"
-                       style="display:inline-block;background:#e2ff5d;color:#080810;
-                              padding:12px 24px;text-decoration:none;font-weight:bold;
-                              margin:16px 0">
-                        Access Your Feed →
-                    </a>
-                    <p style="color:#666;font-size:0.8rem">
-                        Bookmark this link — it's your personal access URL.<br>
-                        Questions? Reply to this email.
+                <div style="font-family:monospace;background:#080810;color:#d4d4d8;padding:32px;max-width:600px">
+                    <div style="font-size:1.5rem;color:#e2ff5d;margin-bottom:8px;letter-spacing:0.05em">DATAHIRINGIQ</div>
+                    <div style="font-size:0.7rem;color:#666;margin-bottom:24px;letter-spacing:0.15em;text-transform:uppercase">
+                        Data &amp; ML Job Search · 30-Day Access
+                    </div>
+
+                    <p>Hey {customer_name},</p>
+
+                    <p>You're in. Your 30-day access starts now.</p>
+
+                    <div style="margin:24px 0">
+                        <a href="{access_url}"
+                           style="display:inline-block;background:#e2ff5d;color:#080810;
+                                  padding:14px 32px;text-decoration:none;font-weight:bold;
+                                  letter-spacing:0.05em;text-transform:uppercase;font-size:0.85rem">
+                            Open Your Feed →
+                        </a>
+                    </div>
+
+                    <div style="background:#0d0d1a;border-left:2px solid #e2ff5d;padding:16px 20px;margin:24px 0">
+                        <div style="color:#e2ff5d;font-size:0.75rem;margin-bottom:8px;letter-spacing:0.1em;text-transform:uppercase">Quickstart</div>
+                        <div style="color:#a1a1aa;font-size:0.85rem;line-height:1.7">
+                            1. Enter your skills (Python, SQL, PyTorch, etc.) to see personalized matches<br>
+                            2. Filter by sector, workplace, and signal strength<br>
+                            3. Sort by salary, freshness, or skills match<br>
+                            4. Click the hiring manager LinkedIn on any role to reach out directly
+                        </div>
+                    </div>
+
+                    <p style="color:#a1a1aa;font-size:0.85rem">
+                        <strong style="color:#e2ff5d">Tip:</strong> The freshest roles (under 24 hours old) get the most attention. Check the feed daily — new data/ML roles are added every night.
                     </p>
-                    <p style="color:#444;font-size:0.75rem">datahiringiq.com</p>
+
+                    <p style="color:#666;font-size:0.8rem;border-top:1px solid #1e1e32;padding-top:16px;margin-top:32px">
+                        <strong>Your access link:</strong><br>
+                        <a href="{access_url}" style="color:#38bdf8;word-break:break-all;font-size:0.75rem">{access_url}</a><br><br>
+                        Bookmark it — it's your personal URL.<br>
+                        Questions or feedback? Just reply to this email.
+                    </p>
+
+                    <div style="color:#333;font-size:0.7rem;margin-top:24px;letter-spacing:0.1em">
+                        datahiringiq.com · built by luke jones
+                    </div>
                 </div>
                 """
                 msg.attach(MIMEText(html, "html"))

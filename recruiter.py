@@ -397,6 +397,7 @@ fresh_jobs = query(f"""
         jp.salary_max_annual,
         jp.workplace_type,
         jp.experience_level,
+        jp.job_url,
         cc.full_name as contact_name,
         cc.title as contact_title,
         cc.email as contact_email,
@@ -429,7 +430,7 @@ fresh_jobs = query(f"""
     WHERE {where_sql}
     GROUP BY jp.job_id, r.role_name, c.company_name, c.sector, jp.source,
              jp.ingested_at, jp.salary_min_annual, jp.salary_max_annual,
-             jp.workplace_type, jp.experience_level, jh.honesty_score,
+             jp.workplace_type, jp.experience_level, jp.job_url, jh.honesty_score,
              l.location, l.state,
              cc.full_name, cc.title, cc.email, cc.linkedin_url,
              gi.ghost_probability, ch.employee_count
@@ -590,6 +591,21 @@ else:
         src_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:0.05em;background:{src_bg};color:{src_color};border:1px solid {src_color}33">{source_display}</span>'
         badges = age_badge + q_badge + u_badge + sal_badge + loc_badge + sector_badge + wp_badge + exp_badge + src_badge
 
+        # Build Apply button
+        job_url = row.get('job_url', '') or ''
+        if job_url:
+            apply_html = (
+                f'<div style="margin-top:12px">'
+                f'<a href="{job_url}" target="_blank" '
+                f'style="display:inline-block;background:#e2ff5d;color:#080810;'
+                f'font-family:IBM Plex Mono,monospace;font-size:0.7rem;font-weight:600;'
+                f'padding:8px 18px;text-decoration:none;letter-spacing:0.05em;'
+                f'text-transform:uppercase;border-radius:2px">Apply →</a>'
+                f'</div>'
+            )
+        else:
+            apply_html = ''
+
         # Build contact HTML - LinkedIn only (no email)
         if pd.notna(row.get('contact_name')) and row.get('contact_name'):
             li_url = row.get('contact_linkedin', '')
@@ -620,6 +636,7 @@ else:
             f"<div style=\"font-size:0.6rem;color:#333;text-transform:uppercase;"
             f"letter-spacing:0.1em;margin-bottom:4px\">Hiring Contact</div>"
             f"<div>{contact_html}</div>"
+            f"{apply_html}"
             f"</div></div></div>"
         )
         st.markdown(card_html, unsafe_allow_html=True)
