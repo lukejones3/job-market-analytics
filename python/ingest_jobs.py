@@ -2221,7 +2221,7 @@ def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) ->
                     title=title,
                     location=location,
                     description=desc,
-                    job_url=f"{base}/en-US/{board}/job/{ext_path.lstrip('/')}",
+                    job_url=f"{base}/en-US/{board}/{ext_path.lstrip('/')}",
                     salary_min=None,
                     salary_max=None,
                     salary_period=None,
