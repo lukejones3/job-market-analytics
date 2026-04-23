@@ -5,7 +5,7 @@ import os
 from datetime import datetime, timedelta
 
 st.set_page_config(
-    page_title="DataHiringIQ · Recruiter Intelligence",
+    page_title="DataHiringIQ · Data & ML Job Search",
     page_icon="⚡",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -150,21 +150,24 @@ def query(sql, params=None):
     finally:
         conn.close()
 
-def verify_token(token: str) -> dict | None:
-    """Check token against api_keys table. Returns client info or None."""
+def verify_token(token: str):
+    """Check token against api_keys table. Returns client info or None.
+    Rejects expired tokens (past expires_at)."""
     try:
         conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
-            SELECT client_name, client_email, tier, active
+            SELECT client_name, client_email, tier, active, expires_at
             FROM api_keys
-            WHERE api_key_prefix = %s AND active = true
+            WHERE api_key_prefix = %s
+              AND active = true
+              AND (expires_at IS NULL OR expires_at > NOW())
             LIMIT 1
         """, (token[:8] if len(token) >= 8 else token,))
         row = cur.fetchone()
         conn.close()
         if row:
-            return {"name": row[0], "email": row[1], "tier": row[2]}
+            return {"name": row[0], "email": row[1], "tier": row[2], "expires_at": row[4]}
         return None
     except Exception:
         return None
@@ -223,18 +226,17 @@ if not token or (not client and not is_preview):
         </div>
         <div style="font-size:0.65rem;color:#444;text-transform:uppercase;
             letter-spacing:0.2em;margin-bottom:32px">
-            Recruiter Intelligence Feed
+            Data & ML Job Search, Faster
         </div>
         <p style="color:#666;font-size:0.85rem;line-height:1.7;margin-bottom:28px">
-            Live data & ML job intelligence — updated nightly from Greenhouse,
-            Workday, Lever, Ashby, and Eightfold. See fresh data & ML postings before they hit LinkedIn — with verified hiring manager contacts so you can reach out before anyone else.
+            Stop wasting applications on ghost jobs. Fresh data & ML roles updated nightly from 6 ATS sources — every posting scored for ghost probability and posting quality, with the hiring manager's LinkedIn mapped so you can reach out before disappearing into the resume black hole.
         </p>
         <div style="background:#080810;border:1px solid #1e1e32;border-radius:4px;
             padding:20px;margin-bottom:28px;text-align:left">
             <div style="font-size:0.6rem;color:#444;text-transform:uppercase;
                 letter-spacing:0.15em;margin-bottom:12px">What you get</div>
             <div style="font-size:0.75rem;color:#888;line-height:2">
-                👤 Verified hiring manager contact — name, email & LinkedIn for data & ML teams<br>
+                👤 Hiring manager LinkedIn — skip the resume black hole, reach out directly<br>
                 ⚡ Fresh postings — last 5 days, updated nightly<br>
                 📊 Posting Quality Score — how complete & specific the role is<br>
                 🎯 Hiring Urgency Score — likelihood the role is actively filling<br>
@@ -244,15 +246,15 @@ if not token or (not client and not is_preview):
             </div>
         </div>
         <div style="font-family:'Bebas Neue',sans-serif;font-size:2rem;color:#e2ff5d;
-            margin-bottom:4px">$500 / month</div>
+            margin-bottom:4px">$19 / 30 days</div>
         <div style="font-size:0.65rem;color:#444;margin-bottom:24px">
-            Cancel anytime · One placement pays for months of access
+            One-time payment · Full access for 30 days
         </div>
-        <a href="https://buy.stripe.com/6oUbIUeBO1S7bQD8WYfnO00"
+        <a href="https://buy.stripe.com/dRm7sEeBOeET9Iva12fnO01"
            style="background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
                font-size:0.75rem;font-weight:500;padding:12px 28px;border-radius:3px;
                text-decoration:none;letter-spacing:0.05em;text-transform:uppercase">
-            Subscribe Now →
+            Get Access →
         </a>
         <div style="margin-top:20px;font-size:0.6rem;color:#333">
             datahiringiq.com · jones31luke@gmail.com
@@ -274,7 +276,7 @@ st.markdown(f"""
         </div>
         <div style="font-size:0.6rem;color:#444;text-transform:uppercase;
             letter-spacing:0.2em;margin-top:2px">
-            Recruiter Intelligence · Fresh Job Feed
+            Data & ML Job Search · Fresh Nightly
         </div>
     </div>
     <div style="text-align:right">
@@ -287,7 +289,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── FILTERS ───────────────────────────────────────────────────────────────────
-f1, f2, f3, f4, f5 = st.columns([2, 2, 1, 1, 1])
+f1, f2, f3, f4 = st.columns([2, 2, 1, 1])
 
 with f1:
     sectors_df = query("""
@@ -308,13 +310,22 @@ with f2:
     role_filter = st.multiselect("Role Type", role_types, placeholder="All roles", key="rf_role")
 
 with f3:
-    signal_filter = st.selectbox("Min Signal", ["All", "⚡ Fresh", "● Strong", "● Moderate"], key="rf_signal")
+    workplace_filter = st.selectbox("Workplace", ["All", "Remote", "Hybrid", "Onsite"], key="rf_workplace")
 
 with f4:
     days_filter = st.selectbox("Posted within", ["5 days", "3 days", "24 hours", "12 hours"], key="rf_days")
 
+f5, f6, f7 = st.columns([2, 1, 1])
+
 with f5:
-    salary_only = st.checkbox("Salary disclosed only", key="rf_salary")
+    skills_input = st.text_input("Your skills (comma-separated)", placeholder="e.g. Python, SQL, PyTorch", key="rf_skills")
+
+with f6:
+    sort_by = st.selectbox("Sort by", ["Date", "Salary (high)", "Signal", "Skills match"], key="rf_sort")
+
+with f7:
+    signal_filter = st.selectbox("Min Signal", ["All", "⚡ Fresh", "● Strong", "● Moderate"], key="rf_signal")
+    salary_only = st.checkbox("Salary only", key="rf_salary")
 
 days_map = {"5 days": 5, "3 days": 3, "24 hours": 1, "12 hours": 0.5}
 days_back = days_map[days_filter]
@@ -449,6 +460,35 @@ if not fresh_jobs.empty:
             lambda s: signal_order.index(s) >= min_idx if s in signal_order else False
         )]
 
+    # Apply workplace filter
+    if workplace_filter != "All":
+        wp_map = {"Remote": "remote", "Hybrid": "hybrid", "Onsite": "onsite"}
+        fresh_jobs = fresh_jobs[fresh_jobs["workplace_type"] == wp_map[workplace_filter]]
+
+    # Compute skills match score
+    user_skills = [s.strip().lower() for s in skills_input.split(",") if s.strip()] if skills_input else []
+    if user_skills:
+        def _match_score(skills_str):
+            if not skills_str or pd.isna(skills_str):
+                return 0
+            job_skills = [s.strip().lower() for s in str(skills_str).split(",")]
+            matches = sum(1 for us in user_skills if any(us in js or js in us for js in job_skills))
+            return int((matches / max(len(user_skills), 1)) * 100)
+        fresh_jobs["skills_match"] = fresh_jobs["skills"].apply(_match_score)
+    else:
+        fresh_jobs["skills_match"] = 0
+
+    # Sort
+    if sort_by == "Salary (high)":
+        fresh_jobs = fresh_jobs.sort_values(by="salary_max_annual", ascending=False, na_position="last")
+    elif sort_by == "Signal":
+        signal_rank = {"fresh": 0, "strong": 1, "moderate": 2, "weak": 3}
+        fresh_jobs["_sig_rank"] = fresh_jobs["signal_label"].map(lambda s: signal_rank.get(s, 99))
+        fresh_jobs = fresh_jobs.sort_values(by=["_sig_rank", "urgency_score"], ascending=[True, False])
+        fresh_jobs = fresh_jobs.drop(columns=["_sig_rank"])
+    elif sort_by == "Skills match" and user_skills:
+        fresh_jobs = fresh_jobs.sort_values(by="skills_match", ascending=False)
+
 # ── SUMMARY METRICS ───────────────────────────────────────────────────────────
 m1, m2, m3, m4, m5 = st.columns(5)
 with m1:
@@ -550,19 +590,16 @@ else:
         src_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:0.05em;background:{src_bg};color:{src_color};border:1px solid {src_color}33">{source_display}</span>'
         badges = age_badge + q_badge + u_badge + sal_badge + loc_badge + sector_badge + wp_badge + exp_badge + src_badge
 
-        # Build contact HTML
+        # Build contact HTML - LinkedIn only (no email)
         if pd.notna(row.get('contact_name')) and row.get('contact_name'):
             li_url = row.get('contact_linkedin', '')
-            email = row.get('contact_email', '')
             contact_html = (
                 f'<div style="font-size:0.72rem;color:#e2ff5d;font-weight:500">{row["contact_name"]}</div>'
                 f'<div style="font-size:0.62rem;color:#666;margin:2px 0">{(row.get("contact_title") or "")[:35]}</div>'
                 f'<div style="margin-top:4px;display:flex;gap:6px;justify-content:flex-end">'
             )
-            if email:
-                contact_html += f'<a href="mailto:{email}" style="font-size:0.6rem;color:#4ade80;text-decoration:none;border:1px solid #4ade8044;padding:2px 6px;border-radius:2px">✉ Email</a>'
             if li_url:
-                contact_html += f'<a href="{li_url}" target="_blank" style="font-size:0.6rem;color:#38bdf8;text-decoration:none;border:1px solid #38bdf844;padding:2px 6px;border-radius:2px">in</a>'
+                contact_html += f'<a href="{li_url}" target="_blank" style="font-size:0.6rem;color:#38bdf8;text-decoration:none;border:1px solid #38bdf844;padding:2px 6px;border-radius:2px">View on LinkedIn</a>'
             contact_html += '</div>'
         else:
             contact_html = '<div style="font-size:0.65rem;color:#333;font-style:italic">No contact found</div>'
@@ -591,7 +628,7 @@ else:
 st.markdown("""
 <div style="margin-top:48px;padding-top:16px;border-top:1px solid #131320;
     font-size:0.6rem;color:#2a2a3a;display:flex;justify-content:space-between">
-    <span>DataHiringIQ Recruiter Intelligence · Confidential</span>
+    <span>DataHiringIQ · Data & ML Job Search</span>
     <span>datahiringiq.com · jones31luke@gmail.com</span>
 </div>
 """, unsafe_allow_html=True)

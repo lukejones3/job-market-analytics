@@ -781,8 +781,8 @@ async def stripe_webhook(request: Request):
                     cur.execute("""
                         INSERT INTO api_keys
                             (client_name, client_email, api_key_hash, api_key_prefix,
-                             tier, active, created_at)
-                        VALUES (%s, %s, %s, %s, 'pro', true, NOW())
+                             tier, active, created_at, expires_at)
+                        VALUES (%s, %s, %s, %s, 'jobseeker', true, NOW(), NOW() + INTERVAL '30 days')
                     """, (customer_name, customer_email, key_hash, key_prefix))
                     conn.commit()
                 log.info(f"New subscriber: {customer_email} — token prefix: {key_prefix}")
@@ -795,7 +795,7 @@ async def stripe_webhook(request: Request):
                 access_url = f"https://job-market-analytics-nyz8zrrujh8bafgniqhjyw.streamlit.app/?token={raw_key}"
 
                 msg = MIMEMultipart("alternative")
-                msg["Subject"] = "Your DataHiringIQ Access"
+                msg["Subject"] = "Your DataHiringIQ Access — 30 Days"
                 msg["From"]    = "jones31luke@gmail.com"
                 msg["To"]      = customer_email
 
@@ -803,7 +803,7 @@ async def stripe_webhook(request: Request):
                 <div style="font-family:monospace;background:#080810;color:#d4d4d8;padding:32px;max-width:560px">
                     <div style="font-size:1.5rem;color:#e2ff5d;margin-bottom:8px">DATAHIRINGIQ</div>
                     <p>Hi {customer_name},</p>
-                    <p>Your recruiter intelligence feed is ready. Click below to access:</p>
+                    <p>Your 30-day access is ready. Click below to start your job search:</p>
                     <a href="{access_url}"
                        style="display:inline-block;background:#e2ff5d;color:#080810;
                               padding:12px 24px;text-decoration:none;font-weight:bold;
