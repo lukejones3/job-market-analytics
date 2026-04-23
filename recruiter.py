@@ -315,15 +315,18 @@ with f3:
 with f4:
     days_filter = st.selectbox("Posted within", ["3 days", "24 hours", "7 days", "15 days", "30 days"], key="rf_days")
 
-f5, f6, f7 = st.columns([2, 1, 1])
+f5, f6, f7, f8 = st.columns([2, 1, 1, 1])
 
 with f5:
     skills_input = st.text_input("Your skills (comma-separated)", placeholder="e.g. Python, SQL, PyTorch", key="rf_skills")
 
 with f6:
-    sort_by = st.selectbox("Sort by", ["Date", "Salary (high)", "Signal", "Skills match"], key="rf_sort")
+    exp_filter = st.multiselect("Experience", ["Entry", "Associate", "Mid", "Senior"], placeholder="All levels", key="rf_exp")
 
 with f7:
+    sort_by = st.selectbox("Sort by", ["Date", "Salary (high)", "Signal", "Skills match"], key="rf_sort")
+
+with f8:
     signal_filter = st.selectbox("Min Signal", ["All", "⚡ Fresh", "● Strong", "● Moderate"], key="rf_signal")
     salary_only = st.checkbox("Salary only", key="rf_salary")
 
@@ -465,6 +468,12 @@ if not fresh_jobs.empty:
     if workplace_filter != "All":
         wp_map = {"Remote": "remote", "Hybrid": "hybrid", "Onsite": "onsite"}
         fresh_jobs = fresh_jobs[fresh_jobs["workplace_type"] == wp_map[workplace_filter]]
+
+    # Experience filter
+    if exp_filter:
+        exp_map = {"Entry": "entry", "Associate": "associate", "Mid": "mid", "Senior": "senior"}
+        selected_levels = [exp_map[e] for e in exp_filter]
+        fresh_jobs = fresh_jobs[fresh_jobs["experience_level"].isin(selected_levels)]
 
     # Compute skills match score
     user_skills = [s.strip().lower() for s in skills_input.split(",") if s.strip()] if skills_input else []
