@@ -1212,75 +1212,78 @@ def _extract_years_experience_requirements(desc: str) -> Optional[int]:
 
 def infer_experience_level(desc: str, title_hint: Optional[str] = None) -> Optional[str]:
     """
-    Levels: entry, associate, mid, senior
+    Robust experience level inference.
     Priority:
-      1) Strong title tokens
-      2) Experience-years tied to "experience"
-      3) Explicit “entry level” phrases
-      Else: None
+      1) Title keywords (most reliable)
+      2) YOE extraction from description
+      3) Conservative fallback for titles with no signal (default mid)
+
+    Returns one of: entry, associate, mid, senior
     """
-    t = normalize_for_matching((title_hint or '') + ' ' + (desc or ''))
-    if title_hint:
-        tt = normalize_for_matching(title_hint)
-        if re.search(r"\b(intern|internship)\b", tt):
-            return "entry"
-        if re.search(r"\b(entry[- ]level|junior|jr\.?|new\s*grad|new\s*graduate)\b", tt):
-            return "entry"
-        if re.search(r"\b(associate)\b", tt):
-            return "associate"
-        # Senior/lead/principal FIRST before roman numerals
-        if re.search(r"\b(senior|sr\.?|lead|principal|staff)\b", tt):
-            return "senior"
-        if re.search(r"\b(manager|director|head of|vp|vice president)\b", tt):
-            return "senior"
-        # Roman numeral suffixes — II=mid, III+=senior
-        if re.search(r"\biii\b", tt):
-            return "senior"
-        if re.search(r"\bii\b", tt):
-            return "mid"
-    # explicit entry phrasing in description
-    if re.search(r"\b(entry[- ]level|new grad|recent graduate|0\+?\s*years?\s+of\s+experience)\b", t):
-        return "entry"
+    title_lower = (title_hint or '').lower()
 
-    yrs = _extract_years_experience_requirements(desc or "")
+    # === TIER 1: Title-based classification (highest confidence) ===
+    # Senior indicators (check first — most titles contain these)
+    SENIOR_PATTERNS = [
+        r'\bsenior\b', r'\bsr\.?\b', r'\bstaff\b', r'\bprincipal\b',
+        r'\blead\b', r'\bhead\s+of\b', r'\bdirector\b', r'\bmanager\b',
+        r'\bvp\b', r'\bvice\s+president\b', r'\bchief\b',
+        r'\bdistinguished\b', r'\bexpert\b',
+        r'\biii\b', r'\biv\b',  # Roman numerals
+        r'\biii+\b',
+        r'\blevel\s*[3-9]\b',
+    ]
+    for p in SENIOR_PATTERNS:
+        if re.search(p, title_lower):
+            return 'senior'
+
+    # Entry-level indicators
+    ENTRY_PATTERNS = [
+        r'\bintern\b', r'\binternship\b',
+        r'\bentry[\s-]?level\b', r'\bjunior\b', r'\bjr\.?\b',
+        r'\bnew\s+grad\b', r'\bnew\s+graduate\b', r'\bgraduate\s+program\b',
+        r'\bapprentice\b', r'\btrainee\b',
+        r'\bearly\s+career\b', r'\bcollege\s+grad\b',
+        r'\blevel\s*1\b',
+    ]
+    for p in ENTRY_PATTERNS:
+        if re.search(p, title_lower):
+            return 'entry'
+
+    # Associate (explicit)
+    if re.search(r'\bassociate\b', title_lower):
+        return 'associate'
+
+    # Level II = mid
+    if re.search(r'\bii\b|\blevel\s*2\b', title_lower):
+        return 'mid'
+
+    # Level I = associate
+    if re.search(r'\bi\b(?!i)|\blevel\s*1\b', title_lower):
+        # "I" alone but not "II" — probably level 1 = associate
+        return 'associate'
+
+    # === TIER 2: YOE extraction from description ===
+    yrs = _extract_years_experience_requirements(desc or '')
     if yrs is not None:
-        if yrs >= 5:
-            return "senior"
-        if yrs >= 3:
-            return "mid"
-        if yrs >= 1:
-            return "associate"
-        # yrs == 0 is ambiguous — don't assign entry, fall through to title fallback
-        return None
+        if yrs >= 7:
+            return 'senior'
+        if yrs >= 4:
+            return 'mid'
+        if yrs >= 2:
+            return 'associate'
+        if yrs >= 0:
+            return 'entry'
 
-    # light fallback: common title families (kept conservative)
-    if title_hint:
-        tt = normalize_for_matching(title_hint)
-        if re.search(r"\b(analyst|specialist|coordinator)\b", tt):
-            return "associate"
-        if re.search(r"\b(engineer|scientist|developer|programmer)\b", tt):
-            return "mid"
-        if re.search(r"\b(researcher|architect|strategist|consultant)\b", tt):
-            return "mid"
-        if re.search(r"\b(manager|director|head|vp|vice president|chief)\b", tt):
-            return "senior"
-        # Numbered levels — III/3+ = senior, II/2 = mid, I/1 = associate
-        if re.search(r"\biii\b|\b[34]$|level\s*[34]\b", tt):
-            return "senior"
-        if re.search(r"\bii\b|\b2$|level\s*2\b", tt):
-            return "mid"
-        if re.search(r"\bi\b|\b1$|level\s*1\b", tt):
-            return "associate"
-        # Default for any remaining data/analytics/ml titles
-        if re.search(r"\b(data|analytics|machine learning|ml|ai|bi|intelligence)\b", tt):
-            return "mid"
+    # === TIER 3: Explicit entry phrases in description ===
+    desc_lower = (desc or '').lower()
+    if re.search(r'\b(entry[\s-]?level|new grad|recent graduate|no experience (required|necessary))\b', desc_lower):
+        return 'entry'
 
-    return None
+    # === TIER 4: Conservative fallback — default to mid for unspecified ===
+    # Most jobs without explicit signals are mid-level. Safer than "associate".
+    return 'mid'
 
-
-# ============================================================
-# SKILL EXTRACTION (ALLOWLIST ONLY + AI SPECIAL RULE)
-# ============================================================
 
 def _canon_key(s: str) -> str:
     # normalize canonical key for map lookups
