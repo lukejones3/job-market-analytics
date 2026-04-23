@@ -313,7 +313,7 @@ with f3:
     workplace_filter = st.selectbox("Workplace", ["All", "Remote", "Hybrid", "Onsite"], key="rf_workplace")
 
 with f4:
-    days_filter = st.selectbox("Posted within", ["5 days", "3 days", "24 hours", "12 hours"], key="rf_days")
+    days_filter = st.selectbox("Posted within", ["3 days", "24 hours", "7 days", "15 days", "30 days"], key="rf_days")
 
 f5, f6, f7 = st.columns([2, 1, 1])
 
@@ -327,7 +327,7 @@ with f7:
     signal_filter = st.selectbox("Min Signal", ["All", "⚡ Fresh", "● Strong", "● Moderate"], key="rf_signal")
     salary_only = st.checkbox("Salary only", key="rf_salary")
 
-days_map = {"5 days": 5, "3 days": 3, "24 hours": 1, "12 hours": 0.5}
+days_map = {"24 hours": 1, "3 days": 3, "7 days": 7, "15 days": 15, "30 days": 30}
 days_back = days_map[days_filter]
 
 # ── QUERY ─────────────────────────────────────────────────────────────────────
