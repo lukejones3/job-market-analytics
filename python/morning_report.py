@@ -242,5 +242,14 @@ def send_email(html: str):
 
 if __name__ == "__main__":
     html = build_report()
-    send_email(html)
+    # Write to file for ssh-viewing — SMTP blocked on DigitalOcean droplet
+    from pathlib import Path as _P
+    out = _P('/opt/job-market-analytics/logs/latest_report.html')
+    out.write_text(html)
+    print(f'Report written to {out}')
+    # Try email but don't crash if it fails
+    try:
+        send_email(html)
+    except Exception as e:
+        print(f'Email send skipped: {e}')
     print("Done")

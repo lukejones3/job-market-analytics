@@ -35,7 +35,7 @@ def main():
     cur.execute("""
         SELECT company_name,
                array_agg(DISTINCT ats_source ORDER BY ats_source) as sources,
-               array_agg(DISTINCT ats_source || '=' || active_roles::text ORDER BY ats_source) as role_counts
+               array_agg(DISTINCT ats_source || '=' || active_roles::text) as role_counts
         FROM discovered_companies
         WHERE enabled = true
         AND active_roles > 0
