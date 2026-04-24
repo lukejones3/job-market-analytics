@@ -575,20 +575,31 @@ def _scale_pair(s1: str, s2: str) -> tuple:
 
 
 def _period_from_context(text: str, lo: Optional[Decimal] = None) -> Optional[str]:
-    """Infer period from text context and value magnitude."""
-    t = text.lower()
-    if re.search(r"\b(per\s*year|/yr|yearly|annually|annual|per\s*annum)\b", t):
-        return "year"
-    if re.search(r"\b(per\s*hour|/hr|/hour|hourly)\b", t):
-        return "hour"
-    if re.search(r"\b(per\s*month|/mo|monthly)\b", t):
-        return "month"
-    # Infer from magnitude
+    """Infer period from text context and value magnitude.
+
+    Priority order:
+      1) Magnitude-based: if lo is clearly annual-sized (>= $15K), it's yearly.
+         Long company descriptions often mention "monthly audience" etc. which
+         would false-match. Magnitude is more reliable for big numbers.
+      2) Explicit period keywords (per year, hourly, etc.)
+    """
+    # Magnitude-first check — most reliable for parseable values
     if lo is not None:
         if lo >= 15000:
             return "year"
-        if Decimal("7") <= lo <= Decimal("500"):
+        if Decimal("1000") <= lo < Decimal("15000"):
+            return "month"
+        if Decimal("7") <= lo < Decimal("1000"):
             return "hour"
+
+    # Fall back to keyword detection for ambiguous values
+    t = text.lower()
+    if re.search(r"\b(per\s*year|/yr|yearly|annually|annual|per\s*annum|a\s+year)\b", t):
+        return "year"
+    if re.search(r"\b(per\s*hour|/hr|/hour|hourly|an\s+hour)\b", t):
+        return "hour"
+    if re.search(r"\b(per\s*month|/mo|monthly|a\s+month)\b", t):
+        return "month"
     return None
 
 
@@ -695,12 +706,13 @@ def _try_bare_range(tline: str):
     """
     Any $X - $Y pattern relying on magnitude for period.
     Handles: USD $X-$Y, CAD $X-$Y, $X &mdash; $Y, $ X-$Y (space after $)
+    Uses finditer to try ALL matches — not just first — since description might
+    have "$100 million in funding" before the actual salary range.
     """
-    # USD prefix
-    m = re.search(
+    # USD prefix - iterate all matches
+    for m in re.finditer(
         r"USD\s+\$?\s*([\d,\.]+[kKmM]?)\s*" + _D + r"\s*\$?\s*([\d,\.]+[kKmM]?)",
-        tline, re.IGNORECASE)
-    if m:
+        tline, re.IGNORECASE):
         v1, v2 = _scale_pair(m.group(1), m.group(2))
         if v1 and v2:
             lo, hi = min(v1, v2), max(v1, v2)
@@ -708,11 +720,10 @@ def _try_bare_range(tline: str):
             if _sanity(lo, hi, p):
                 return lo, hi, p
 
-    # CAD prefix
-    m = re.search(
+    # CAD prefix - iterate
+    for m in re.finditer(
         r"CAD\s+\$?\s*([\d,\.]+[kKmM]?)\s*" + _D + r"\s*(?:CAD\s+)?\$?\s*([\d,\.]+[kKmM]?)",
-        tline, re.IGNORECASE)
-    if m:
+        tline, re.IGNORECASE):
         v1, v2 = _scale_pair(m.group(1), m.group(2))
         if v1 and v2:
             lo, hi = min(v1, v2), max(v1, v2)
@@ -720,11 +731,10 @@ def _try_bare_range(tline: str):
             if _sanity(lo, hi, p):
                 return lo, hi, p
 
-    # Standard $X - $Y (including space after $)
-    m = re.search(
+    # Standard $X - $Y - iterate all matches in the line
+    for m in re.finditer(
         r"\$\s*([\d,\.]+[kKmM]?)\s*" + _D + r"\s*\$?\s*([\d,\.]+[kKmM]?)",
-        tline, re.IGNORECASE)
-    if m:
+        tline, re.IGNORECASE):
         v1, v2 = _scale_pair(m.group(1), m.group(2))
         if v1 and v2:
             lo, hi = min(v1, v2), max(v1, v2)
@@ -732,11 +742,10 @@ def _try_bare_range(tline: str):
             if _sanity(lo, hi, p):
                 return lo, hi, p
 
-    # $X to $Y (without dash)
-    m = re.search(
+    # $X to $Y (without dash) - iterate
+    for m in re.finditer(
         r"\$\s*([\d,\.]+[kKmM]?)\s+to\s+\$?\s*([\d,\.]+[kKmM]?)",
-        tline, re.IGNORECASE)
-    if m:
+        tline, re.IGNORECASE):
         v1, v2 = _scale_pair(m.group(1), m.group(2))
         if v1 and v2:
             lo, hi = min(v1, v2), max(v1, v2)
