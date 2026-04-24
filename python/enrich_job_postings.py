@@ -787,6 +787,45 @@ def _try_targeted_pay_range(tline: str):
     return None
 
 
+try:
+    from llm_client import extract_salary_llm
+    _LLM_AVAILABLE = True
+except ImportError:
+    _LLM_AVAILABLE = False
+    def extract_salary_llm(*args, **kwargs):
+        return None
+
+
+def _try_llm_fallback(text: str):
+    """
+    Last-resort: send a snippet to Haiku for salary extraction.
+    Only triggered after all regex parsers fail.
+    """
+    if not _LLM_AVAILABLE:
+        return None
+
+    # Find window around salary keyword
+    SALARY_KW = re.compile(
+        r"(salary|compensation|pay range|base pay|pay rate|hourly rate|"
+        r"total comp|annual pay|wage|remuneration)",
+        re.IGNORECASE
+    )
+    m = SALARY_KW.search(text or "")
+    if not m:
+        return None
+
+    start = max(0, m.start() - 200)
+    end = min(len(text), m.end() + 400)
+    snippet = text[start:end]
+
+    result = extract_salary_llm(snippet)
+    if result:
+        lo, hi, period = result
+        if _sanity(lo, hi, period):
+            return lo, hi, period
+    return None
+
+
 def _try_annual_salary_range(tline: str):
     """Dentsuaegis: The annual salary range for this position is $X - $Y"""
     import re
@@ -1034,6 +1073,11 @@ def parse_salary_range(text: str) -> tuple:
         if result and _sanity(result[0], result[1], result[2]):
             lo, hi = min(result[0], result[1]), max(result[0], result[1])
             return lo, hi, result[2]
+
+    # All regex patterns exhausted — try LLM fallback on the full text
+    llm_result = _try_llm_fallback(raw)
+    if llm_result:
+        return llm_result
 
     return None, None, None
 
@@ -1868,12 +1912,15 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
             WHERE jp.description_text IS NOT NULL
               AND length(jp.description_text) > 0
               AND jp.data_tier = 1
+              AND jp.status = 'raw'
               AND jp.salary_max IS NULL
+              AND jp.description_text LIKE '%%$%%'
               AND (
                   lower(jp.description_text) LIKE '%%salary%%'
                   OR lower(jp.description_text) LIKE '%%compensation%%'
                   OR lower(jp.description_text) LIKE '%%pay range%%'
-                  OR jp.description_text LIKE '%%$%%'
+                  OR lower(jp.description_text) LIKE '%%base pay%%'
+                  OR lower(jp.description_text) LIKE '%%pay rate%%'
               )
             ORDER BY jp.ingested_at DESC
             LIMIT %s
