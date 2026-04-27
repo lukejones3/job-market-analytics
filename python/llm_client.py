@@ -157,3 +157,96 @@ Snippet:
     except (APIError, json.JSONDecodeError, ValueError, KeyError) as e:
         log.warning(f"LLM salary extraction failed: {e}")
         return None
+
+def classify_role(role_title: str, description: str) -> Optional[dict]:
+    """
+    Classify whether a job is genuinely data/ML/analytics and what subcategory.
+    Returns dict: {is_data_ml: bool, category: str, confidence: str, reason: str}
+    or None on API failure.
+    """
+    if not role_title:
+        return None
+    snippet = (description or "")[:600]
+
+    prompt = f"""Classify this job posting. Is it genuinely a data, analytics, ML, or AI role?
+
+CATEGORIES:
+- "data_analytics": data analyst, business analyst working with SQL/dashboards, BI analyst, marketing analyst doing real data work
+- "data_engineering": data engineer, ETL developer, analytics engineer, data platform engineer
+- "ml_engineering": ML engineer, MLOps, applied ML, AI engineer building production systems
+- "ai_research": research scientist, applied scientist on ML/AI specifically
+- "data_science": data scientist, statistician, quant researcher
+- "analytics_engineering": analytics engineer (dbt-style), data modeler
+- "non_data": NOT a data/ML role — examples: software engineer, product manager (without analytics focus), sales ops, customer success, marketing manager, HR, finance/accounting, generic IT, non-analytics business analyst (e.g. requirements gathering for SAP/AMISYS/healthcare claims systems), data entry, GIS/mapping (unless ML), clinical data coordinator, master data management, data steward (if pure governance)
+
+RULES:
+- TITLE-FIRST: If the title clearly says "Data Engineer", "Data Scientist", "Data Analyst", "ML Engineer", "AI Engineer", "Analytics Engineer", "Quantitative Analyst/Researcher", "Applied Scientist", "Research Scientist (ML/AI)" → classify as data/ML by title regardless of description quality. Only use description to pick the subcategory.
+- DESCRIPTION-DEPENDENT for ambiguous titles only:
+  - "Business Analyst" alone is ambiguous. If description shows SQL/Python/dashboards/analytics → data_analytics. If it shows requirements gathering, SAP/Workday implementation, process documentation, healthcare claims systems (AMISYS, Facets) → non_data.
+  - "Operations Analyst" / "Sales Operations" / "Revenue Operations" / "Marketing Operations" → default non_data UNLESS description shows heavy SQL/Python/analytics work → data_analytics.
+  - "Data Quality Analyst" doing manual review → non_data. Automated quality with SQL/Python → data_analytics.
+- KEEP these as data/ML even if borderline:
+  - "Risk Analyst" / "Credit Risk Analyst" / "Market Risk Analyst" / "Quantitative Risk Analyst" (these use modeling, Python, R)
+  - "Fraud Analyst" / "Fraud Strategy Analyst" (uses SQL, Python, ML models)
+  - "Pricing Analyst" / "Pricing Strategy" (uses analytics)
+  - "Actuarial Analyst" (statistics-heavy)
+  - "Financial Analyst" with FP&A or modeling focus → data_analytics
+- EXCLUDE these:
+  - "Sales Coordinator", "Customer Success", "Account Executive" → non_data
+  - "Project Manager", "Program Manager" without explicit data focus → non_data
+  - "Technical Writer", "Solutions Architect" without data focus → non_data
+  - "GIS Analyst" / "Geospatial Analyst" without ML → non_data
+  - "Master Data Steward", "Data Coordinator" (governance only) → non_data
+- EXCLUDE federal contracting / government staffing roles → non_data:
+  - Roles that REQUIRE active US government security clearance (TS/SCI, Top Secret, Secret, Public Trust) for non-tech-product work — typical at federal staffing firms (ProSidian, Booz Allen, ManTech, SAIC, CACI, Leidos, Engility, MITRE)
+  - Job IDs containing federal contract codes like [USDA001016], [DOE0062061], [NSF0113113], [GMRC007], [AMR9]
+  - Roles describing themselves as "contract contingent", "GS-XX pay grade", "GS-09 / GS-12 / GS-14", "labor category", "BPA", "IDIQ"
+  - Government job titles like "Budget Execution Data Analyst", "FSM Budget Analyst", "Federal Acquisition Data Analyst", "Mortgage Backed Securities Risk Analyst" at contractor firms
+  - Direct municipal/state/federal employer job postings (City of New York, State of California DMV, USDA, Department of Energy, Department of Defense, Federal Reserve internships, county/city government data analyst roles)
+  - Note: Distinguish carefully — DEFENSE/AEROSPACE PRODUCT COMPANIES are kept as data_ml: Anduril, Palantir, Scale AI, Shield AI, Helsing, Lockheed Martin AI Labs, Northrop Grumman AI/ML roles, Raytheon ML engineering, Boeing data science, RTX data engineering. The line is: building a commercial product that DoD buys = data_ml. Staffing a federal contract via labor categories = non_data.
+  - Note: Bank holding companies and Federal Reserve regional bank ML/quant roles ARE data_ml (e.g., Federal Reserve Bank of NY quantitative researcher = data_science). Direct civil service / government agency staffing is non_data.
+- THIN DESCRIPTIONS: If description is too short or generic to judge but title is clearly data/ML, trust the title and set confidence "high".
+- Set confidence to "low" only when title is ambiguous AND description is unclear.
+
+Return JSON only:
+{{"is_data_ml": true|false, "category": "...", "confidence": "high"|"low", "reason": "1 sentence"}}
+
+TITLE: {role_title}
+
+DESCRIPTION:
+{snippet}"""
+
+    for attempt in range(3):
+        try:
+            _rate_limit()
+            client = get_client()
+            response = client.messages.create(
+                model=MODEL,
+                max_tokens=200,
+                temperature=0,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text.strip()
+            break
+        except APIError as e:
+            if "rate_limit" in str(e).lower() or "429" in str(e):
+                time.sleep(20 + attempt * 10)
+                continue
+            log.warning(f"classify_role API error: {e}")
+            return None
+    else:
+        return None
+
+    try:
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text
+            text = text.rsplit("```", 1)[0].strip()
+        if text.startswith("json"):
+            text = text[4:].strip()
+        data = json.loads(text)
+        if "is_data_ml" not in data or "category" not in data:
+            return None
+        return data
+    except (json.JSONDecodeError, KeyError) as e:
+        log.warning(f"classify_role parse error: {e}")
+        return None

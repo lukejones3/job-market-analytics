@@ -2303,6 +2303,133 @@ AMAZON_SEARCH_TERMS = [
     "applied scientist", "quantitative researcher",
 ]
 
+
+def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
+    """
+    Pull all published jobs from a SmartRecruiters company board.
+    No auth required for public boards. Returns paginated JSON.
+    Docs: https://developers.smartrecruiters.com/reference/postingapi
+    """
+    base_url = f"https://api.smartrecruiters.com/v1/companies/{company_slug}/postings"
+    jobs: List[RawJob] = []
+    offset = 0
+    limit = 100
+
+    while True:
+        data = _get(base_url, params={"limit": limit, "offset": offset})
+        _throttle()
+        if not data or not isinstance(data, dict):
+            break
+        postings = data.get("content", [])
+        if not postings:
+            break
+
+        for j in postings:
+            title = _clean(j.get("name", ""))
+            if not title or not _is_target_role(title):
+                continue
+
+            # Location
+            loc_obj = j.get("location", {}) or {}
+            city = _clean(loc_obj.get("city", "") or "")
+            region = _clean(loc_obj.get("region", "") or "")
+            country = _clean(loc_obj.get("country", "") or "")
+            location = ", ".join(p for p in [city, region, country] if p)
+            remote_flag = bool(loc_obj.get("remote"))
+
+            # Workplace type
+            workplace_type = None
+            if remote_flag or "remote" in (location or "").lower():
+                workplace_type = "remote"
+
+            # US filter (uses existing helper)
+            if not _is_us_location(location, workplace_type == "remote"):
+                continue
+
+            # Description — SmartRecruiters splits into sections
+            desc_parts = []
+            ja = j.get("jobAd", {}) or {}
+            sections = ja.get("sections", {}) or {}
+            for key in ("companyDescription", "jobDescription", "qualifications", "additionalInformation"):
+                blk = sections.get(key, {}) or {}
+                txt = blk.get("text", "")
+                if txt:
+                    desc_parts.append(_strip_html(txt) if "<" in txt else _clean(txt))
+            description = "\n\n".join(p for p in desc_parts if p).strip()
+
+            # Industry / type hints
+            type_obj = j.get("typeOfEmployment", {}) or {}
+            employment_type = (type_obj.get("id") or "").lower().replace("_", "-")
+            if employment_type and "full" in employment_type:
+                employment_type = "full-time"
+            elif employment_type and "part" in employment_type:
+                employment_type = "part-time"
+            else:
+                employment_type = None
+
+            # Posted date
+            posted_date = None
+            release_dt = j.get("releasedDate") or j.get("createdOn")
+            if release_dt and isinstance(release_dt, str):
+                posted_date = release_dt[:10]
+
+            # Job URL — public posting URL pattern
+            posting_id = j.get("id") or j.get("uuid") or ""
+            ref_num = j.get("refNumber", "")
+            job_url = f"https://jobs.smartrecruiters.com/{company_slug}/{ref_num}" if ref_num else \
+                      f"https://api.smartrecruiters.com/v1/companies/{company_slug}/postings/{posting_id}"
+
+            jobs.append(RawJob(
+                source="smartrecruiters",
+                source_id=str(posting_id),
+                title=title,
+                company=company_name,
+                location=location,
+                description=description,
+                job_url=job_url,
+                workplace_type=workplace_type,
+                employment_type=employment_type,
+                posted_date=posted_date,
+                salary_min=None,
+                salary_max=None,
+                salary_period=None,
+                metadata={"slug": company_slug, "ref": ref_num},
+            ))
+
+        # Pagination — SmartRecruiters returns totalFound; loop until exhausted
+        total = data.get("totalFound", 0)
+        offset += limit
+        if offset >= total:
+            break
+
+    log.info(f"  SmartRecruiters [{company_name}]: {len(jobs)} target roles found")
+    return jobs
+
+
+def fetch_all_smartrecruiters() -> List[RawJob]:
+    """Fetch all SmartRecruiters companies from discovered_companies table."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT company_name, board_token
+        FROM discovered_companies
+        WHERE ats_source = 'smartrecruiters' AND enabled = true
+        ORDER BY active_roles DESC NULLS LAST
+    """)
+    companies = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    log.info(f"  SmartRecruiters: pulling {len(companies)} companies from DB")
+    all_jobs: List[RawJob] = []
+    for name, slug in companies:
+        try:
+            all_jobs.extend(fetch_smartrecruiters(name, slug))
+        except Exception as e:
+            log.warning(f"SmartRecruiters [{name}] error: {e}")
+    return all_jobs
+
+
 def fetch_amazon() -> List[RawJob]:
     base = "https://www.amazon.jobs"
     headers = {
@@ -2560,6 +2687,10 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
         log.info("Fetching from Eightfold...")
         all_jobs.extend(fetch_all_eightfold())
 
+    if source in ("smartrecruiters", "all"):
+        log.info("Fetching from SmartRecruiters...")
+        all_jobs.extend(fetch_all_smartrecruiters())
+
     if source in ("amazon", "all"):
         log.info("Fetching from Amazon...")
         all_jobs.extend(fetch_amazon())
@@ -2794,7 +2925,7 @@ def main():
     ap = argparse.ArgumentParser(description="Multi-source job ingestion pipeline.")
     ap.add_argument(
         "--source",
-        choices=["greenhouse", "lever", "adzuna", "ashby", "workday", "amazon", "eightfold", "all"],
+        choices=["greenhouse", "lever", "adzuna", "ashby", "workday", "amazon", "eightfold", "smartrecruiters", "all"],
         default="all",
         help="Which source to pull from (default: all)"
     )
