@@ -352,6 +352,7 @@ where_clauses = [
     "jp.data_tier = 1",
     "(jp.source != 'workday' OR jp.posted_date IS NOT NULL)",
     "jp.status = 'raw'",
+    "(jp.role_category IS NULL OR jp.role_category != 'non_data')",
     f"(CASE WHEN jp.source = 'workday' AND jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END) > NOW() - INTERVAL '{days_back} days'",
     """(jp.source != 'workday' OR (
         SELECT COUNT(*) FROM job_postings jp2
