@@ -788,11 +788,13 @@ def _try_targeted_pay_range(tline: str):
 
 
 try:
-    from llm_client import extract_salary_llm
+    from llm_client import extract_salary_llm, classify_role
     _LLM_AVAILABLE = True
 except ImportError:
     _LLM_AVAILABLE = False
     def extract_salary_llm(*args, **kwargs):
+        return None
+    def classify_role(*args, **kwargs):
         return None
 
 
@@ -1936,15 +1938,20 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                    jp.workplace_type, jp.employment_type, jp.experience_level,
                    jp.salary_min, jp.salary_max, jp.salary_period,
                    COALESCE(jp.data_tier, 1) AS data_tier,
+                   jp.role_category,
+                   r.role_name,
                    EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id) AS has_skills
             FROM job_postings jp
+            LEFT JOIN roles r ON r.role_id = jp.role_id
             WHERE jp.description_text IS NOT NULL AND length(jp.description_text) > 0
+              AND jp.status = 'raw'
               AND (
-                -- Tier 1: full NLP enrichment needed
+                -- Tier 1: full NLP enrichment needed (including unclassified)
                 (COALESCE(jp.data_tier,1) = 1 AND (
                    jp.company_id IS NULL OR jp.role_id IS NULL OR jp.location_id IS NULL
                 OR jp.workplace_type IS NULL OR jp.employment_type IS NULL OR jp.experience_level IS NULL
                 OR jp.salary_min IS NULL OR jp.salary_max IS NULL OR jp.salary_period IS NULL
+                OR jp.role_category IS NULL
                 OR NOT EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id)
                 ))
                 OR
@@ -2027,6 +2034,19 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                 fields.append("salary_max_annual=%s"); params.append(pj.salary_max)
         if pj.salary_period is not None and job["salary_period"] is None:
             fields.append("salary_period=%s"); params.append(pj.salary_period)
+
+        # Role category classifier — only on jobs missing role_category
+        # Uses LLM to filter out non_data jobs (federal contractor, sales ops, etc.)
+        if _LLM_AVAILABLE and only_missing:
+            existing_cat = job["role_category"] if "role_category" in job.keys() else None
+            if existing_cat is None:
+                role_name_for_cls = job["role_name"] if "role_name" in job.keys() else (pj.title or "")
+                if role_name_for_cls:
+                    cls_result = classify_role(role_name_for_cls, desc)
+                    if cls_result and cls_result.get("category"):
+                        fields.append("role_category=%s")
+                        params.append(cls_result["category"])
+                        fields.append("role_classified_at=NOW()")
 
         # Skills — skip for short descriptions (Adzuna partial records)
         ins = 0
