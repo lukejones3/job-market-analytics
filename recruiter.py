@@ -353,7 +353,7 @@ where_clauses = [
     "(jp.source != 'workday' OR jp.posted_date IS NOT NULL)",
     "jp.status = 'raw'",
     "(jp.role_category IS NULL OR jp.role_category != 'non_data')",
-    f"(CASE WHEN jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END) > NOW() - INTERVAL '{days_back} days'",
+    f"jp.date_found >= CURRENT_DATE - INTERVAL '{days_back} days'",
     """(jp.source != 'workday' OR (
         SELECT COUNT(*) FROM job_postings jp2
         WHERE jp2.source = 'workday'
@@ -410,7 +410,7 @@ fresh_jobs = query(f"""
         l.state,
         jh.honesty_score,
         gi.ghost_probability,
-        EXTRACT(EPOCH FROM (NOW() - CASE WHEN jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END))/3600 as hours_old,
+        EXTRACT(EPOCH FROM (NOW() - COALESCE(jp.posted_date::timestamp, jp.date_found)))/3600 as hours_old,
         STRING_AGG(DISTINCT s.skill_name, ', ' ORDER BY s.skill_name) as skills,
         ch.employee_count,
         {role_family_sql} as role_family
@@ -438,9 +438,7 @@ fresh_jobs = query(f"""
              l.location, l.state,
              cc.full_name, cc.title, cc.email, cc.linkedin_url,
              gi.ghost_probability, ch.employee_count
-    ORDER BY (CASE WHEN jp.posted_date IS NOT NULL
-                THEN jp.posted_date::timestamp
-                ELSE jp.date_found::timestamp END) DESC
+    ORDER BY COALESCE(jp.posted_date::timestamp, jp.date_found::timestamp) DESC
     LIMIT 500
 """)
 
