@@ -353,7 +353,7 @@ where_clauses = [
     "(jp.source != 'workday' OR jp.posted_date IS NOT NULL)",
     "jp.status = 'raw'",
     "(jp.role_category IS NULL OR jp.role_category != 'non_data')",
-    f"jp.date_found >= CURRENT_DATE - INTERVAL '{days_back} days'",
+    f"jp.date_found > CURRENT_DATE - INTERVAL '{days_back} days'",
     """(jp.source != 'workday' OR (
         SELECT COUNT(*) FROM job_postings jp2
         WHERE jp2.source = 'workday'
