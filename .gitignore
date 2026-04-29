@@ -28,3 +28,4 @@ loc_norm*.py
 p[0-9].py
 score_resume.py
 eval/
+recruiter.py.bak*

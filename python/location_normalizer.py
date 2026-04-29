@@ -108,6 +108,17 @@ FOREIGN_COUNTRY_RE = re.compile(
     r"lima|cusco|"
     r"cape town|johannesburg|durban|nairobi|lagos|"
     r"lagunilla|"  # Costa Rica
+    r"heredia|"  # Costa Rica
+    r"iasi|cluj-napoca|cluj|timisoara|"  # Romania
+    r"makati|taguig|quezon city|"  # Philippines additions
+    r"oakville|mississauga|markham|kitchener|waterloo|brampton|hamilton|"  # Canada Ontario
+    r"changhua|kaohsiung|taipei|"  # Taiwan
+    r"pakistan|karachi|lahore|islamabad|"  # Pakistan
+    r"\bitaly\b|"  # Italy as bare country name (escape needed since "italy" is short)
+    r"zürich|"  # umlaut variant of Zurich
+    r"montpellier|"  # France
+    r"canary wharf|"  # London tech district
+    r"cairo|"  # Egypt (already in list but ensure)
     # Workday-style foreign country codes
     r"in-[a-z]{2}|"  # India regions like IN-MH (Maharashtra)
     r"de-[a-z]{2}|fr-[a-z]{2}|uk-[a-z]{2}|ie-[a-z]{2}|"
@@ -228,6 +239,14 @@ US_CITIES = {
     "burlington": "VT",
     # Known data/finance/tech specific
     "wilmington": "DE", "dover": "DE",
+    # Additions from production unknown-bucket audit
+    "beverly hills": "CA", "cary": "NC", "lehi": "UT", "fremont": "CA",
+    "east hanover": "NJ", "irving": "TX", "plano": "TX",
+    "alpharetta": "GA", "marietta": "GA", "duluth": "GA",
+    "bentonville": "AR", "rogers": "AR",
+    "morrisville": "NC", "apex": "NC", "chapel hill": "NC",
+    "westford": "MA", "waltham": "MA", "burlington": "MA",
+    "ashburn": "VA", "fairfax": "VA",
     "providence": "RI",
     # Defense corridor
     "huntsville": "AL", "fort worth": "TX", "lexington": "MA",
@@ -742,6 +761,22 @@ def _run_tests():
         ("VA, Reston", None, "Reston", "VA", "US", False, False),
         # Boston, Mass. with period
         ("Boston, Mass.", None, "Boston", "MA", "US", False, False),
+        # New foreign cities (from production audit)
+        ("Iasi", None, None, None, "foreign", False, True),
+        ("Cluj-Napoca", None, None, None, "foreign", False, True),
+        ("Pakistan", None, None, None, "foreign", False, True),
+        ("Italy", None, None, None, "foreign", False, True),
+        ("Makati", None, None, None, "foreign", False, True),
+        ("Oakville", None, None, None, "foreign", False, True),
+        ("Mississauga, ON", None, None, None, "foreign", False, True),
+        ("Heredia, Costa Rica", None, None, None, "foreign", False, True),
+        ("Changhua", None, None, None, "foreign", False, True),
+        ("Montpellier", None, None, None, "foreign", False, True),
+        # New US cities
+        ("Beverly Hills", None, "Beverly Hills", "CA", "US", False, False),
+        ("Cary, NC", None, "Cary", "NC", "US", False, False),
+        ("Lehi, UT", None, "Lehi", "UT", "US", False, False),
+        ("Fremont", None, "Fremont", "CA", "US", False, False),
         ("London, KY, USA", None, "London", "KY", "US", False, False),
         ("Los Angeles, USA", None, "Los Angeles", "CA", "US", False, False),
     ]
