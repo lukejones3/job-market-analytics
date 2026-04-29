@@ -344,6 +344,9 @@ with st.expander("📄 Personalize with your resume (optional)", expanded=bool(s
                         v["name"].lower() for v in skills.values()
                     }
                     st.session_state.resume_exp = inferred_exp
+                    st.session_state.resume_exp_parsed = inferred_exp  # RECRUITER_RESUME_HOTFIX_v3
+                    if "resume_exp_choice" in st.session_state:
+                        del st.session_state["resume_exp_choice"]  # reset override on new upload
                     st.session_state.resume_skill_count = len(skills)
                     st.session_state.resume_filename = uploaded.name
                     st.success(f"Parsed {uploaded.name}: {len(skills)} skills, level={inferred_exp}")
@@ -352,11 +355,17 @@ with st.expander("📄 Personalize with your resume (optional)", expanded=bool(s
                     st.error(f"Failed to parse resume: {e}")
 
         with rcol2:
+            # RECRUITER_RESUME_HOTFIX_v3: auto-detected default, explicit override
             level_options = ["entry", "associate", "mid", "senior"]
-            current_idx = level_options.index(st.session_state.resume_exp) if st.session_state.resume_exp in level_options else 2
-            new_exp = st.selectbox("Experience (override)", level_options, index=current_idx, key="resume_exp_override")
-            if new_exp != st.session_state.resume_exp:
-                st.session_state.resume_exp = new_exp
+            # Track parser's last-inferred value separately from override
+            parser_exp = st.session_state.get("resume_exp_parsed", st.session_state.resume_exp)
+            override_options = [f"Auto-detected ({parser_exp})"] + level_options
+            # Default to "Auto-detected" unless user explicitly picked something
+            new_choice = st.selectbox("Experience level", override_options, index=0, key="resume_exp_choice")
+            if new_choice.startswith("Auto-detected"):
+                st.session_state.resume_exp = parser_exp
+            else:
+                st.session_state.resume_exp = new_choice
         with rcol3:
             salary_floor = st.number_input(
                 "Salary floor ($, optional)",
@@ -367,8 +376,11 @@ with st.expander("📄 Personalize with your resume (optional)", expanded=bool(s
                 st.session_state.resume_skills = None
                 st.session_state.resume_skills_names = set()
                 st.session_state.resume_exp = "mid"
+                st.session_state.resume_exp_parsed = "mid"  # RECRUITER_RESUME_HOTFIX_v3
                 st.session_state.resume_skill_count = 0
                 st.session_state.resume_filename = None
+                if "resume_exp_choice" in st.session_state:
+                    del st.session_state["resume_exp_choice"]
                 st.rerun()
 
         if st.session_state.resume_skills:
