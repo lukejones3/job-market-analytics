@@ -1,9 +1,15 @@
 import streamlit as st
-# RECRUITER_RESUME_PATCH_v1
-import sys
-_RESUME_PATH = "/opt/job-market-analytics/python"
+# RECRUITER_RESUME_PATCH_v1 + RECRUITER_RESUME_HOTFIX_v1
+import sys, os
+# Resolve python/ dir relative to this file — works on both droplet and Streamlit Cloud
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_RESUME_PATH = os.path.join(_THIS_DIR, "python")
 if _RESUME_PATH not in sys.path:
     sys.path.insert(0, _RESUME_PATH)
+# Fallback for droplet location
+_DROPLET_PATH = "/opt/job-market-analytics/python"
+if os.path.isdir(_DROPLET_PATH) and _DROPLET_PATH not in sys.path:
+    sys.path.insert(0, _DROPLET_PATH)
 try:
     from resume import parse_resume, extract_skills, infer_experience_level
     _RESUME_AVAILABLE = True
