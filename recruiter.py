@@ -581,7 +581,7 @@ fresh_jobs = query(f"""
     ORDER BY (CASE WHEN jp.posted_date IS NOT NULL
                 THEN jp.posted_date::timestamp
                 ELSE jp.date_found::timestamp END) DESC
-    LIMIT 500
+    LIMIT 2000
 """)
 
 # ── COMPUTE SCORES ────────────────────────────────────────────────────────────
