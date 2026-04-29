@@ -330,17 +330,9 @@ with st.expander("📄 Personalize with your resume (optional)", expanded=bool(s
                 try:
                     file_bytes = uploaded.read()
                     text_content = parse_resume(file_bytes, uploaded.name)
-                    # Open a temp DB connection to extract skills
-                    import psycopg2
+                    # RECRUITER_RESUME_HOTFIX_v2: use existing get_conn() helper
                     from psycopg2.extras import RealDictCursor
-                    import os as _os
-                    _conn = psycopg2.connect(
-                        host=_os.environ.get("PGHOST", "localhost"),
-                        port=int(_os.environ.get("PGPORT", "5432")),
-                        dbname=_os.environ.get("PGDATABASE", "job_analytics"),
-                        user=_os.environ.get("PGUSER"),
-                        password=_os.environ.get("PGPASSWORD"),
-                    )
+                    _conn = get_conn()
                     _cur = _conn.cursor(cursor_factory=RealDictCursor)
                     skills = extract_skills(text_content, _cur)
                     inferred_exp = infer_experience_level(text_content)
