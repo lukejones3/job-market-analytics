@@ -1,4 +1,15 @@
 import streamlit as st
+# RECRUITER_RESUME_PATCH_v1
+import sys
+_RESUME_PATH = "/opt/job-market-analytics/python"
+if _RESUME_PATH not in sys.path:
+    sys.path.insert(0, _RESUME_PATH)
+try:
+    from resume import parse_resume, extract_skills, infer_experience_level
+    _RESUME_AVAILABLE = True
+except Exception as _e:
+    _RESUME_AVAILABLE = False
+    _RESUME_IMPORT_ERR = str(_e)
 import psycopg2
 import pandas as pd
 import os
@@ -288,6 +299,90 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# ── PERSONALIZE WITH RESUME ────────────────────────────────────────────────────
+# RECRUITER_RESUME_PATCH_v1
+if "resume_skills" not in st.session_state:
+    st.session_state.resume_skills = None
+    st.session_state.resume_skills_names = set()
+    st.session_state.resume_exp = "mid"
+    st.session_state.resume_skill_count = 0
+    st.session_state.resume_filename = None
+
+with st.expander("📄 Personalize with your resume (optional)", expanded=bool(st.session_state.resume_skills)):
+    if not _RESUME_AVAILABLE:
+        st.error(f"Resume module unavailable: {_RESUME_IMPORT_ERR}")
+    else:
+        rcol1, rcol2, rcol3 = st.columns([2, 1, 1])
+        with rcol1:
+            uploaded = st.file_uploader(
+                "Upload .pdf / .docx / .txt",
+                type=["pdf", "docx", "txt"],
+                key="resume_upload",
+                label_visibility="visible",
+            )
+            if uploaded is not None and uploaded.name != st.session_state.resume_filename:
+                try:
+                    file_bytes = uploaded.read()
+                    text_content = parse_resume(file_bytes, uploaded.name)
+                    # Open a temp DB connection to extract skills
+                    import psycopg2
+                    from psycopg2.extras import RealDictCursor
+                    import os as _os
+                    _conn = psycopg2.connect(
+                        host=_os.environ.get("PGHOST", "localhost"),
+                        port=int(_os.environ.get("PGPORT", "5432")),
+                        dbname=_os.environ.get("PGDATABASE", "job_analytics"),
+                        user=_os.environ.get("PGUSER"),
+                        password=_os.environ.get("PGPASSWORD"),
+                    )
+                    _cur = _conn.cursor(cursor_factory=RealDictCursor)
+                    skills = extract_skills(text_content, _cur)
+                    inferred_exp = infer_experience_level(text_content)
+                    _cur.close()
+                    _conn.close()
+
+                    st.session_state.resume_skills = skills
+                    st.session_state.resume_skills_names = {
+                        v["name"].lower() for v in skills.values()
+                    }
+                    st.session_state.resume_exp = inferred_exp
+                    st.session_state.resume_skill_count = len(skills)
+                    st.session_state.resume_filename = uploaded.name
+                    st.success(f"Parsed {uploaded.name}: {len(skills)} skills, level={inferred_exp}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to parse resume: {e}")
+
+        with rcol2:
+            level_options = ["entry", "associate", "mid", "senior"]
+            current_idx = level_options.index(st.session_state.resume_exp) if st.session_state.resume_exp in level_options else 2
+            new_exp = st.selectbox("Experience (override)", level_options, index=current_idx, key="resume_exp_override")
+            if new_exp != st.session_state.resume_exp:
+                st.session_state.resume_exp = new_exp
+        with rcol3:
+            salary_floor = st.number_input(
+                "Salary floor ($, optional)",
+                min_value=0, max_value=500000, value=0, step=5000,
+                key="resume_salary_floor",
+            )
+            if st.button("Clear resume", key="resume_clear"):
+                st.session_state.resume_skills = None
+                st.session_state.resume_skills_names = set()
+                st.session_state.resume_exp = "mid"
+                st.session_state.resume_skill_count = 0
+                st.session_state.resume_filename = None
+                st.rerun()
+
+        if st.session_state.resume_skills:
+            skill_chips = " ".join(
+                f"<span style='display:inline-block;background:#1a1a2e;color:#e2ff5d;font-size:0.7rem;padding:3px 9px;border-radius:2px;margin:2px;font-family:IBM Plex Mono,monospace'>{v['name']}</span>"
+                for v in sorted(st.session_state.resume_skills.values(), key=lambda x: -x["confidence"])
+            )
+            st.markdown(
+                f"<div style='margin-top:8px'><span style='font-size:0.7rem;color:#666;text-transform:uppercase;letter-spacing:0.1em'>Extracted skills:</span><br>{skill_chips}</div>",
+                unsafe_allow_html=True,
+            )
+
 # ── FILTERS ───────────────────────────────────────────────────────────────────
 f1, f2, f3, f4 = st.columns([2, 2, 1, 1])
 
@@ -318,13 +413,31 @@ with f4:
 f5, f6, f7, f8 = st.columns([2, 1, 1, 1])
 
 with f5:
-    skills_input = st.text_input("Your skills (comma-separated)", placeholder="e.g. Python, SQL, PyTorch", key="rf_skills")
+    # RECRUITER_RESUME_PATCH_v1: pre-populate from resume if loaded
+    _default_skills = ""
+    if st.session_state.get("resume_skills"):
+        _default_skills = ", ".join(
+            v["name"] for v in sorted(
+                st.session_state.resume_skills.values(),
+                key=lambda x: -x["confidence"],
+            )
+        )
+    skills_input = st.text_input(
+        "Your skills (comma-separated)",
+        value=_default_skills,
+        placeholder="e.g. Python, SQL, PyTorch",
+        key="rf_skills",
+    )
 
 with f6:
     exp_filter = st.multiselect("Experience", ["Entry", "Associate", "Mid", "Senior"], placeholder="All levels", key="rf_exp")
 
 with f7:
-    sort_by = st.selectbox("Sort by", ["Date", "Salary (high)", "Signal", "Skills match"], key="rf_sort")
+    # RECRUITER_RESUME_PATCH_v1: add Best Match option
+    _sort_options = ["Date", "Salary (high)", "Signal", "Skills match"]
+    if st.session_state.get("resume_skills"):
+        _sort_options = ["Best Match"] + _sort_options
+    sort_by = st.selectbox("Sort by", _sort_options, key="rf_sort")
 
 with f8:
     signal_filter = st.selectbox("Min Signal", ["All", "⚡ Fresh", "● Strong", "● Moderate"], key="rf_signal")
@@ -515,6 +628,87 @@ if not fresh_jobs.empty:
     else:
         fresh_jobs["skills_match"] = 0
 
+    # RECRUITER_RESUME_PATCH_v1: full match_score using resume + exp + salary + freshness
+    if st.session_state.get("resume_skills"):
+        _resume_skill_names = st.session_state.resume_skills_names
+        _resume_exp = st.session_state.resume_exp
+        _salary_floor = st.session_state.get("resume_salary_floor", 0) or 0
+        _exp_order = {"entry": 0, "associate": 1, "mid": 2, "senior": 3}
+
+        def _exp_fit(row_exp):
+            if not row_exp or row_exp not in _exp_order:
+                return 0.7
+            if _resume_exp not in _exp_order:
+                return 0.5
+            d = abs(_exp_order[row_exp] - _exp_order[_resume_exp])
+            if d == 0: return 1.0
+            if d == 1: return 0.5
+            return 0.0
+
+        def _salary_fit(smin, smax):
+            if _salary_floor <= 0:
+                return 1.0
+            high = smax if pd.notna(smax) and smax else (smin if pd.notna(smin) else None)
+            if high is None:
+                return 0.7
+            if high >= _salary_floor:
+                return 1.0
+            if high >= _salary_floor * 0.9:
+                return 0.5
+            return 0.0
+
+        def _full_match_score(row):
+            skills_str = row.get("skills") or ""
+            if pd.isna(skills_str) or not skills_str:
+                job_skill_names = set()
+            else:
+                job_skill_names = {s.strip().lower() for s in str(skills_str).split(",") if s.strip()}
+            n_job = len(job_skill_names)
+            if n_job == 0:
+                return 0
+            overlap = _resume_skill_names & job_skill_names
+            raw = len(overlap) / n_job
+            if n_job == 1: raw = min(raw, 0.40)
+            elif n_job == 2: raw = min(raw, 0.55)
+            elif n_job == 3: raw = min(raw, 0.75)
+
+            ef = _exp_fit(row.get("experience_level"))
+            sf = _salary_fit(row.get("salary_min_annual"), row.get("salary_max_annual"))
+
+            q = row.get("quality_score")
+            if pd.notna(q) and q is not None:
+                qn = float(q) / 100.0 if float(q) > 1.0 else float(q)
+                qn = max(0.0, min(1.0, qn))
+            else:
+                qn = 0.5
+            hours = float(row.get("hours_old") or 0)
+            days_old = hours / 24.0
+            if days_old <= 3: decay = 1.0
+            elif days_old >= 30: decay = 0.5
+            else: decay = 1.0 - (0.5 * (days_old - 3) / 27)
+            fq = qn * decay
+
+            score = 0.50 * raw + 0.20 * ef + 0.20 * sf + 0.10 * fq
+            return int(round(score * 100))
+
+        fresh_jobs["match_score"] = fresh_jobs.apply(_full_match_score, axis=1)
+
+        # Compute matched/missing skills per row for the expander
+        def _matched(skills_str):
+            if not skills_str or pd.isna(skills_str): return ""
+            job_set = {s.strip().lower() for s in str(skills_str).split(",") if s.strip()}
+            return ", ".join(sorted(s.title() for s in (_resume_skill_names & job_set)))
+        def _missing(skills_str):
+            if not skills_str or pd.isna(skills_str): return ""
+            job_set = {s.strip().lower() for s in str(skills_str).split(",") if s.strip()}
+            return ", ".join(sorted(s.title() for s in (job_set - _resume_skill_names)))
+        fresh_jobs["_matched_skills_str"] = fresh_jobs["skills"].apply(_matched)
+        fresh_jobs["_missing_skills_str"] = fresh_jobs["skills"].apply(_missing)
+    else:
+        fresh_jobs["match_score"] = 0
+        fresh_jobs["_matched_skills_str"] = ""
+        fresh_jobs["_missing_skills_str"] = ""
+
     # Sort
     if sort_by == "Salary (high)":
         fresh_jobs = fresh_jobs.sort_values(by="salary_max_annual", ascending=False, na_position="last")
@@ -525,6 +719,9 @@ if not fresh_jobs.empty:
         fresh_jobs = fresh_jobs.drop(columns=["_sig_rank"])
     elif sort_by == "Skills match" and user_skills:
         fresh_jobs = fresh_jobs.sort_values(by="skills_match", ascending=False)
+    elif sort_by == "Best Match" and st.session_state.get("resume_skills"):
+        # RECRUITER_RESUME_PATCH_v1
+        fresh_jobs = fresh_jobs.sort_values(by="match_score", ascending=False)
 
 # ── SUMMARY METRICS ───────────────────────────────────────────────────────────
 m1, m2, m3, m4, m5 = st.columns(5)
@@ -556,6 +753,61 @@ with m5:
         st.metric("Companies", "0")
 
 # ── JOB FEED ─────────────────────────────────────────────────────────────────
+# RECRUITER_RESUME_PATCH_v1: skill gaps strip
+if st.session_state.get("resume_skills") and not fresh_jobs.empty:
+    from collections import Counter
+    _resume_names = st.session_state.resume_skills_names
+    _gap_counter = Counter()
+    _gap_salaries = {}
+    _strong_match_salaries = []
+    for _, _row in fresh_jobs.iterrows():
+        _job_skills_str = _row.get("skills") or ""
+        if pd.isna(_job_skills_str) or not _job_skills_str:
+            continue
+        _job_set = {s.strip().lower() for s in str(_job_skills_str).split(",") if s.strip()}
+        if not _job_set:
+            continue
+        _overlap = _resume_names & _job_set
+        _overlap_pct = len(_overlap) / len(_job_set)
+        _missing_in_job = _job_set - _resume_names
+        _smax = _row.get("salary_max_annual") or _row.get("salary_min_annual")
+        if _overlap_pct >= 0.70 and _smax and pd.notna(_smax):
+            _strong_match_salaries.append(float(_smax))
+        for _msk in _missing_in_job:
+            _other = _job_set - {_msk}
+            if not _other: continue
+            _other_pct = len(_resume_names & _other) / len(_other)
+            if _other_pct >= 0.70:
+                _gap_counter[_msk] += 1
+                if _smax and pd.notna(_smax):
+                    _gap_salaries.setdefault(_msk, []).append(float(_smax))
+
+    if _gap_counter and _strong_match_salaries:
+        import statistics as _stats
+        _current_median = _stats.median(_strong_match_salaries)
+        _gaps_to_show = []
+        for _sk, _cnt in _gap_counter.most_common(10):
+            if _cnt < 3: continue
+            _sals = _gap_salaries.get(_sk, [])
+            if not _sals: continue
+            _delta = _stats.median(_sals) - _current_median
+            _gaps_to_show.append((_sk, _cnt, _delta))
+        _gaps_to_show.sort(key=lambda t: (-t[1], -t[2]))
+        if _gaps_to_show[:5]:
+            _gap_html = "<div style='background:#0f0f1a;border:1px solid #1a1a2e;border-radius:4px;padding:14px 18px;margin:18px 0;display:flex;flex-direction:column'>"
+            _gap_html += "<div style='font-size:0.65rem;color:#666;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px'>💡 High-value missing skills</div>"
+            _gap_html += "<div style='display:flex;flex-wrap:wrap;gap:8px'>"
+            for _sk, _cnt, _delta in _gaps_to_show[:5]:
+                _delta_str = f"+${_delta:,.0f}" if _delta > 0 else f"${_delta:,.0f}"
+                _delta_color = "#22c55e" if _delta > 0 else "#71717a"
+                _gap_html += f"<div style='background:#1a1a2e;border-radius:2px;padding:6px 12px;font-family:IBM Plex Mono,monospace;font-size:0.7rem'>"
+                _gap_html += f"<span style='color:#e2ff5d'>{_sk.title()}</span> "
+                _gap_html += f"<span style='color:#888'>· {_cnt} jobs</span> "
+                _gap_html += f"<span style='color:{_delta_color}'>· {_delta_str}</span>"
+                _gap_html += "</div>"
+            _gap_html += "</div></div>"
+            st.markdown(_gap_html, unsafe_allow_html=True)
+
 st.markdown(f"<div class='section-divider'>{len(fresh_jobs):,} roles — sorted by most recent</div>",
             unsafe_allow_html=True)
 
@@ -626,7 +878,15 @@ else:
         q_badge = "<span class=\"badge badge-quality\">Quality " + qs + "</span>"
         u_badge = "<span class=\"badge badge-urgency\">Urgency " + us + "</span>"
         src_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:0.05em;background:{src_bg};color:{src_color};border:1px solid {src_color}33">{source_display}</span>'
-        badges = age_badge + q_badge + u_badge + sal_badge + loc_badge + sector_badge + wp_badge + exp_badge + src_badge
+        # RECRUITER_RESUME_PATCH_v1: match badge prepended (only when resume loaded)
+        match_badge = ""
+        if st.session_state.get("resume_skills"):
+            _ms = int(row.get("match_score") or 0)
+            if _ms > 0:
+                _color = "#22c55e" if _ms >= 80 else ("#facc15" if _ms >= 60 else "#71717a")
+                _bg = "#0d1f0d" if _ms >= 80 else ("#1f1a00" if _ms >= 60 else "#15151f")
+                match_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;font-weight:600;background:{_bg};color:{_color};border:1px solid {_color}55">★ {_ms}% MATCH</span>'
+        badges = match_badge + age_badge + q_badge + u_badge + sal_badge + loc_badge + sector_badge + wp_badge + exp_badge + src_badge
 
         # Build Apply button
         job_url = row.get('job_url', '') or ''
