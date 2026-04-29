@@ -38,6 +38,9 @@ import requests
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 import psycopg2
+# LOC_PATCH_v1
+from location_normalizer import normalize_location
+
 from psycopg2.extras import DictCursor
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
@@ -948,8 +951,8 @@ def fetch_greenhouse(company_name: str, board_token: str) -> List[RawJob]:
             for o in offices
         )
 
-        # US filter
-        if not _is_us_location(location, is_remote):
+        # LOC_PATCH_v1: drop foreign via normalize_location
+        if normalize_location(location, "remote" if is_remote else None).should_drop:
             continue
 
         # Full description from content field
@@ -1024,8 +1027,8 @@ def fetch_lever(company_name: str, company_slug: str) -> List[RawJob]:
         elif "hybrid" in commitment:
             workplace_type = "hybrid"
 
-        # US filter
-        if not _is_us_location(location, workplace_type == "remote"):
+        # LOC_PATCH_v1: drop foreign via normalize_location
+        if normalize_location(location, workplace_type).should_drop:
             continue
 
         # Full description — Lever returns lists/plain + description blocks
@@ -1127,7 +1130,8 @@ def fetch_ashby(company_name: str, company_slug: str) -> List[RawJob]:
         if country and country not in ("United States", "US", ""):
             if not workplace_type == "remote":
                 continue
-        if not _is_us_location(location, workplace_type == "remote"):
+        # LOC_PATCH_v1: drop foreign via normalize_location, keep US-country override
+        if normalize_location(location, workplace_type).should_drop:
             if country not in ("United States", "US", "") and not j.get("isRemote"):
                 continue
 
@@ -1239,7 +1243,8 @@ def fetch_adzuna(search_term: str, page: int = 1, discover_mode: bool = False) -
 
         # US filter (Adzuna already scopes to US country but location
         # display_name can still show international results)
-        if not _is_us_location(location):
+        # LOC_PATCH_v1: drop foreign via normalize_location
+        if normalize_location(location, None).should_drop:
             continue
 
         # Discovery — follow redirect_url to find ATS source
@@ -1359,6 +1364,9 @@ def ingest_job(cur, job: RawJob) -> bool:
     data_tier = 2 if job.source == "adzuna" else 1
     adzuna_exp_level = _infer_exp_from_title(job.title) if job.source == "adzuna" else None
 
+    # LOC_PATCH_v1: normalize location once at insert (single source of truth)
+    _loc = normalize_location(job.location, job.workplace_type)
+
     cur.execute(
         """
         INSERT INTO job_postings (
@@ -1381,9 +1389,12 @@ def ingest_job(cur, job: RawJob) -> bool:
             description_quality,
             data_tier,
             experience_level,
-            last_seen_at
+            last_seen_at,
+            loc_city,
+            loc_state,
+            loc_country
         ) VALUES (
-            %s, %s, %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
+            %s, %s, %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s, %s
         )
         ON CONFLICT (job_id) DO UPDATE SET last_seen_at = now()
         """,
@@ -1405,6 +1416,9 @@ def ingest_job(cur, job: RawJob) -> bool:
             desc_quality,
             data_tier,
             adzuna_exp_level,
+            _loc.city,
+            _loc.state,
+            _loc.country,
         )
     )
 
@@ -2305,15 +2319,41 @@ AMAZON_SEARCH_TERMS = [
 
 
 def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
+    # SR_PATCH_v1_detail_fetch
     """
     Pull all published jobs from a SmartRecruiters company board.
     No auth required for public boards. Returns paginated JSON.
+
+    NOTE: SR's list endpoint does NOT include jobAd in responses. We must hit
+    the per-posting detail endpoint to get descriptions. To avoid wasted API
+    calls, we pre-fetch the set of SR job_ids we already have with
+    descriptions and skip detail fetches for those.
+
     Docs: https://developers.smartrecruiters.com/reference/postingapi
     """
     base_url = f"https://api.smartrecruiters.com/v1/companies/{company_slug}/postings"
     jobs: List[RawJob] = []
     offset = 0
     limit = 100
+
+    # Pre-fetch existing SR job_ids that already have descriptions (skip set)
+    # Saves us re-hitting the detail endpoint for jobs we've already enriched.
+    have_desc: set = set()
+    try:
+        _conn = get_conn()
+        try:
+            with _conn.cursor() as _cur:
+                _cur.execute("""
+                    SELECT job_id FROM job_postings
+                    WHERE source = 'smartrecruiters'
+                      AND length(COALESCE(description_text, '')) >= 200
+                """)
+                have_desc = {row[0] for row in _cur.fetchall()}
+        finally:
+            _conn.close()
+    except Exception as _e:
+        log.warning(f"SmartRecruiters skip-set prefetch failed: {_e}")
+        # Fall through — we'll just fetch all details (slower but correct)
 
     while True:
         data = _get(base_url, params={"limit": limit, "offset": offset})
@@ -2342,20 +2382,36 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
             if remote_flag or "remote" in (location or "").lower():
                 workplace_type = "remote"
 
-            # US filter (uses existing helper)
-            if not _is_us_location(location, workplace_type == "remote"):
+            # LOC_PATCH_v1: drop foreign via normalize_location
+            if normalize_location(location, workplace_type).should_drop:
                 continue
 
-            # Description — SmartRecruiters splits into sections
-            desc_parts = []
-            ja = j.get("jobAd", {}) or {}
-            sections = ja.get("sections", {}) or {}
-            for key in ("companyDescription", "jobDescription", "qualifications", "additionalInformation"):
-                blk = sections.get(key, {}) or {}
-                txt = blk.get("text", "")
-                if txt:
-                    desc_parts.append(_strip_html(txt) if "<" in txt else _clean(txt))
-            description = "\n\n".join(p for p in desc_parts if p).strip()
+            # Compute would-be job_id ahead of detail-fetch decision
+            posting_id = j.get("id") or j.get("uuid") or ""
+            _candidate_job_id = _md5_id("J", f"smartrecruiters|{posting_id}")
+
+            # SR_PATCH_v1: list endpoint does not include jobAd. Fetch detail
+            # endpoint per posting unless we already have this job's description.
+            description = ""
+            if _candidate_job_id in have_desc:
+                # Already have it with a real description — skip detail fetch entirely.
+                # We still emit a RawJob so last_seen_at gets touched on the existing row.
+                description = ""  # no need; ON CONFLICT will not overwrite description
+            else:
+                detail_url = j.get("ref") or f"{base_url}/{posting_id}"
+                detail = _get(detail_url)
+                _throttle()
+
+                desc_parts = []
+                if detail and isinstance(detail, dict):
+                    ja = detail.get("jobAd", {}) or {}
+                    sections = ja.get("sections", {}) or {}
+                    for key in ("companyDescription", "jobDescription", "qualifications", "additionalInformation"):
+                        blk = sections.get(key, {}) or {}
+                        txt = blk.get("text", "")
+                        if txt:
+                            desc_parts.append(_strip_html(txt) if "<" in txt else _clean(txt))
+                description = "\n\n".join(p for p in desc_parts if p).strip()
 
             # Industry / type hints
             type_obj = j.get("typeOfEmployment", {}) or {}
@@ -2375,9 +2431,11 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
 
             # Job URL — public posting URL pattern
             posting_id = j.get("id") or j.get("uuid") or ""
+            # SR_PATCH_v1: refNumber is the company-internal code (e.g. "REF2051E") which
+            # does NOT resolve on jobs.smartrecruiters.com. The posting_id (numeric SR id)
+            # is the canonical part of the public URL.
             ref_num = j.get("refNumber", "")
-            job_url = f"https://jobs.smartrecruiters.com/{company_slug}/{ref_num}" if ref_num else \
-                      f"https://api.smartrecruiters.com/v1/companies/{company_slug}/postings/{posting_id}"
+            job_url = f"https://jobs.smartrecruiters.com/{company_slug}/{posting_id}"
 
             jobs.append(RawJob(
                 source="smartrecruiters",

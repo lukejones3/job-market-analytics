@@ -18,3 +18,13 @@ __pycache__/
 patches/
 .streamlit/
 backups/
+
+
+# Local working scripts (Claude session iterations)
+bf*.py
+ec.py
+fc.py
+loc_norm*.py
+p[0-9].py
+score_resume.py
+eval/

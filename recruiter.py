@@ -328,6 +328,22 @@ with f7:
 
 with f8:
     signal_filter = st.selectbox("Min Signal", ["All", "⚡ Fresh", "● Strong", "● Moderate"], key="rf_signal")
+
+# RECRUITER_LOC_PATCH_v1: state + city filters
+f9, f10, f11, f12 = st.columns([2, 2, 1, 1])
+with f9:
+    state_filter = st.multiselect("State", [
+        "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+        "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+        "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+        "VA","WA","WV","WI","WY","DC"
+    ], placeholder="All states", key="rf_state")
+with f10:
+    city_filter = st.text_input("City contains", placeholder="e.g. New York, Austin", key="rf_city")
+with f11:
+    pass
+with f12:
+    pass
     salary_only = st.checkbox("Salary only", key="rf_salary")
 
 days_map = {"24 hours": 1, "3 days": 3, "7 days": 7, "15 days": 15, "30 days": 30}
@@ -353,7 +369,7 @@ where_clauses = [
     "(jp.source != 'workday' OR jp.posted_date IS NOT NULL)",
     "jp.status = 'raw'",
     "(jp.role_category IS NULL OR jp.role_category != 'non_data')",
-    f"jp.date_found > CURRENT_DATE - INTERVAL '{days_back} days'",
+    f"(CASE WHEN jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END) > NOW() - INTERVAL '{days_back} days'",
     """(jp.source != 'workday' OR (
         SELECT COUNT(*) FROM job_postings jp2
         WHERE jp2.source = 'workday'
@@ -406,11 +422,12 @@ fresh_jobs = query(f"""
         cc.title as contact_title,
         cc.email as contact_email,
         cc.linkedin_url as contact_linkedin,
-        l.location,
-        l.state,
+        jp.loc_city,
+        jp.loc_state,
+        jp.loc_country,
         jh.honesty_score,
         gi.ghost_probability,
-        EXTRACT(EPOCH FROM (NOW() - COALESCE(jp.posted_date::timestamp, jp.date_found)))/3600 as hours_old,
+        EXTRACT(EPOCH FROM (NOW() - CASE WHEN jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END))/3600 as hours_old,
         STRING_AGG(DISTINCT s.skill_name, ', ' ORDER BY s.skill_name) as skills,
         ch.employee_count,
         {role_family_sql} as role_family
@@ -422,7 +439,7 @@ fresh_jobs = query(f"""
     LEFT JOIN job_skills js ON js.job_id = jp.job_id
     LEFT JOIN skills s ON s.skill_id = js.skill_id
     LEFT JOIN company_headcount ch ON ch.company_name = c.company_name
-    LEFT JOIN locations l ON l.location_id = jp.location_id
+    -- RECRUITER_LOC_PATCH_v1: dropped LEFT JOIN locations (use jp.loc_* instead)
     LEFT JOIN LATERAL (
         SELECT full_name, title, email, linkedin_url
         FROM company_contacts cc2
@@ -435,10 +452,12 @@ fresh_jobs = query(f"""
     GROUP BY jp.job_id, r.role_name, c.company_name, c.sector, jp.source,
              jp.ingested_at, jp.salary_min_annual, jp.salary_max_annual,
              jp.workplace_type, jp.experience_level, jp.job_url, jh.honesty_score,
-             l.location, l.state,
+             jp.loc_city, jp.loc_state, jp.loc_country,
              cc.full_name, cc.title, cc.email, cc.linkedin_url,
              gi.ghost_probability, ch.employee_count
-    ORDER BY COALESCE(jp.posted_date::timestamp, jp.date_found::timestamp) DESC
+    ORDER BY (CASE WHEN jp.posted_date IS NOT NULL
+                THEN jp.posted_date::timestamp
+                ELSE jp.date_found::timestamp END) DESC
     LIMIT 500
 """)
 
@@ -473,6 +492,15 @@ if not fresh_jobs.empty:
         exp_map = {"Entry": "entry", "Associate": "associate", "Mid": "mid", "Senior": "senior"}
         selected_levels = [exp_map[e] for e in exp_filter]
         fresh_jobs = fresh_jobs[fresh_jobs["experience_level"].isin(selected_levels)]
+
+    # RECRUITER_LOC_PATCH_v1: state + city filters
+    if state_filter:
+        fresh_jobs = fresh_jobs[fresh_jobs["loc_state"].isin(state_filter)]
+    if city_filter:
+        city_lower = city_filter.strip().lower()
+        fresh_jobs = fresh_jobs[
+            fresh_jobs["loc_city"].fillna("").str.lower().str.contains(city_lower, na=False)
+        ]
 
     # Compute skills match score
     user_skills = [s.strip().lower() for s in skills_input.split(",") if s.strip()] if skills_input else []
@@ -582,15 +610,16 @@ else:
         sal_badge = ("<span class=\"badge badge-salary\">💰 " + sal_str + "</span>") if sal_str else ""
         sector_badge = ("<span class=\"badge badge-sector\">" + str(row["sector"]) + "</span>") if pd.notna(row["sector"]) and row["sector"] else ""
         wp_badge = ("<span class=\"badge badge-sector\">" + wp + "</span>") if wp else ""
+        # RECRUITER_LOC_PATCH_v1: clean loc_city + loc_state usage
         loc_str = ""
-        if pd.notna(row.get("state")) and row["state"]:
-            loc_str = str(row["state"])
-            if pd.notna(row.get("location")) and row["location"] and len(str(row["location"])) < 30:
-                city = str(row["location"]).split(",")[0].strip()
-                if city.lower() not in ("remote","united states","us","usa",""):
-                    loc_str = city + ", " + str(row["state"])
-        elif wp == "remote":
-            loc_str = ""
+        loc_city = row.get("loc_city")
+        loc_state = row.get("loc_state")
+        if pd.notna(loc_city) and loc_city and pd.notna(loc_state) and loc_state:
+            loc_str = f"{loc_city}, {loc_state}"
+        elif pd.notna(loc_state) and loc_state:
+            loc_str = str(loc_state)
+        elif pd.notna(loc_city) and loc_city:
+            loc_str = str(loc_city)
         loc_badge = ("<span class=\"badge badge-location\">" + loc_str + "</span>") if loc_str else ""
         exp_badge = ("<span class=\"badge badge-sector\">" + exp + "</span>") if exp else ""
         age_badge = "<span class=\"badge badge-age\">" + icon + " " + age_str + "</span>"
@@ -657,4 +686,3 @@ st.markdown("""
     <span>datahiringiq.com · jones31luke@gmail.com</span>
 </div>
 """, unsafe_allow_html=True)
-# redeploy Sun Apr 26 23:59:44 CDT 2026
