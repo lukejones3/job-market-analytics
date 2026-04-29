@@ -90,7 +90,7 @@ FOREIGN_COUNTRY_RE = re.compile(
     r"stockholm|gothenburg|göteborg|malmö|malmo|"
     r"copenhagen|aarhus|oslo|helsinki|"
     r"warsaw|warszawa|krakow|kraków|gdansk|wroclaw|"
-    r"prague|brno|budapest|bucharest|sofia|"
+    r"prague|brno|budapest|bucharest|sofia|bratislava|kosice|"
     r"vienna|zurich|geneva|bern|basel|"
     r"athens|istanbul|ankara|tel aviv|jerusalem|haifa|dubai|abu dhabi|cairo|riyadh|"
     r"vilnius|riga|tallinn|kiev|kyiv|"

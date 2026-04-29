@@ -160,7 +160,7 @@ def match_jobs(
         LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
         WHERE jp.status = 'raw'
           AND COALESCE(jp.data_tier, 1) = 1
-          AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
+          AND (jp.loc_country = 'US' OR (jp.loc_country = 'unknown' AND jp.loc_city IS NULL))  -- LOC_COUNTRY_FILTER_v1
           AND (jp.role_category IS NULL OR jp.role_category != 'non_data')
         GROUP BY
             jp.job_id, jp.experience_level, jp.salary_min_annual, jp.salary_max_annual,
@@ -301,7 +301,7 @@ def find_skill_gaps(
         LEFT JOIN job_skills js ON js.job_id = jp.job_id
         WHERE jp.status = 'raw'
           AND COALESCE(jp.data_tier, 1) = 1
-          AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
+          AND (jp.loc_country = 'US' OR (jp.loc_country = 'unknown' AND jp.loc_city IS NULL))  -- LOC_COUNTRY_FILTER_v1
           AND (jp.role_category IS NULL OR jp.role_category != 'non_data')
         GROUP BY jp.job_id, jp.experience_level, jp.salary_min_annual, jp.salary_max_annual
         HAVING COUNT(DISTINCT js.skill_id) > 0
