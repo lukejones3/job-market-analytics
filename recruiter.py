@@ -1218,6 +1218,24 @@ else:
         else:
             contact_html = '<div style="font-size:0.65rem;color:#333;font-style:italic">No contact found</div>'
 
+        # BLUR_CONTACT_v1: wrap contact panel for free-tier users
+        if is_free:
+            contact_html = (
+                '<div style="position:relative;min-height:60px">'
+                '<div style="filter:blur(4px);user-select:none;pointer-events:none">'
+                + contact_html +
+                '</div>'
+                '<div style="position:absolute;top:50%;left:50%;'
+                'transform:translate(-50%,-50%);'
+                'font-size:0.6rem;color:#e2ff5d;font-weight:600;'
+                'background:rgba(8,8,16,0.85);padding:4px 8px;border-radius:3px;'
+                'border:1px solid #e2ff5d33;white-space:nowrap;'
+                'text-transform:uppercase;letter-spacing:0.05em">'
+                '🔒 Upgrade to see contact'
+                '</div>'
+                '</div>'
+            )
+
         company_display = row['company_name'] or '—'
         sector_sub = f" · {row['sector']}" if pd.notna(row['sector']) and row['sector'] else ""
         emp_sub = f" · {int(row['employee_count']):,} employees" if pd.notna(row.get('employee_count')) else ""
