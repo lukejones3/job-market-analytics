@@ -394,30 +394,20 @@ with st.expander("📄 Personalize with your resume (optional)", expanded=bool(s
             )
 
 # ── FILTERS ───────────────────────────────────────────────────────────────────
-f1, f2, f3, f4 = st.columns([2, 2, 1, 1])
+# REMOVE_SECTOR_FILTER_v1: dropped Sector multiselect (recruiter-side concern, not job-seeker)
+sector_filter = []  # kept as empty list so downstream WHERE-clause logic remains a no-op
+
+f1, f2, f3 = st.columns([2, 1, 1])
 
 with f1:
-    sectors_df = query("""
-        SELECT DISTINCT c.sector FROM companies c
-        JOIN job_postings jp ON jp.company_id = c.company_id
-        WHERE c.sector IS NOT NULL AND jp.data_tier=1 AND jp.status='raw'
-          AND jp.ingested_at > NOW() - INTERVAL '5 days'
-        ORDER BY c.sector
-    """)
-    sector_filter = st.multiselect(
-        "Sector", sectors_df["sector"].tolist(),
-        placeholder="All sectors", key="rf_sector"
-    )
-
-with f2:
     role_types = ["Data Engineer", "Data Scientist", "ML Engineer", "AI Engineer",
                   "Data Analyst", "Analytics Engineer", "Leadership", "Revenue/Ops"]
     role_filter = st.multiselect("Role Type", role_types, placeholder="All roles", key="rf_role")
 
-with f3:
+with f2:
     workplace_filter = st.selectbox("Workplace", ["All", "Remote", "Hybrid", "Onsite"], key="rf_workplace")
 
-with f4:
+with f3:
     days_filter = st.selectbox("Posted within", ["3 days", "24 hours", "7 days", "15 days", "30 days"], key="rf_days")
 
 f5, f6, f7, f8 = st.columns([2, 1, 1, 1])
