@@ -29,3 +29,4 @@ p[0-9].py
 score_resume.py
 eval/
 recruiter.py.bak*
+p[0-9]*.py
