@@ -961,14 +961,15 @@ else:
         _signal_score = 0
         _reasons_pos = []
         _reasons_neg = []
+        # TRAFFIC_LIGHT_RECAL_v1: weight tuned down +2 -> +1
         if _has_salary:
-            _signal_score += 2
+            _signal_score += 1
             _reasons_pos.append("Salary disclosed")
         else:
             _signal_score -= 1
             _reasons_neg.append("No salary")
         if _has_contact:
-            _signal_score += 2
+            _signal_score += 1
             _reasons_pos.append("Hiring contact")
         else:
             _signal_score -= 1
