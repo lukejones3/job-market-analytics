@@ -1040,7 +1040,47 @@ if fresh_jobs.empty:
     st.markdown("<div style='color:#444;font-size:0.8rem;padding:40px;text-align:center'>No roles match current filters.</div>",
                 unsafe_allow_html=True)
 else:
-    for _, row in fresh_jobs.iterrows():
+    # BLUR_MATCH_v1: free-tier users see top 5 matches, then single CTA card
+    _show_match_cta = (
+        is_free
+        and bool(st.session_state.get("resume_skills"))
+        and len(fresh_jobs) > 5
+    )
+    _hidden_match_count = max(0, len(fresh_jobs) - 5) if _show_match_cta else 0
+
+    for _idx, (_, row) in enumerate(fresh_jobs.iterrows()):
+        # Break out at rank 6+ for free users with resume → render CTA card and stop
+        if _show_match_cta and _idx >= 5:
+            import urllib.parse as _urlparse
+            _free_email_2 = (client.get("email") if client else "") or ""
+            _stripe_url_2 = "https://buy.stripe.com/3cI4gs9hugN14obehifnO02"
+            if _free_email_2:
+                _stripe_url_2 = f"{_stripe_url_2}?prefilled_email={_urlparse.quote(_free_email_2)}"
+            st.markdown(f"""
+            <div style="background:linear-gradient(135deg,#0f0f1a 0%,#1a1a2e 100%);
+                border:1px dashed #e2ff5d55;border-radius:6px;padding:32px 24px;
+                margin-top:8px;text-align:center">
+                <div style="font-size:2rem;margin-bottom:8px">🔒</div>
+                <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;
+                    color:#e2ff5d;letter-spacing:0.05em;margin-bottom:6px">
+                    {_hidden_match_count} more matches available
+                </div>
+                <div style="font-size:0.78rem;color:#aaa;line-height:1.6;
+                    max-width:520px;margin:0 auto 20px auto">
+                    Upgrade to Pro to see your full match top-50 — ranked by your resume,
+                    experience level, and salary floor. Plus hiring manager LinkedIn on
+                    every job.
+                </div>
+                <a href="{_stripe_url_2}" target="_blank"
+                   style="background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
+                       font-size:0.78rem;font-weight:600;padding:10px 24px;border-radius:3px;
+                       text-decoration:none;letter-spacing:0.05em;text-transform:uppercase;
+                       display:inline-block">
+                    Upgrade $19/mo →
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
+            break
         signal, icon = signal_strength(row["urgency_score"])
 
         # Format age
