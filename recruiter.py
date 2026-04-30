@@ -37,6 +37,17 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif !important; letter-spacing: 0
 
 .stApp { background-color: #080810; color: #d4d4d8; }
 
+/* BUTTON_TEXT_CONTRAST_v1: force dark text on primary button (lime is too light for white) */
+.stButton > button[kind="primary"] {
+    color: #080810 !important;
+    font-weight: 600 !important;
+    border: none !important;
+}
+.stButton > button[kind="primary"]:hover {
+    color: #080810 !important;
+    background-color: #c9e84f !important;
+}
+
 section[data-testid="stSidebar"] { display: none; }
 
 div[data-testid="stMetric"] {
