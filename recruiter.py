@@ -954,8 +954,12 @@ else:
         age_badge = "<span class=\"badge badge-age\">" + icon + " " + age_str + "</span>"
         # TRAFFIC_LIGHT_v1: replace numeric Quality/Urgency with signal traffic light
         # Compute score from agreed ruleset
-        _has_salary = bool(row.get("salary_min_annual")) or bool(row.get("salary_max_annual"))
-        _has_contact = bool(row.get("contact_linkedin"))
+        # TRAFFIC_LIGHT_NAN_FIX_v1: pd.notna handles NaN correctly (bool(NaN)==True is wrong)
+        _smin = row.get("salary_min_annual")
+        _smax = row.get("salary_max_annual")
+        _has_salary = (pd.notna(_smin) and _smin) or (pd.notna(_smax) and _smax)
+        _contact = row.get("contact_linkedin")
+        _has_contact = pd.notna(_contact) and bool(_contact)
         _hscore = row.get("honesty_score")
         _days_old_val = row.get("days_old") or 0
         _signal_score = 0
