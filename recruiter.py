@@ -234,51 +234,16 @@ if token and not is_preview:
     client = verify_token(token)
 
 # ── PAYWALL ───────────────────────────────────────────────────────────────────
-if not token or (not client and not is_preview):
-    st.markdown("""
-    <div class="paywall">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:3rem;color:#e2ff5d;
-            letter-spacing:0.05em;line-height:1;margin-bottom:8px">
-            DATAHIRINGIQ
-        </div>
-        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;
-            letter-spacing:0.2em;margin-bottom:32px">
-            Data & ML Job Search, Faster
-        </div>
-        <p style="color:#666;font-size:0.85rem;line-height:1.7;margin-bottom:28px">
-            Stop wasting applications on ghost jobs. Fresh data & ML roles updated nightly from 6 ATS sources — every posting scored for ghost probability and posting quality, with the hiring manager's LinkedIn mapped so you can reach out before disappearing into the resume black hole.
-        </p>
-        <div style="background:#080810;border:1px solid #1e1e32;border-radius:4px;
-            padding:20px;margin-bottom:28px;text-align:left">
-            <div style="font-size:0.6rem;color:#444;text-transform:uppercase;
-                letter-spacing:0.15em;margin-bottom:12px">What you get</div>
-            <div style="font-size:0.75rem;color:#888;line-height:2">
-                👤 Hiring manager LinkedIn — skip the resume black hole, reach out directly<br>
-                ⚡ Fresh postings — last 5 days, updated nightly<br>
-                📊 Posting Quality Score — how complete & specific the role is<br>
-                🎯 Hiring Urgency Score — likelihood the role is actively filling<br>
-                💰 Salary data where disclosed (55%+ of roles)<br>
-                🔧 Required skills for each role<br>
-                🏢 Company sector, size, and hiring intensity
-            </div>
-        </div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:2rem;color:#e2ff5d;
-            margin-bottom:4px">$19 / 30 days</div>
-        <div style="font-size:0.65rem;color:#444;margin-bottom:24px">
-            One-time payment · Full access for 30 days
-        </div>
-        <a href="https://buy.stripe.com/dRm7sEeBOeET9Iva12fnO01"
-           style="background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
-               font-size:0.75rem;font-weight:500;padding:12px 28px;border-radius:3px;
-               text-decoration:none;letter-spacing:0.05em;text-transform:uppercase">
-            Get Access →
-        </a>
-        <div style="margin-top:20px;font-size:0.6rem;color:#333">
-            datahiringiq.com · jones31luke@gmail.com
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-    st.stop()
+# FREEMIUM_STATE_v1: three-state freemium detection
+# Replaces the old all-or-nothing paywall.
+_tier = (client.get("tier") if client else None) or ("pro" if is_preview else None)
+is_paid       = (_tier == "pro")
+is_free       = (_tier == "free")
+is_anonymous  = (not is_paid and not is_free)
+# Helpful flags downstream:
+#   is_paid       — full feed, all features unlocked
+#   is_free       — 500-job feed, blurred premium features, sticky upgrade banner
+#   is_anonymous  — 25-job preview, signup CTA front and center
 
 # ── HEADER ────────────────────────────────────────────────────────────────────
 client_name = client["name"] if client else "Preview"
