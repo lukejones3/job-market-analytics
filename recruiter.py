@@ -361,7 +361,7 @@ with st.expander("📄 Personalize with your resume (optional)", expanded=bool(s
             parser_exp = st.session_state.get("resume_exp_parsed", st.session_state.resume_exp)
             override_options = [f"Auto-detected ({parser_exp})"] + level_options
             # Default to "Auto-detected" unless user explicitly picked something
-            new_choice = st.selectbox("Experience level", override_options, index=0, key="resume_exp_choice")
+            new_choice = st.selectbox("Your level (auto-detected, override if needed)", override_options, index=0, key="resume_exp_choice")
             if new_choice.startswith("Auto-detected"):
                 st.session_state.resume_exp = parser_exp
             else:
@@ -765,14 +765,54 @@ with m5:
         st.metric("Companies", "0")
 
 # ── JOB FEED ─────────────────────────────────────────────────────────────────
-# RECRUITER_RESUME_PATCH_v1: skill gaps strip
-if st.session_state.get("resume_skills") and not fresh_jobs.empty:
+# GAPS_v2_PATCH: skill gaps query a wider slice (respects role_filter, ignores exp_filter)
+if st.session_state.get("resume_skills"):
     from collections import Counter
+    import statistics as _stats
+
+    # Build SQL filter for the gap query: same as main feed, but ignore exp_filter
+    # so users see aspirational skills at all levels
+    _gap_where = [
+        "jp.data_tier = 1",
+        "jp.status = 'raw'",
+        "(jp.role_category IS NULL OR jp.role_category != 'non_data')",
+        "(jp.loc_country = 'US' OR (jp.loc_country = 'unknown' AND jp.loc_city IS NULL))",
+    ]
+    # Inherit role filter from existing UI (role_filter is the multiselect)
+    if role_filter:
+        _role_categories_for_gaps = []
+        _role_map = {
+            "Data Engineer": "data_engineering",
+            "Data Scientist": "data_science",
+            "ML Engineer": "ml_engineering",
+            "AI Engineer": "ai_research",
+            "Data Analyst": "data_analytics",
+            "Analytics Engineer": "analytics_engineering",
+        }
+        _selected_categories = [_role_map[r] for r in role_filter if r in _role_map]
+        if _selected_categories:
+            _cats_str = ",".join([f"'{c}'" for c in _selected_categories])
+            _gap_where.append(f"jp.role_category IN ({_cats_str})")
+
+    _gap_sql = f'''
+        SELECT
+            jp.job_id,
+            COALESCE(jp.salary_max_annual, jp.salary_min_annual) AS salary,
+            STRING_AGG(DISTINCT s.skill_name, ', ' ORDER BY s.skill_name) AS skills
+        FROM job_postings jp
+        LEFT JOIN job_skills js ON js.job_id = jp.job_id
+        LEFT JOIN skills s ON s.skill_id = js.skill_id
+        WHERE {' AND '.join(_gap_where)}
+        GROUP BY jp.job_id, jp.salary_min_annual, jp.salary_max_annual
+        HAVING COUNT(DISTINCT js.skill_id) > 0
+    '''
+    _gap_jobs = query(_gap_sql)
+
     _resume_names = st.session_state.resume_skills_names
     _gap_counter = Counter()
     _gap_salaries = {}
     _strong_match_salaries = []
-    for _, _row in fresh_jobs.iterrows():
+    for _, _row in _gap_jobs.iterrows():
         _job_skills_str = _row.get("skills") or ""
         if pd.isna(_job_skills_str) or not _job_skills_str:
             continue
@@ -782,7 +822,7 @@ if st.session_state.get("resume_skills") and not fresh_jobs.empty:
         _overlap = _resume_names & _job_set
         _overlap_pct = len(_overlap) / len(_job_set)
         _missing_in_job = _job_set - _resume_names
-        _smax = _row.get("salary_max_annual") or _row.get("salary_min_annual")
+        _smax = _row.get("salary")
         if _overlap_pct >= 0.70 and _smax and pd.notna(_smax):
             _strong_match_salaries.append(float(_smax))
         for _msk in _missing_in_job:
@@ -795,31 +835,70 @@ if st.session_state.get("resume_skills") and not fresh_jobs.empty:
                     _gap_salaries.setdefault(_msk, []).append(float(_smax))
 
     if _gap_counter and _strong_match_salaries:
-        import statistics as _stats
         _current_median = _stats.median(_strong_match_salaries)
-        _gaps_to_show = []
-        for _sk, _cnt in _gap_counter.most_common(10):
+        _all_gaps = []
+        for _sk, _cnt in _gap_counter.most_common(30):
             if _cnt < 3: continue
             _sals = _gap_salaries.get(_sk, [])
             if not _sals: continue
             _delta = _stats.median(_sals) - _current_median
-            _gaps_to_show.append((_sk, _cnt, _delta))
-        _gaps_to_show.sort(key=lambda t: (-t[1], -t[2]))
-        if _gaps_to_show[:5]:
-            _gap_html = "<div style='background:#0f0f1a;border:1px solid #1a1a2e;border-radius:4px;padding:14px 18px;margin:18px 0;display:flex;flex-direction:column'>"
-            _gap_html += "<div style='font-size:0.65rem;color:#666;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px'>💡 High-value missing skills</div>"
-            _gap_html += "<div style='display:flex;flex-wrap:wrap;gap:8px'>"
-            for _sk, _cnt, _delta in _gaps_to_show[:5]:
-                _delta_str = f"+${_delta:,.0f}" if _delta > 0 else f"${_delta:,.0f}"
-                _delta_color = "#22c55e" if _delta > 0 else "#71717a"
-                _gap_html += f"<div style='background:#1a1a2e;border-radius:2px;padding:6px 12px;font-family:IBM Plex Mono,monospace;font-size:0.7rem'>"
-                _gap_html += f"<span style='color:#e2ff5d'>{_sk.title()}</span> "
-                _gap_html += f"<span style='color:#888'>· {_cnt} jobs</span> "
-                _gap_html += f"<span style='color:{_delta_color}'>· {_delta_str}</span>"
+            _all_gaps.append((_sk, _cnt, _delta))
+
+        # Split into positive (high-value) and negative (saturated) buckets
+        _positive_gaps = sorted([g for g in _all_gaps if g[2] > 0], key=lambda t: (-t[2], -t[1]))[:5]
+        _negative_gaps = sorted([g for g in _all_gaps if g[2] <= 0], key=lambda t: (-t[1], t[2]))[:3]
+
+        def _fmt_delta(d):
+            # Fix formatting: -$24,750 not $-24,750
+            if d > 0:
+                return f"+${int(d):,}"
+            elif d < 0:
+                return f"-${int(abs(d)):,}"
+            else:
+                return "$0"
+
+        if _positive_gaps or _negative_gaps:
+            _gap_html = "<div style='background:#0f0f1a;border:1px solid #1a1a2e;border-radius:4px;padding:14px 18px;margin:18px 0'>"
+
+            if _positive_gaps:
+                _gap_html += "<div style='font-size:0.65rem;color:#666;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px'>💡 High-value skills to add</div>"
+                _gap_html += "<div style='display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px'>"
+                for _sk, _cnt, _delta in _positive_gaps:
+                    _gap_html += "<div style='background:#1a1a2e;border-radius:2px;padding:6px 12px;font-family:IBM Plex Mono,monospace;font-size:0.7rem'>"
+                    _gap_html += f"<span style='color:#e2ff5d'>{_sk.title()}</span> "
+                    _gap_html += f"<span style='color:#888'>· {_cnt} jobs</span> "
+                    _gap_html += f"<span style='color:#22c55e'>· {_fmt_delta(_delta)}</span>"
+                    _gap_html += "</div>"
                 _gap_html += "</div>"
-            _gap_html += "</div></div>"
+
+            if _negative_gaps:
+                _gap_html += "<div style='font-size:0.65rem;color:#666;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:6px;margin-top:6px'>"
+                _gap_html += "⚠ Required-but-saturated skills</div>"
+                _gap_html += "<div style='font-size:0.65rem;color:#555;margin-bottom:8px;font-style:italic'>"
+                _gap_html += "These skills appear in many jobs but median pay is below your current match band. They likely won't lift your salary, though they may broaden options.</div>"
+                _gap_html += "<div style='display:flex;flex-wrap:wrap;gap:8px'>"
+                for _sk, _cnt, _delta in _negative_gaps:
+                    _gap_html += "<div style='background:#15151f;border:1px dashed #2a2a3a;border-radius:2px;padding:6px 12px;font-family:IBM Plex Mono,monospace;font-size:0.7rem'>"
+                    _gap_html += f"<span style='color:#a8a8b8'>{_sk.title()}</span> "
+                    _gap_html += f"<span style='color:#666'>· {_cnt} jobs</span> "
+                    _gap_html += f"<span style='color:#71717a'>· {_fmt_delta(_delta)}</span>"
+                    _gap_html += "</div>"
+                _gap_html += "</div>"
+
+            _gap_html += "</div>"
             st.markdown(_gap_html, unsafe_allow_html=True)
 
+# GAPS_v2_PATCH: empty state when no results
+if fresh_jobs.empty:
+    st.markdown('''
+    <div style="text-align:center;padding:60px 20px;background:#0f0f1a;border:1px dashed #1a1a2e;border-radius:4px;margin:24px 0">
+        <div style="font-size:2rem;color:#444;margin-bottom:12px">🔍</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;color:#888;letter-spacing:0.05em;margin-bottom:8px">No matches found</div>
+        <div style="font-size:0.8rem;color:#666;line-height:1.6;max-width:500px;margin:0 auto">
+            Try loosening your filters: extend the date range, remove sector/role restrictions, or lower your salary floor. Check the active filters above.
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
 st.markdown(f"<div class='section-divider'>{len(fresh_jobs):,} roles — sorted by most recent</div>",
             unsafe_allow_html=True)
 
