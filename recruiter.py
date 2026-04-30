@@ -245,6 +245,119 @@ is_anonymous  = (not is_paid and not is_free)
 #   is_free       — 500-job feed, blurred premium features, sticky upgrade banner
 #   is_anonymous  — 25-job preview, signup CTA front and center
 
+# FREEMIUM_LANDING_v1: anonymous landing hero + email signup form
+if is_anonymous:
+    import requests as _requests
+
+    # Initialize session state for signup feedback
+    if "_signup_status" not in st.session_state:
+        st.session_state._signup_status = None  # None | "ok" | "err"
+    if "_signup_msg" not in st.session_state:
+        st.session_state._signup_msg = ""
+
+    # Hero / landing
+    st.markdown("""
+    <div style="text-align:center;padding:60px 20px 20px 20px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:4rem;color:#e2ff5d;
+            letter-spacing:0.05em;line-height:1;margin-bottom:8px">
+            DATAHIRINGIQ
+        </div>
+        <div style="font-size:0.7rem;color:#666;text-transform:uppercase;
+            letter-spacing:0.2em;margin-bottom:32px">
+            Fresh Data &amp; ML Jobs · Updated Nightly
+        </div>
+        <p style="color:#888;font-size:1rem;line-height:1.7;max-width:580px;
+            margin:0 auto 40px auto">
+            Stop wasting applications on ghost jobs. We track 1,000+ companies across
+            6 ATS sources, score each posting for honesty, and map the hiring manager's
+            LinkedIn so you can reach out directly.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Signup form — centered
+    _form_col_l, _form_col_c, _form_col_r = st.columns([1, 2, 1])
+    with _form_col_c:
+        st.markdown("""
+        <div style="background:#0f0f1a;border:1px solid #1e1e32;border-radius:6px;
+            padding:24px;margin-bottom:8px">
+            <div style="font-size:0.7rem;color:#888;text-transform:uppercase;
+                letter-spacing:0.15em;margin-bottom:14px;text-align:center">
+                Get Free Access
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        _email = st.text_input(
+            "Email",
+            placeholder="you@example.com",
+            label_visibility="collapsed",
+            key="_signup_email",
+        )
+
+        _btn_clicked = st.button(
+            "Send me my access link →",
+            type="primary",
+            use_container_width=True,
+            key="_signup_btn",
+        )
+
+        if _btn_clicked:
+            _e = (_email or "").strip().lower()
+            if "@" not in _e or "." not in _e.split("@")[-1]:
+                st.session_state._signup_status = "err"
+                st.session_state._signup_msg = "Please enter a valid email address."
+            else:
+                try:
+                    _r = _requests.post(
+                        "https://api.datahiringiq.com/auth/free-signup",
+                        json={"email": _e},
+                        timeout=8,
+                    )
+                    if _r.status_code == 200:
+                        st.session_state._signup_status = "ok"
+                        st.session_state._signup_msg = (
+                            "Check your email — your access link is on its way. "
+                            "It may take a minute to arrive."
+                        )
+                    elif _r.status_code == 400:
+                        st.session_state._signup_status = "err"
+                        try:
+                            st.session_state._signup_msg = _r.json().get("detail", "Invalid request.")
+                        except Exception:
+                            st.session_state._signup_msg = "Invalid request."
+                    else:
+                        st.session_state._signup_status = "err"
+                        st.session_state._signup_msg = "Something went wrong. Please try again."
+                except Exception as _ex:
+                    st.session_state._signup_status = "err"
+                    st.session_state._signup_msg = f"Connection error. Please try again."
+
+        if st.session_state._signup_status == "ok":
+            st.success(st.session_state._signup_msg)
+        elif st.session_state._signup_status == "err":
+            st.error(st.session_state._signup_msg)
+
+        st.markdown("""
+        <div style="font-size:0.7rem;color:#555;text-align:center;margin-top:16px;line-height:1.6">
+            Free tier includes:<br>
+            500 fresh jobs daily · Basic filters · Traffic-light job signals<br><br>
+            <span style="color:#666">Or upgrade to Pro for $19/mo: full 2,000-job feed, hiring manager LinkedIn, full resume match top-50.</span>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # Below the form: small "preview the feed" header
+    st.markdown("""
+    <div style="text-align:center;margin:40px 0 20px 0;padding-top:30px;
+        border-top:1px solid #131320">
+        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;
+            letter-spacing:0.2em">
+            Preview · 25 random jobs from today's feed
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+
 # ── HEADER ────────────────────────────────────────────────────────────────────
 client_name = client["name"] if client else "Preview"
 
@@ -850,6 +963,10 @@ if fresh_jobs.empty:
         </div>
     </div>
     ''', unsafe_allow_html=True)
+# FREEMIUM_LANDING_v1: anonymous gets 25 random jobs only
+if is_anonymous and len(fresh_jobs) > 25:
+    fresh_jobs = fresh_jobs.sample(n=25, random_state=None).reset_index(drop=True)
+
 st.markdown(f"<div class='section-divider'>{len(fresh_jobs):,} roles — sorted by most recent</div>",
             unsafe_allow_html=True)
 
