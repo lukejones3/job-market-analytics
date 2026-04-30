@@ -477,20 +477,16 @@ CASE
 END
 """
 
+# REMOVE_STALE_WORKDAY_FILTERS_v1: dropped two stale defensive filters
+# - workday-must-have-posted-date (195 legit jobs were being hidden)
+# - same-day workday < 300 cap (Apr 19 had 948 jobs all filtered)
 where_clauses = [
     "jp.data_tier = 1",
-    "(jp.source != 'workday' OR jp.posted_date IS NOT NULL)",
     "jp.status = 'raw'",
     "(jp.role_category IS NULL OR jp.role_category != 'non_data')",
     # LOC_COUNTRY_FILTER_v1: drop misclassified foreign + junk strings
     "(jp.loc_country = 'US' OR (jp.loc_country = 'unknown' AND jp.loc_city IS NULL))",
     f"(CASE WHEN jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END) > NOW() - INTERVAL '{days_back} days'",
-    """(jp.source != 'workday' OR (
-        SELECT COUNT(*) FROM job_postings jp2
-        WHERE jp2.source = 'workday'
-          AND DATE(jp2.date_found) = DATE(jp.date_found)
-          AND jp2.data_tier = 1
-    ) < 300)"""
 ]
 
 if sector_filter:
