@@ -1012,6 +1012,40 @@ if st.session_state.get("resume_skills"):
                 _gap_html += "</div>"
 
             _gap_html += "</div>"
+
+            # BLUR_SKILL_GAPS_v1: blur entire panel + overlay for free-tier users
+            if is_free:
+                import urllib.parse as _urlparse_g
+                _free_email_g = (client.get("email") if client else "") or ""
+                _stripe_url_g = "https://buy.stripe.com/3cI4gs9hugN14obehifnO02"
+                if _free_email_g:
+                    _stripe_url_g = f"{_stripe_url_g}?prefilled_email={_urlparse_g.quote(_free_email_g)}"
+                _gap_html = (
+                    '<div style="position:relative;margin:18px 0">'
+                    '<div style="filter:blur(5px);user-select:none;pointer-events:none">'
+                    + _gap_html +
+                    '</div>'
+                    '<div style="position:absolute;top:50%;left:50%;'
+                    'transform:translate(-50%,-50%);text-align:center;'
+                    'background:rgba(8,8,16,0.92);padding:18px 24px;border-radius:6px;'
+                    'border:1px solid #e2ff5d33;min-width:280px">'
+                    '<div style="font-size:1.4rem;margin-bottom:6px">🔒</div>'
+                    '<div style="font-size:0.78rem;color:#e2ff5d;font-weight:600;'
+                    'margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em">'
+                    'Upgrade to see skill gaps'
+                    '</div>'
+                    '<div style="font-size:0.66rem;color:#888;margin-bottom:12px;line-height:1.5">'
+                    'See which skills lift your salary band — and which ones won\'t.'
+                    '</div>'
+                    f'<a href="{_stripe_url_g}" target="_blank" '
+                    'style="background:#e2ff5d;color:#080810;font-family:IBM Plex Mono,monospace;'
+                    'font-size:0.68rem;font-weight:600;padding:6px 14px;border-radius:3px;'
+                    'text-decoration:none;letter-spacing:0.05em;text-transform:uppercase;'
+                    'display:inline-block">Upgrade $19/mo &rarr;</a>'
+                    '</div>'
+                    '</div>'
+                )
+
             st.markdown(_gap_html, unsafe_allow_html=True)
 
 # GAPS_v2_PATCH: empty state when no results
