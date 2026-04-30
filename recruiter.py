@@ -952,8 +952,68 @@ else:
         loc_badge = ("<span class=\"badge badge-location\">" + loc_str + "</span>") if loc_str else ""
         exp_badge = ("<span class=\"badge badge-sector\">" + exp + "</span>") if exp else ""
         age_badge = "<span class=\"badge badge-age\">" + icon + " " + age_str + "</span>"
-        q_badge = "<span class=\"badge badge-quality\">Quality " + qs + "</span>"
-        u_badge = "<span class=\"badge badge-urgency\">Urgency " + us + "</span>"
+        # TRAFFIC_LIGHT_v1: replace numeric Quality/Urgency with signal traffic light
+        # Compute score from agreed ruleset
+        _has_salary = bool(row.get("salary_min_annual")) or bool(row.get("salary_max_annual"))
+        _has_contact = bool(row.get("contact_linkedin"))
+        _hscore = row.get("honesty_score")
+        _days_old_val = row.get("days_old") or 0
+        _signal_score = 0
+        _reasons_pos = []
+        _reasons_neg = []
+        if _has_salary:
+            _signal_score += 2
+            _reasons_pos.append("Salary disclosed")
+        else:
+            _signal_score -= 1
+            _reasons_neg.append("No salary")
+        if _has_contact:
+            _signal_score += 2
+            _reasons_pos.append("Hiring contact")
+        else:
+            _signal_score -= 1
+            _reasons_neg.append("No contact")
+        if _days_old_val <= 3:
+            _signal_score += 1
+            _reasons_pos.append(f"Posted {int(_days_old_val)}d ago" if _days_old_val >= 1 else "Posted today")
+        elif _days_old_val >= 7 and _days_old_val < 14:
+            _signal_score -= 1
+            _reasons_neg.append(f"Posted {int(_days_old_val)}d ago")
+        if _hscore is not None:
+            try:
+                _hs = int(_hscore)
+                if _hs >= 85:
+                    _signal_score += 2
+                    _reasons_pos.append("High honesty score")
+                elif _hs < 50:
+                    _signal_score -= 2
+                    _reasons_neg.append("Low honesty score")
+                elif _hs < 70:
+                    _signal_score -= 1
+                    _reasons_neg.append("Mixed honesty signals")
+            except (ValueError, TypeError):
+                pass
+
+        if _signal_score >= 3:
+            _signal_emoji = "🟢"
+            _signal_label = "Worth applying"
+            _signal_color = "#22c55e"
+            _signal_bg = "#0d1f0d"
+        elif _signal_score >= -1:
+            _signal_emoji = "🟡"
+            _signal_label = "Mixed signals"
+            _signal_color = "#facc15"
+            _signal_bg = "#1f1a00"
+        else:
+            _signal_emoji = "🔴"
+            _signal_label = "Likely skip"
+            _signal_color = "#ef4444"
+            _signal_bg = "#1f0d0d"
+
+        signal_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;font-weight:600;background:{_signal_bg};color:{_signal_color};border:1px solid {_signal_color}55;text-transform:uppercase;letter-spacing:0.05em">{_signal_emoji} {_signal_label}</span>'
+        # Kept as empty for backward compat; do not display old numeric badges
+        q_badge = ""
+        u_badge = ""
         src_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:0.05em;background:{src_bg};color:{src_color};border:1px solid {src_color}33">{source_display}</span>'
         # RECRUITER_RESUME_PATCH_v1: match badge prepended (only when resume loaded)
         match_badge = ""
@@ -963,7 +1023,18 @@ else:
                 _color = "#22c55e" if _ms >= 80 else ("#facc15" if _ms >= 60 else "#71717a")
                 _bg = "#0d1f0d" if _ms >= 80 else ("#1f1a00" if _ms >= 60 else "#15151f")
                 match_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;font-weight:600;background:{_bg};color:{_color};border:1px solid {_color}55">★ {_ms}% MATCH</span>'
-        badges = match_badge + age_badge + q_badge + u_badge + sal_badge + loc_badge + sector_badge + wp_badge + exp_badge + src_badge
+        badges = match_badge + age_badge + signal_badge + sal_badge + loc_badge + sector_badge + wp_badge + exp_badge + src_badge  # TRAFFIC_LIGHT_v1
+        # TRAFFIC_LIGHT_v1: build reasons row HTML
+        _reasons_parts = []
+        for _r in _reasons_pos:
+            _reasons_parts.append(f'<span style="color:#22c55e;margin-right:10px">✓ {_r}</span>')
+        for _r in _reasons_neg:
+            _reasons_parts.append(f'<span style="color:#a1a1aa;margin-right:10px">⚠ {_r}</span>')
+        reasons_html = (
+            f'<div style="font-size:0.62rem;font-family:IBM Plex Mono,monospace;margin-top:6px;color:#666;line-height:1.6">'
+            + "".join(_reasons_parts)
+            + '</div>'
+        ) if _reasons_parts else ""
 
         # Build Apply button
         job_url = row.get('job_url', '') or ''
@@ -1003,7 +1074,7 @@ else:
             f"<div style=\"flex:1\">"
             f"<div class=\"job-title\">{row['role_name']}</div>"
             f"<div class=\"job-company\">{company_display}{sector_sub}{emp_sub}</div>"
-            f"<div style=\"margin-bottom:8px\">{badges}</div>"
+            f"<div style=\"margin-bottom:8px\">{badges}</div>{reasons_html}"
             f"<div>{skills_html}</div>"
             f"</div>"
             f"<div style=\"text-align:right;min-width:140px;padding-left:16px\">"
