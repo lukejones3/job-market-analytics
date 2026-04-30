@@ -256,6 +256,57 @@ is_anonymous  = (not is_paid and not is_free)
 #   is_free       — 500-job feed, blurred premium features, sticky upgrade banner
 #   is_anonymous  — 25-job preview, signup CTA front and center
 
+# UPGRADE_BANNER_v1: free-tier upgrade banner + floating CTA
+if is_free:
+    import urllib.parse as _urlparse
+    _free_email = (client.get("email") if client else "") or ""
+    _stripe_url = "https://buy.stripe.com/3cI4gs9hugN14obehifnO02"
+    if _free_email:
+        _stripe_url = f"{_stripe_url}?prefilled_email={_urlparse.quote(_free_email)}"
+
+    # Banner at top of dashboard
+    st.markdown(f"""
+    <div style="background:linear-gradient(90deg,#0f0f1a 0%,#1a1a2e 100%);
+        border:1px solid #2a2a4a;border-left:3px solid #e2ff5d;
+        border-radius:4px;padding:14px 20px;margin-bottom:20px;
+        display:flex;justify-content:space-between;align-items:center;
+        flex-wrap:wrap;gap:12px">
+        <div style="font-size:0.85rem;color:#d4d4d8;flex:1;min-width:280px">
+            <span style="color:#e2ff5d;font-weight:600">You're on the free plan</span>
+            <span style="color:#666;margin:0 8px">·</span>
+            <span style="color:#aaa">Upgrade to Pro for $19/mo to unlock the full 2,000-job feed, hiring manager LinkedIn, and full resume match top-50.</span>
+        </div>
+        <a href="{_stripe_url}" target="_blank"
+           style="background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
+               font-size:0.7rem;font-weight:600;padding:8px 18px;border-radius:3px;
+               text-decoration:none;letter-spacing:0.05em;text-transform:uppercase;
+               white-space:nowrap;flex-shrink:0">
+            Upgrade $19/mo →
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Floating CTA bottom-right (always visible while scrolling)
+    st.markdown(f"""
+    <a href="{_stripe_url}" target="_blank"
+       style="position:fixed;bottom:24px;right:24px;z-index:9999;
+           background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
+           font-size:0.72rem;font-weight:600;padding:10px 18px;border-radius:24px;
+           text-decoration:none;letter-spacing:0.05em;text-transform:uppercase;
+           box-shadow:0 4px 16px rgba(226,255,93,0.25);
+           border:1px solid #c9e84f;
+           transition:transform 0.15s,box-shadow 0.15s">
+        💎 Upgrade
+    </a>
+    <style>
+    a[href="{_stripe_url}"]:hover {{
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px rgba(226,255,93,0.4);
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
+
 # FREEMIUM_LANDING_v1: anonymous landing hero + email signup form
 if is_anonymous:
     import requests as _requests
