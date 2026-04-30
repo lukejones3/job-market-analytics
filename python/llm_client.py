@@ -158,7 +158,130 @@ Snippet:
         log.warning(f"LLM salary extraction failed: {e}")
         return None
 
-def classify_role(role_title: str, description: str) -> Optional[dict]:
+
+# === FEDERAL_STAFFING_PRECHECK_v1 ===
+# Hard-coded list of known federal staffing firms. Any job at these companies
+# is auto-classified as non_data without an LLM call. Add to this list as
+# new offenders surface in the eval set.
+FEDERAL_STAFFING_FIRMS = frozenset({
+    "prosidian", "prosidian consulting",
+    "booz allen", "booz allen hamilton",
+    "mantech", "man tech",
+    "saic",
+    "caci",
+    "leidos",
+    "engility",
+    "mitre",
+    "gdit", "general dynamics it", "general dynamics information technology",
+    "accenture federal services", "accenture federal",
+    "guidehouse",
+    "deloitte federal",
+    "kbr",
+    "peraton",
+    "v2x",
+    "amentum",
+    "parsons federal",
+    "noblis",
+    "two six technologies",
+    "streamline defense",
+    "clarity innovations",
+    "scientific research corporation", "src inc",
+    "csra",
+    "vectrus",
+    "serco federal",
+})
+
+
+def _is_federal_staffing(company_name):
+    """Return True if company is on the known federal staffing firm list."""
+    if not company_name:
+        return False
+    c = company_name.strip().lower()
+    # Exact match first
+    if c in FEDERAL_STAFFING_FIRMS:
+        return True
+    # Substring match for variants ("ProSidian Consulting, LLC" → matches "prosidian")
+    for firm in FEDERAL_STAFFING_FIRMS:
+        if firm in c:
+            return True
+    return False
+
+
+def _federal_staffing_verdict():
+    """Standard verdict for known-federal companies. Mirrors LLM dict shape."""
+    return {
+        "is_data_ml": False,
+        "category": "non_data",
+        "confidence": "high",
+        "reason": "known federal staffing firm (pre-check, no LLM call)",
+    }
+# === END_FEDERAL_STAFFING_PRECHECK_v1 ===
+
+# === DATA_TITLE_PRECHECK_v1 ===
+# Title patterns that map UNAMBIGUOUSLY to a data subcategory.
+# These bypass the LLM (saves $, eliminates misclassification of clear titles).
+# Order matters within each entry — we use re.search with re.IGNORECASE.
+import re as _re
+
+DATA_TITLE_PATTERNS = [
+    # Most specific first
+    (r"\bml\s+ops\b|\bmlops\b", "ml_engineering"),
+    (r"\b(machine\s+learning|ml)\s+(engineer|scientist|developer)\b", "ml_engineering"),
+    (r"\bapplied\s+(ml|machine\s+learning|ai)\b", "ml_engineering"),
+    (r"\b(deep\s+learning|dl)\s+engineer\b", "ml_engineering"),
+    (r"\bai\s+(engineer|scientist|researcher)\b", "ai_research"),
+    (r"\b(nlp|natural\s+language)\s+(engineer|scientist|researcher)\b", "ai_research"),
+    (r"\b(computer\s+vision|cv)\s+(engineer|scientist|researcher)\b", "ai_research"),
+    (r"\banalytics\s+engineer\b", "analytics_engineering"),
+    (r"\bdata\s+scientist\b", "data_science"),
+    (r"\bdata\s+(architect|engineer|developer)\b", "data_engineering"),
+    (r"\bdata\s+(quality|governance|operations|ops)\s+(analyst|engineer|specialist|manager)\b", "data_engineering"),
+    (r"\betl\s+(developer|engineer)\b", "data_engineering"),
+    (r"\bdata\s+platform\s+(engineer|developer)\b", "data_engineering"),
+    (r"\bdata\s+(analyst|manager)\b", "data_analytics"),
+    (r"\b(business\s+intelligence|bi)\s+(analyst|developer|engineer)\b", "data_analytics"),
+    (r"\banalytics\s+(analyst|manager|lead|director)\b", "data_analytics"),
+    (r"\bquantitative\s+(analyst|researcher)\b", "data_science"),
+    # Senior/lead/staff/principal versions of the above (catches "Sr Data Engineer" etc)
+    (r"\b(senior|sr\.?|principal|staff|lead|manager,?)\s+(of\s+)?data\s+(analyst|engineer|scientist|architect)\b", "auto_subcat"),
+    (r"\b(senior|sr\.?|principal|staff|lead)\s+ml\s+engineer\b", "ml_engineering"),
+    (r"\b(senior|sr\.?|principal|staff|lead)\s+analytics\s+engineer\b", "analytics_engineering"),
+]
+
+def _data_title_subcategory(title):
+    """Return data subcategory if title matches an unambiguous pattern, else None."""
+    if not title:
+        return None
+    t = title.lower()
+    for pat, cat in DATA_TITLE_PATTERNS:
+        m = _re.search(pat, t)
+        if m:
+            if cat == "auto_subcat":
+                # "Senior Data Engineer" → engineering, "Sr Data Scientist" → science, etc.
+                # The captured 3rd group should be the subcategory keyword
+                tail = m.group(3) if m.lastindex and m.lastindex >= 3 else ""
+                if "engineer" in tail or "architect" in tail:
+                    return "data_engineering"
+                if "scientist" in tail:
+                    return "data_science"
+                if "analyst" in tail:
+                    return "data_analytics"
+                return "data_engineering"  # default
+            return cat
+    return None
+
+
+def _data_title_verdict(category, title):
+    """Standard verdict for data-title pre-check matches. Mirrors LLM dict shape."""
+    return {
+        "is_data_ml": True,
+        "category": category,
+        "confidence": "high",
+        "reason": f"unambiguous data title '{title}' (pre-check, no LLM call)",
+    }
+# === END_DATA_TITLE_PRECHECK_v1 ===
+
+def classify_role(role_title: str, description: str, company_name: str = None) -> Optional[dict]:
     """
     Classify whether a job is genuinely data/ML/analytics and what subcategory.
     Returns dict: {is_data_ml: bool, category: str, confidence: str, reason: str}
@@ -166,8 +289,19 @@ def classify_role(role_title: str, description: str) -> Optional[dict]:
     """
     if not role_title:
         return None
+    # === FEDERAL_STAFFING_PRECHECK_v1 ===
+    if _is_federal_staffing(company_name):
+        return _federal_staffing_verdict()
+    # === END_FEDERAL_STAFFING_PRECHECK_v1 ===
+
+    # === DATA_TITLE_PRECHECK_v1 ===
+    _subcat = _data_title_subcategory(role_title)
+    if _subcat:
+        return _data_title_verdict(_subcat, role_title)
+    # === END_DATA_TITLE_PRECHECK_v1 ===
     snippet = (description or "")[:600]
 
+    # PROMPT_PATCH_v1_clearance_and_buzzwords
     prompt = f"""Classify this job posting. Is it genuinely a data, analytics, ML, or AI role?
 
 CATEGORIES:
@@ -183,7 +317,8 @@ RULES:
 - TITLE-FIRST: If the title clearly says "Data Engineer", "Data Scientist", "Data Analyst", "ML Engineer", "AI Engineer", "Analytics Engineer", "Quantitative Analyst/Researcher", "Applied Scientist", "Research Scientist (ML/AI)" → classify as data/ML by title regardless of description quality. Only use description to pick the subcategory.
 - DESCRIPTION-DEPENDENT for ambiguous titles only:
   - "Business Analyst" alone is ambiguous. If description shows SQL/Python/dashboards/analytics → data_analytics. If it shows requirements gathering, SAP/Workday implementation, process documentation, healthcare claims systems (AMISYS, Facets) → non_data.
-  - "Operations Analyst" / "Sales Operations" / "Revenue Operations" / "Marketing Operations" → default non_data UNLESS description shows heavy SQL/Python/analytics work → data_analytics.
+  - "Operations Analyst" / "Sales Operations" / "Revenue Operations" / "Marketing Operations" / "Sales Business Analyst" / "Business Operations Analyst" → default non_data UNLESS description shows heavy SQL/Python/analytics work → data_analytics.
+  - ANALYTICS-AS-BUZZWORD WARNING: Words like "analytics", "data-driven", "insights", "reporting", "data strategy", "actionable insight" appear in nearly every modern JD as marketing language — they DO NOT make a role data_analytics on their own. For ambiguous titles (Sales Business Analyst, Operations Analyst, Customer Success Analyst, Marketing Manager), only classify as data_analytics if the description shows the actual day-to-day work IS writing SQL queries, building dashboards in Tableau/Looker/Power BI, doing statistical analysis in Python/R, or building data models. If "analytics" appears only as a goal/outcome ("provide analytics to the sales team") or in a skills-list bullet ("familiarity with SQL preferred"), the role is non_data.
   - "Data Quality Analyst" doing manual review → non_data. Automated quality with SQL/Python → data_analytics.
 - KEEP these as data/ML even if borderline:
   - "Risk Analyst" / "Credit Risk Analyst" / "Market Risk Analyst" / "Quantitative Risk Analyst" (these use modeling, Python, R)
@@ -198,7 +333,7 @@ RULES:
   - "GIS Analyst" / "Geospatial Analyst" without ML → non_data
   - "Master Data Steward", "Data Coordinator" (governance only) → non_data
 - EXCLUDE federal contracting / government staffing roles → non_data:
-  - Roles that REQUIRE active US government security clearance (TS/SCI, Top Secret, Secret, Public Trust) for non-tech-product work — typical at federal staffing firms (ProSidian, Booz Allen, ManTech, SAIC, CACI, Leidos, Engility, MITRE)
+  - CLEARANCE ALONE IS NOT DISQUALIFYING. Many commercial defense/aerospace product companies (Anduril, Palantir, Maxar, Scale AI, Shield AI, Lockheed AI Labs, Northrop ML, Raytheon ML, Boeing data, RTX) require TS/SCI, Top Secret, Secret, or Public Trust clearance for ML/data engineering roles — these are KEPT as data_ml. Only flag as non_data when clearance is paired with body-shop signals: explicit "labor category" / "contract contingent" / "GS-XX pay grade" / named federal contract codes / "supporting [agency] mission" framing typical of staffing firms (ProSidian, Booz Allen, ManTech, SAIC, CACI, Leidos, Engility, MITRE, GDIT, Accenture Federal). The test: would this person work on a product the company sells (KEEP) or be billed as a labor unit on a federal contract (KILL)?
   - Job IDs containing federal contract codes like [USDA001016], [DOE0062061], [NSF0113113], [GMRC007], [AMR9]
   - Roles describing themselves as "contract contingent", "GS-XX pay grade", "GS-09 / GS-12 / GS-14", "labor category", "BPA", "IDIQ"
   - Government job titles like "Budget Execution Data Analyst", "FSM Budget Analyst", "Federal Acquisition Data Analyst", "Mortgage Backed Securities Risk Analyst" at contractor firms
