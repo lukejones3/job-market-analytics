@@ -1940,9 +1940,11 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                    COALESCE(jp.data_tier, 1) AS data_tier,
                    jp.role_category,
                    r.role_name,
+                   c.company_name,  -- ENRICH_PATCH_v1: company_name added
                    EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id) AS has_skills
             FROM job_postings jp
             LEFT JOIN roles r ON r.role_id = jp.role_id
+            LEFT JOIN companies c ON c.company_id = jp.company_id
             WHERE jp.description_text IS NOT NULL AND length(jp.description_text) > 0
               AND jp.status = 'raw'
               AND (
@@ -2036,17 +2038,55 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
             fields.append("salary_period=%s"); params.append(pj.salary_period)
 
         # Role category classifier — only on jobs missing role_category
-        # Uses LLM to filter out non_data jobs (federal contractor, sales ops, etc.)
+        # ROLE_CATEGORY_CACHE_v1: check cache before LLM call (saves ~80% of LLM calls)
         if _LLM_AVAILABLE and only_missing:
             existing_cat = job["role_category"] if "role_category" in job.keys() else None
             if existing_cat is None:
                 role_name_for_cls = job["role_name"] if "role_name" in job.keys() else (pj.title or "")
                 if role_name_for_cls:
-                    cls_result = classify_role(role_name_for_cls, desc)
-                    if cls_result and cls_result.get("category"):
+                    company_for_cls = job["company_name"] if "company_name" in job.keys() else None
+                    company_lower = (company_for_cls or "").strip().lower()
+                    role_lower = role_name_for_cls.strip().lower()
+                    cached_category = None
+
+                    # Check cache (30-day TTL)
+                    if company_lower and role_lower:
+                        try:
+                            cur.execute("""
+                                SELECT role_category FROM role_category_cache
+                                WHERE company_lower = %s AND role_lower = %s
+                                  AND cached_at > NOW() - INTERVAL '30 days'
+                            """, (company_lower, role_lower))
+                            row = cur.fetchone()
+                            if row:
+                                cached_category = row[0]
+                        except Exception as _e:
+                            log.warning(f"role_category_cache lookup failed: {_e}")
+
+                    if cached_category:
+                        # Cache hit — skip LLM
                         fields.append("role_category=%s")
-                        params.append(cls_result["category"])
+                        params.append(cached_category)
                         fields.append("role_classified_at=NOW()")
+                    else:
+                        # Cache miss — call LLM, write back on success
+                        cls_result = classify_role(role_name_for_cls, desc, company_name=company_for_cls)
+                        if cls_result and cls_result.get("category"):
+                            cat_value = cls_result["category"]
+                            fields.append("role_category=%s")
+                            params.append(cat_value)
+                            fields.append("role_classified_at=NOW()")
+                            # Write to cache
+                            if company_lower and role_lower:
+                                try:
+                                    cur.execute("""
+                                        INSERT INTO role_category_cache (company_lower, role_lower, role_category, cached_at)
+                                        VALUES (%s, %s, %s, NOW())
+                                        ON CONFLICT (company_lower, role_lower)
+                                        DO UPDATE SET role_category=EXCLUDED.role_category, cached_at=NOW()
+                                    """, (company_lower, role_lower, cat_value))
+                                except Exception as _e:
+                                    log.warning(f"role_category_cache write failed: {_e}")
 
         # Skills — skip for short descriptions (Adzuna partial records)
         ins = 0

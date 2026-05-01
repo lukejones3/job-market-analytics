@@ -16,6 +16,41 @@ log = logging.getLogger(__name__)
 
 # Haiku 4.5 — cheap, fast, great for structured extraction
 MODEL = "claude-haiku-4-5-20251001"
+
+# CIRCUIT_BREAKER_v1
+# Module-level flag set when API rejects calls due to billing/auth issues.
+# Once True, all classify_role / extract_salary_llm calls short-circuit to None
+# instead of repeatedly hitting the API for every job in the batch.
+# Resets on process restart (each cron run gets a fresh attempt).
+_API_DISABLED = False
+_API_DISABLED_REASON = ""
+
+
+def _is_fatal_api_error(err) -> bool:
+    """Return True for errors that mean we should stop calling the API."""
+    s = str(err).lower()
+    fatal_patterns = (
+        "credit balance is too low",
+        "billing",
+        "invalid_api_key",
+        "authentication",
+        "401",
+        "403",
+    )
+    return any(p in s for p in fatal_patterns)
+
+
+def _trip_breaker(reason: str):
+    """Trip the circuit breaker. All subsequent LLM calls short-circuit."""
+    global _API_DISABLED, _API_DISABLED_REASON
+    if not _API_DISABLED:
+        _API_DISABLED = True
+        _API_DISABLED_REASON = reason[:200]
+        log.error(f"LLM circuit breaker TRIPPED: {reason[:200]}")
+
+
+def _is_breaker_tripped() -> bool:
+    return _API_DISABLED
 MAX_TOKENS = 200
 TEMPERATURE = 0
 
@@ -64,6 +99,9 @@ def _cache_key(task: str, input_text: str) -> str:
 
 
 def extract_salary_llm(description_snippet: str) -> Optional[Tuple[Decimal, Decimal, str]]:
+    # CIRCUIT_BREAKER_v1: short-circuit if breaker tripped this run
+    if _is_breaker_tripped():
+        return None
     """
     LLM-based salary extraction fallback.
     Only call when regex parser has returned None.
@@ -114,6 +152,9 @@ Snippet:
                 time.sleep(wait)
                 continue
             log.warning(f"LLM salary extraction API error: {e}")
+            # CIRCUIT_BREAKER_v1: trip on billing/auth errors
+            if _is_fatal_api_error(e):
+                _trip_breaker(f"extract_salary_llm: {e}")
             return None
     else:
         log.warning("LLM salary extraction: exhausted retries")
@@ -159,6 +200,29 @@ Snippet:
         return None
 
 
+# === BLOCKED_AGGREGATORS_v1 ===
+# Companies that are spam aggregators reposting other companies' listings.
+# Drop their jobs at ingest entirely (status='ignored').
+BLOCKED_AGGREGATORS = frozenset({
+    "jobgether",
+    "tsmg",
+})
+
+
+def is_blocked_aggregator(company_name):
+    """Return True if company is on the spam-aggregator block list."""
+    if not company_name:
+        return False
+    c = company_name.strip().lower()
+    if c in BLOCKED_AGGREGATORS:
+        return True
+    for agg in BLOCKED_AGGREGATORS:
+        if agg in c:
+            return True
+    return False
+# === END_BLOCKED_AGGREGATORS_v1 ===
+
+
 # === FEDERAL_STAFFING_PRECHECK_v1 ===
 # Hard-coded list of known federal staffing firms. Any job at these companies
 # is auto-classified as non_data without an LLM call. Add to this list as
@@ -189,6 +253,7 @@ FEDERAL_STAFFING_FIRMS = frozenset({
     "csra",
     "vectrus",
     "serco federal",
+    "cgsfederal", "cgs federal",  # CGSFEDERAL_v1
 })
 
 
@@ -281,6 +346,26 @@ def _data_title_verdict(category, title):
     }
 # === END_DATA_TITLE_PRECHECK_v1 ===
 
+# CLASSIFY_ROLE_REWRITE_v1: BLOCKED_AGGREGATORS at module level (was incorrectly inside classify_role)
+BLOCKED_AGGREGATORS = frozenset({
+    "jobgether",
+    "tsmg",
+})
+
+
+def is_blocked_aggregator(company_name):
+    """Return True if company is on the spam-aggregator block list."""
+    if not company_name:
+        return False
+    c = company_name.strip().lower()
+    if c in BLOCKED_AGGREGATORS:
+        return True
+    for agg in BLOCKED_AGGREGATORS:
+        if agg in c:
+            return True
+    return False
+
+
 def classify_role(role_title: str, description: str, company_name: str = None) -> Optional[dict]:
     """
     Classify whether a job is genuinely data/ML/analytics and what subcategory.
@@ -289,19 +374,21 @@ def classify_role(role_title: str, description: str, company_name: str = None) -
     """
     if not role_title:
         return None
-    # === FEDERAL_STAFFING_PRECHECK_v1 ===
+    # CIRCUIT_BREAKER_v1: short-circuit if previous call hit fatal error this run
+    if _is_breaker_tripped():
+        return None
+
+    # Federal staffing precheck — short-circuit before LLM
     if _is_federal_staffing(company_name):
         return _federal_staffing_verdict()
-    # === END_FEDERAL_STAFFING_PRECHECK_v1 ===
 
-    # === DATA_TITLE_PRECHECK_v1 ===
+    # Data-title precheck — short-circuit before LLM
     _subcat = _data_title_subcategory(role_title)
     if _subcat:
         return _data_title_verdict(_subcat, role_title)
-    # === END_DATA_TITLE_PRECHECK_v1 ===
+
     snippet = (description or "")[:600]
 
-    # PROMPT_PATCH_v1_clearance_and_buzzwords
     prompt = f"""Classify this job posting. Is it genuinely a data, analytics, ML, or AI role?
 
 CATEGORIES:
@@ -351,6 +438,7 @@ TITLE: {role_title}
 DESCRIPTION:
 {snippet}"""
 
+    text = None
     for attempt in range(3):
         try:
             _rate_limit()
@@ -368,8 +456,11 @@ DESCRIPTION:
                 time.sleep(20 + attempt * 10)
                 continue
             log.warning(f"classify_role API error: {e}")
+            # CIRCUIT_BREAKER_v1: trip on billing/auth errors
+            if _is_fatal_api_error(e):
+                _trip_breaker(f"classify_role: {e}")
             return None
-    else:
+    if text is None:
         return None
 
     try:

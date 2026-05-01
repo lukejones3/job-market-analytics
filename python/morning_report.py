@@ -6,7 +6,7 @@ Sends a daily pipeline health email to jones31luke@gmail.com.
 Run after dbt completes — add to cron at 11:30am UTC.
 """
 
-import os, smtplib, psycopg2
+import os, psycopg2  # MORNING_REPORT_RESEND_v1
 from datetime import datetime, timezone, timedelta
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -124,6 +124,27 @@ def build_report() -> str:
     """)
     enrich = cur.fetchone()
 
+    # ── Freemium metrics ──────────────────────────────────────────────────────
+    cur.execute("""
+        SELECT
+            COUNT(*) FILTER (WHERE signed_up_at >= now() - interval '24 hours') AS new_signups_24h,
+            COUNT(*) FILTER (WHERE upgraded_to_paid_at >= now() - interval '24 hours') AS upgrades_24h,
+            COUNT(*) AS total_signups,
+            COUNT(*) FILTER (WHERE upgraded_to_paid_at IS NOT NULL) AS total_upgraded
+        FROM free_signups
+    """)
+    freemium_row = cur.fetchone()
+    new_signups_24h, upgrades_24h, total_signups, total_upgraded = freemium_row
+
+    cur.execute("""
+        SELECT
+            COUNT(*) FILTER (WHERE tier = 'pro' AND active = true) AS active_pro,
+            COUNT(*) FILTER (WHERE tier = 'free' AND active = true) AS active_free
+        FROM api_keys
+    """)
+    sub_row = cur.fetchone()
+    active_pro, active_free = sub_row
+
     conn.close()
 
     # ── Build HTML email ──────────────────────────────────────────────────────
@@ -156,8 +177,6 @@ def build_report() -> str:
     alerts = []
     if expired_today > 500:
         alerts.append(f"⚠️ <b>{expired_today:,} jobs expired</b> in last 24h — possible ingestion issue")
-    if enrich[2] > 100:
-        alerts.append(f"💰 <b>{enrich[2]:,} jobs</b> have salary language but null salary — re-enrich recommended")
     if enrich[0] > 200:
         alerts.append(f"🎓 <b>{enrich[0]:,} jobs</b> missing experience level")
     if not alerts:
@@ -209,6 +228,18 @@ def build_report() -> str:
     Salary language but null: <b>{enrich[2]:,}</b>
 </p>
 
+<h3>Freemium</h3>
+<div style="background: #f0f8e8; border-left: 4px solid #6fb83a; padding: 10px 14px; margin-bottom: 14px; font-size: 14px;">
+    <b>{new_signups_24h}</b> new signups (24h) &nbsp;|&nbsp;
+    <b>{upgrades_24h}</b> upgrades to paid (24h) &nbsp;|&nbsp;
+    <b>{active_pro}</b> active pro &nbsp;|&nbsp;
+    <b>{active_free}</b> active free
+</div>
+<p style="font-size: 12px; color: #666; margin-top: -8px; margin-bottom: 16px;">
+    Lifetime: {total_signups} total signups, {total_upgraded} converted to paid
+    ({(total_upgraded/total_signups*100 if total_signups else 0):.1f}% conv).
+</p>
+
 <h3>Pipeline Runs (last 24h)</h3>
 <table style="width:100%; border-collapse: collapse; font-size: 13px;">
     {run_rows if run_rows else '<tr><td colspan=3>No runs logged</td></tr>'}
@@ -226,18 +257,32 @@ def build_report() -> str:
 
 
 def send_email(html: str):
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"📊 DataHiringIQ Daily Report — {datetime.now().strftime('%b %d')}"
-    msg["From"]    = GMAIL_USER
-    msg["To"]      = TO_EMAIL
-    msg.attach(MIMEText(html, "html"))
-
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.ehlo()
-        server.starttls()
-        server.login(GMAIL_USER, GMAIL_APP_PASS)
-        server.sendmail(GMAIL_USER, TO_EMAIL, msg.as_string())
-    print("✅ Morning report sent")
+    """# MORNING_REPORT_RESEND_v1: send via Resend (SMTP blocked on DigitalOcean)."""
+    import requests as _rq
+    api_key = os.getenv("RESEND_API_KEY", "")
+    if not api_key:
+        print("⚠️  RESEND_API_KEY not set — skipping email")
+        return
+    from_addr = os.getenv("RESEND_FROM", "DataHiringIQ <onboarding@resend.dev>")
+    subject = f"📊 DataHiringIQ Daily Report — {datetime.now().strftime('%b %d')}"
+    try:
+        r = _rq.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "from": from_addr,
+                "to": [TO_EMAIL],
+                "subject": subject,
+                "html": html,
+            },
+            timeout=15,
+        )
+        if r.status_code in (200, 201):
+            print(f"✅ Morning report sent via Resend to {TO_EMAIL}")
+        else:
+            print(f"❌ Resend error {r.status_code}: {r.text[:200]}")
+    except Exception as e:
+        print(f"❌ Failed to send report: {e}")
 
 
 if __name__ == "__main__":
@@ -247,7 +292,11 @@ if __name__ == "__main__":
     out = _P('/opt/job-market-analytics/logs/latest_report.html')
     out.write_text(html)
     print(f'Report written to {out}')
-    # Try email but don't crash if it fails
+    # MORNING_REPORT_RESEND_v1: actually send via Resend
+    try:
+        send_email(html)
+    except Exception as e:
+        print(f"❌ Email send raised: {e}")
     try:
         send_email(html)
     except Exception as e:

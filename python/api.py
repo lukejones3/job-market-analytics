@@ -25,7 +25,7 @@ import psycopg2
 import psycopg2.pool
 import stripe
 from psycopg2.extras import RealDictCursor
-from fastapi import FastAPI, HTTPException, Depends, Request, Query
+from fastapi import FastAPI, HTTPException, Depends, Request, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -764,95 +764,105 @@ async def stripe_webhook(request: Request):
         log.warning(f"Stripe webhook error: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
+    # WEBHOOK_ATTR_ACCESS_v1
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        customer_email = session.get("customer_details", {}).get("email", "")
-        customer_name  = session.get("customer_details", {}).get("name", "unknown")
+
+        # Stripe objects support attribute access via __getattr__ (not .get()).
+        # Use getattr with safe defaults for everything.
+        def _safe_get(obj, key, default=None):
+            try:
+                v = getattr(obj, key, default)
+                return v if v is not None else default
+            except Exception:
+                return default
+
+        # Try customer_details.email first
+        customer_email = ""
+        customer_name = "unknown"
+        cd = _safe_get(session, "customer_details", None)
+        if cd is not None:
+            customer_email = (_safe_get(cd, "email", "") or "").strip()
+            customer_name = (_safe_get(cd, "name", "") or "").strip() or "unknown"
+
+        # Fallback: top-level customer_email
+        if not customer_email:
+            customer_email = (_safe_get(session, "customer_email", "") or "").strip()
+
+        # Last resort: fetch from customer object
+        if not customer_email:
+            customer_id = _safe_get(session, "customer", "")
+            if customer_id:
+                try:
+                    cust = stripe.Customer.retrieve(customer_id)
+                    customer_email = (_safe_get(cust, "email", "") or "").strip()
+                    if customer_name == "unknown":
+                        customer_name = (_safe_get(cust, "name", "") or "").strip() or "unknown"
+                    log.info(f"webhook: fetched email from Customer obj: {customer_email or '(empty)'}")
+                except Exception as _e:
+                    log.warning(f"webhook: stripe.Customer.retrieve({customer_id}) failed: {_e}")
+
+        log.info(f"webhook: extracted customer_email={customer_email!r} customer_name={customer_name!r}")
 
         if customer_email:
-            # Generate access token
-            raw_key   = secrets.token_urlsafe(32)
-            key_hash  = hashlib.sha256(raw_key.encode()).hexdigest()
+            # WEBHOOK_KEYID_FIX_v1: generate key_id (was missing — schema requires NOT NULL)
+            raw_key    = secrets.token_urlsafe(32)
+            key_hash   = hashlib.sha256(raw_key.encode()).hexdigest()
             key_prefix = raw_key[:8]
+            key_id     = "K" + secrets.token_hex(8)
 
             conn = pool.getconn()
             try:
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO api_keys
-                            (client_name, client_email, api_key_hash, api_key_prefix,
+                            (key_id, client_name, client_email, api_key_hash, api_key_prefix,
                              tier, active, created_at, expires_at)
-                        VALUES (%s, %s, %s, %s, 'jobseeker', true, NOW(), NOW() + INTERVAL '30 days')
-                    """, (customer_name, customer_email, key_hash, key_prefix))
+                        VALUES (%s, %s, %s, %s, %s, 'pro', true, NOW(), NOW() + INTERVAL '30 days')
+                    """, (key_id, customer_name, customer_email, key_hash, key_prefix))
+                    # FREEMIUM_BACKEND_v1: mark free_signups as upgraded
+                    cur.execute("""
+                        UPDATE free_signups
+                        SET upgraded_to_paid_at = NOW()
+                        WHERE email = %s
+                    """, (customer_email,))
                     conn.commit()
                 log.info(f"New subscriber: {customer_email} — token prefix: {key_prefix}")
 
-                # Send welcome email via Gmail
-                import smtplib
-                from email.mime.text import MIMEText
-                from email.mime.multipart import MIMEMultipart
-
+                # WEBHOOK_EMAIL_LINESWAP_v1: send Pro welcome email via Resend
                 access_url = f"https://job-market-analytics-nyz8zrrujh8bafgniqhjyw.streamlit.app/?token={raw_key}"
-
-                msg = MIMEMultipart("alternative")
-                msg["Subject"] = "Your DataHiringIQ Access — 30 Days"
-                msg["From"]    = "jones31luke@gmail.com"
-                msg["To"]      = customer_email
-
-                html = f"""
-                <div style="font-family:monospace;background:#080810;color:#d4d4d8;padding:32px;max-width:600px">
-                    <div style="font-size:1.5rem;color:#e2ff5d;margin-bottom:8px;letter-spacing:0.05em">DATAHIRINGIQ</div>
-                    <div style="font-size:0.7rem;color:#666;margin-bottom:24px;letter-spacing:0.15em;text-transform:uppercase">
-                        Data &amp; ML Job Search · 30-Day Access
-                    </div>
-
-                    <p>Hey {customer_name},</p>
-
-                    <p>You're in. Your 30-day access starts now.</p>
-
-                    <div style="margin:24px 0">
-                        <a href="{access_url}"
-                           style="display:inline-block;background:#e2ff5d;color:#080810;
-                                  padding:14px 32px;text-decoration:none;font-weight:bold;
-                                  letter-spacing:0.05em;text-transform:uppercase;font-size:0.85rem">
-                            Open Your Feed →
-                        </a>
-                    </div>
-
-                    <div style="background:#0d0d1a;border-left:2px solid #e2ff5d;padding:16px 20px;margin:24px 0">
-                        <div style="color:#e2ff5d;font-size:0.75rem;margin-bottom:8px;letter-spacing:0.1em;text-transform:uppercase">Quickstart</div>
-                        <div style="color:#a1a1aa;font-size:0.85rem;line-height:1.7">
-                            1. Enter your skills (Python, SQL, PyTorch, etc.) to see personalized matches<br>
-                            2. Filter by sector, workplace, and signal strength<br>
-                            3. Sort by salary, freshness, or skills match<br>
-                            4. Click the hiring manager LinkedIn on any role to reach out directly
-                        </div>
-                    </div>
-
-                    <p style="color:#a1a1aa;font-size:0.85rem">
-                        <strong style="color:#e2ff5d">Tip:</strong> The freshest roles (under 24 hours old) get the most attention. Check the feed daily — new data/ML roles are added every night.
-                    </p>
-
-                    <p style="color:#666;font-size:0.8rem;border-top:1px solid #1e1e32;padding-top:16px;margin-top:32px">
-                        <strong>Your access link:</strong><br>
-                        <a href="{access_url}" style="color:#38bdf8;word-break:break-all;font-size:0.75rem">{access_url}</a><br><br>
-                        Bookmark it — it's your personal URL.<br>
-                        Questions or feedback? Just reply to this email.
-                    </p>
-
-                    <div style="color:#333;font-size:0.7rem;margin-top:24px;letter-spacing:0.1em">
-                        datahiringiq.com · built by luke jones
-                    </div>
-                </div>
-                """
-                msg.attach(MIMEText(html, "html"))
-
-                gmail_pass = os.getenv("GMAIL_APP_PASSWORD", "")
-                if gmail_pass:
-                    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-                        s.login("jones31luke@gmail.com", gmail_pass)
-                        s.sendmail("jones31luke@gmail.com", customer_email, msg.as_string())
-                    log.info(f"Welcome email sent to {customer_email}")
+                try:
+                    import requests as _rq
+                    _resend_key = os.getenv("RESEND_API_KEY", "")
+                    _from = os.getenv("RESEND_FROM", "DataHiringIQ <onboarding@resend.dev>")
+                    _html = (
+                        '<html><body style="font-family:system-ui,sans-serif;color:#1f1f1f">'
+                        '<h2 style="color:#0f0f1a">Welcome to DataHiringIQ Pro</h2>'
+                        f'<p>Hey {customer_name}, your 30-day Pro access starts now.</p>'
+                        f'<p><a href="{access_url}" style="background:#e2ff5d;color:#080810;padding:12px 28px;text-decoration:none;border-radius:3px;font-weight:600;display:inline-block">Open Dashboard &rarr;</a></p>'
+                        f'<p style="font-size:0.85rem;color:#666">Or paste this URL: <code style="font-size:0.75rem">{access_url}</code></p>'
+                        '<hr>'
+                        '<p style="font-size:0.8rem;color:#666"><strong>Pro includes:</strong> full 2,000-job feed, hiring manager LinkedIn on every role, full resume match top-50, skill gaps with salary deltas.</p>'
+                        '<p style="font-size:0.75rem;color:#888;margin-top:16px">Bookmark your dashboard URL — it\'s your personal access link.</p>'
+                        '</body></html>'
+                    )
+                    _r = _rq.post(
+                        "https://api.resend.com/emails",
+                        headers={"Authorization": f"Bearer {_resend_key}", "Content-Type": "application/json"},
+                        json={
+                            "from": _from,
+                            "to": [customer_email],
+                            "subject": "Your DataHiringIQ Pro Access — 30 Days",
+                            "html": _html,
+                        },
+                        timeout=10,
+                    )
+                    if _r.status_code in (200, 201):
+                        log.info(f"webhook: Pro welcome email sent via Resend to {customer_email}")
+                    else:
+                        log.warning(f"webhook: Resend error {_r.status_code} for {customer_email}: {_r.text[:200]}")
+                except Exception as _e:
+                    log.warning(f"webhook: failed Pro welcome email to {customer_email}: {_e}")
 
             except Exception as e:
                 conn.rollback()
@@ -883,6 +893,139 @@ async def stripe_webhook(request: Request):
             log.error(f"Error deactivating: {e}")
 
     return {"status": "ok"}
+
+
+# ── Free Signup (email gate) ──────────────────────────────────────────────────
+# FREEMIUM_BACKEND_v1
+import re as _re_email
+
+EMAIL_RE = _re_email.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+# RESEND_EMAIL_v1
+def _send_free_signup_email(email: str, access_url: str):
+    """Send welcome email via Resend API (HTTPS — no SMTP port blocking)."""
+    import requests as _requests
+
+    api_key = os.getenv("RESEND_API_KEY", "")
+    if not api_key:
+        log.warning(f"RESEND_API_KEY not set — cannot send email to {email}")
+        return
+
+    # Use onboarding@resend.dev until a sending domain is verified.
+    # Once datahiringiq.com is verified at resend.com/domains, change to:
+    #   RESEND_FROM='DataHiringIQ <hello@datahiringiq.com>'
+    from_addr = os.getenv("RESEND_FROM", "DataHiringIQ <onboarding@resend.dev>")
+
+    html_body = f"""
+    <html><body style="font-family:system-ui,sans-serif;color:#1f1f1f">
+    <h2 style="color:#0f0f1a">Welcome to DataHiringIQ</h2>
+    <p>Click the link below to access your free dashboard. Bookmark it — you'll need it for return visits.</p>
+    <p><a href="{access_url}" style="background:#e2ff5d;color:#080810;padding:12px 28px;text-decoration:none;border-radius:3px;font-weight:600;display:inline-block">Open Dashboard &rarr;</a></p>
+    <p style="font-size:0.85rem;color:#666">Or paste this URL: <code style="font-size:0.75rem">{access_url}</code></p>
+    <hr>
+    <p style="font-size:0.8rem;color:#666"><strong>What you get free:</strong> 500 fresh jobs daily, basic filters, traffic-light job signals.</p>
+    <p style="font-size:0.8rem;color:#666"><strong>Upgrade to Pro ($19/mo)</strong> for full 2000-job feed, hiring manager LinkedIn contacts, and full resume match top-50 with skill-gap insights.</p>
+    </body></html>
+    """
+
+    try:
+        r = _requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "from": from_addr,
+                "to": [email],
+                "subject": "Your DataHiringIQ Free Access",
+                "html": html_body,
+            },
+            timeout=10,
+        )
+        if r.status_code in (200, 201):
+            log.info(f"Free signup email sent via Resend: {email}")
+        else:
+            log.warning(f"Resend error {r.status_code} for {email}: {r.text[:200]}")
+    except Exception as e:
+        log.warning(f"Failed to send Resend email to {email}: {e}")
+
+
+# FREEMIUM_BACKEND_v1_reorder
+@app.post("/auth/free-signup")
+# FREEMIUM_BACKEND_v1_async
+async def free_signup(request: Request, background_tasks: BackgroundTasks):
+    body = await request.json()
+    email = (body.get("email") or "").strip().lower()
+    referral = (body.get("ref") or "")[:50]
+    user_agent = request.headers.get("user-agent", "")[:200]
+
+    if not email or not EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Invalid email address")
+
+    conn = pool.getconn()
+    try:
+        with conn.cursor() as cur:
+            # Check if already signed up — return existing access (idempotent)
+            cur.execute(
+                "SELECT api_key_id FROM free_signups WHERE email = %s",
+                (email,),
+            )
+            existing = cur.fetchone()
+            if existing and existing[0]:
+                # Re-send the email but don't issue a new token
+                cur.execute(
+                    """
+                    SELECT api_key_prefix FROM api_keys
+                    WHERE key_id = %s AND active = true
+                    """,
+                    (existing[0],),
+                )
+                row = cur.fetchone()
+                if row:
+                    # We can't recover the raw key. Issue NEW one to email.
+                    pass  # fallthrough to create-new logic below
+
+            # Generate new free-tier token
+            raw_key   = secrets.token_urlsafe(32)
+            key_hash  = hashlib.sha256(raw_key.encode()).hexdigest()
+            key_prefix = raw_key[:8]
+            key_id    = "K" + secrets.token_hex(8)
+
+            cur.execute("""
+                INSERT INTO api_keys
+                    (key_id, client_name, client_email, api_key_hash, api_key_prefix,
+                     tier, active, created_at, expires_at)
+                VALUES (%s, %s, %s, %s, %s, 'free', true, NOW(), NOW() + INTERVAL '30 days')
+            """, (key_id, email.split("@")[0], email, key_hash, key_prefix))
+
+            # Insert or update free_signups
+            cur.execute("""
+                INSERT INTO free_signups
+                    (email, api_key_id, referral_source, user_agent)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (email) DO UPDATE SET
+                    api_key_id = EXCLUDED.api_key_id,
+                    last_seen_at = NOW(),
+                    referral_source = COALESCE(free_signups.referral_source, EXCLUDED.referral_source),
+                    user_agent = EXCLUDED.user_agent
+            """, (email, key_id, referral, user_agent))
+            conn.commit()
+
+        # Send welcome email asynchronously (don't block the response)
+        access_url = f"https://job-market-analytics-nyz8zrrujh8bafgniqhjyw.streamlit.app/?token={raw_key}"
+        background_tasks.add_task(_send_free_signup_email, email, access_url)
+
+        return {"status": "ok", "message": "Check your email for access link"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.warning(f"Free signup error: {e}")
+        raise HTTPException(status_code=500, detail="Signup failed. Please try again.")
+    finally:
+        pool.putconn(conn)
 
 
 # ── Stripe Checkout Session ───────────────────────────────────────────────────

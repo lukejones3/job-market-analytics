@@ -7,13 +7,13 @@ Job postings are collected nightly via public ATS APIs from six sources:
 - **Greenhouse** — 1,600+ companies monitored, full job description text returned via `/v1/boards/{token}/jobs?content=true`
 - **Lever** — 640+ companies monitored, structured salary range fields captured where available
 - **Ashby** — 69 companies monitored, full `descriptionPlain` text returned via posting API
-- **Workday** — 375+ enterprise companies monitored including Netflix, Disney, Capital One, Boeing, BlackRock, Northrop Grumman, and CVS Health; full job descriptions retrieved via the Workday CXS API detail endpoint
+- **Workday** — 170+ enterprise companies monitored including Netflix, Disney, Capital One, Boeing, BlackRock, Northrop Grumman, and CVS Health; full job descriptions retrieved via the Workday CXS API detail endpoint
 - **Amazon** — ingested via the public amazon.jobs search API; full descriptions returned in listing response
 - **Eightfold** — enterprise companies including Microsoft, Morgan Stanley, and Ford; listings retrieved via PCSX search API, full descriptions via SmartApply detail endpoint
 
 Only data and analytics roles are ingested — titles must match a target keyword list including data analyst, data engineer, data scientist, analytics engineer, machine learning engineer, business intelligence, and related variants. All sources are filtered to US-based roles only at ingestion time.
 
-The pipeline runs nightly in parallel — all six sources ingest simultaneously starting at 7:00am UTC, completing in approximately 50 minutes. Total Tier 1 coverage: 5,500+ postings across 1,200+ actively hiring companies.
+The pipeline runs nightly in parallel — all six sources ingest simultaneously starting at 7:00am UTC, completing in approximately 50 minutes. Total Tier 1 coverage: 5,300+ postings across 1,000+ actively hiring companies.
 
 **Company Discovery** — new companies are discovered nightly via three methods: Adzuna redirect URL parsing, Lever sitemap harvesting, and Google dorking via Serper.dev across 40+ query angles targeting role titles, tech stack signals, industry verticals, funding stage phrases, and geographic signals. Discovered companies are validated by probing their ATS board before insertion. As of April 2026, 2,500+ companies have been discovered and validated across all sources.
 
@@ -33,7 +33,7 @@ Each Tier 1 posting is processed through a custom NLP pipeline that extracts:
 
 **Skills** — matched against a 114-skill canonical allowlist with 239 aliases. Skills are classified as required, preferred, or nice-to-have based on surrounding language. Aliases cover dialects, libraries, and common variants (e.g. `pyspark` → Spark, `postgresql` → SQL, `vertex ai` → GCP).
 
-**Salary** — extracted via a 30+ pattern regex engine from structured fields and unstructured description text. Formats handled include: standard ranges, European period separators, HTML entity em-dashes, OTE Minimum/Maximum pairs, zone-based compensation, hourly with USD suffix, truncated numbers, single labeled values, and spaced number formats. Annual values must fall between $15,000 and $1,000,000. Hourly values must fall between $7 and $500. Ambiguous values are rejected. Salary coverage: approximately 64% of active Tier 1 postings.
+**Salary** — extracted via a 30+ pattern regex engine from structured fields and unstructured description text. Formats handled include: standard ranges, European period separators, HTML entity em-dashes, OTE Minimum/Maximum pairs, zone-based compensation, hourly with USD suffix, truncated numbers, single labeled values, and spaced number formats. Annual values must fall between $15,000 and $1,000,000. Hourly values must fall between $7 and $500. Ambiguous values are rejected. Salary coverage: approximately 55% of active Tier 1 postings.
 
 **Experience level** — inferred from title patterns (Senior, Lead, Principal, Staff, Associate, Jr.) and years-of-experience language. Coverage exceeds 86% of Tier 1 postings with fallback inference on undecorated titles.
 
@@ -84,7 +84,7 @@ Composite metric combining four dimensions:
 Scored 0-100 via min-max normalization across the dataset. Higher scores indicate roles predicted to be harder to fill. Salary benchmarks capped at $500K to exclude Netflix L5/L6 compensation outliers from sector medians. Skills flagged as difficulty-irrelevant (BI tools, productivity apps, soft skills) are excluded from rarity and complexity calculations.
 
 ### Ghost Job Index
-Probability that an active job posting is no longer actively hiring, based on days open relative to sector median. Calculated as a sigmoid function: `1 - 1/(1 + (days_open/sector_median)²)`. Posting age is capped at 365 days to prevent ancient Lever posts from distorting sector baselines. Available for Greenhouse, Lever, Ashby, and Workday sources. Amazon and Eightfold do not provide posted_date.
+Probability that an active job posting is no longer actively hiring, based on days open relative to sector median. Calculated as a sigmoid function: `1 - 1/(1 + (days_open/sector_median)²)`. Posting age is capped at 365 days to prevent ancient Lever posts from distorting sector baselines. Available for Greenhouse, Lever, and Ashby sources only — Workday, Amazon, and Eightfold do not provide posted_date.
 
 Ghost tiers:
 - **Fresh** (<25% probability) — recently posted, likely active
@@ -105,16 +105,6 @@ Calculated by comparing the average maximum annual salary for postings requiring
 
 ---
 
-## Hiring Manager Contacts
-
-Each company with active Tier 1 postings is enriched with a verified hiring manager contact via the Apollo.io People API. Contacts are targeted at Director, VP, Head, and C-suite level within data science, data engineering, machine learning, and analytics functions.
-
-For each company, the most relevant available contact is selected and stored with full name, verified work email, LinkedIn URL, title, and seniority level. Contacts are cached for 30 days and refreshed nightly for companies with new postings. As of April 2026, 352 companies have verified hiring manager contacts.
-
-Contact data is surfaced on the Recruiter Intelligence Feed alongside each job posting, enabling direct outreach to the relevant data or ML team leader without requiring additional prospecting.
-
----
-
 ## Sector Classification
 
 28 sectors are assigned directly to the `companies` table and applied across all ATS sources. Sector coverage: approximately 85% of Tier 1 postings — lower than previous reports due to rapid company discovery expansion. Unclassified companies are being assigned sectors on an ongoing basis. Classification is manual and research-based, not ML-inferred.
@@ -123,7 +113,7 @@ Contact data is surfaced on the Recruiter Intelligence Feed alongside each job p
 
 ## Limitations
 
-**Salary coverage** — approximately 36% of active Tier 1 postings contain no salary information. This does not necessarily indicate non-compliance with salary disclosure laws — ranges may exist elsewhere in the hiring process outside of what this pipeline captures. Salary coverage varies significantly by source: Eightfold 87%, Workday 64%, Greenhouse 61%, Lever 31%, Ashby 18%, Amazon 0%.
+**Salary coverage** — approximately 45% of active Tier 1 postings contain no salary information. This does not necessarily indicate non-compliance with salary disclosure laws — ranges may exist elsewhere in the hiring process outside of what this pipeline captures. Salary coverage varies significantly by source: Eightfold 87%, Workday 64%, Greenhouse 61%, Lever 31%, Ashby 18%, Amazon 0%.
 
 **Experience level inference** — automatically inferred and may misclassify non-standard title conventions. Edge cases include multi-level titles ("Senior/Principal"), roman numeral suffixes, and titles without seniority markers.
 
