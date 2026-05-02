@@ -413,13 +413,35 @@ if is_anonymous:
         </div>
         """, unsafe_allow_html=True)
 
-    # Below the form: small "preview the feed" header
+        # ANON_SCROLL_CUE_v1: scroll hint right under the email form
+        st.markdown("""
+        <div style="text-align:center;margin-top:32px;font-size:0.78rem;
+            color:#888;letter-spacing:0.05em">
+            Want to see what's in the feed first?
+            <span style="color:#e2ff5d;font-weight:600">Scroll down</span>
+            for a live sample of 25 fresh roles.
+        </div>
+        <div style="text-align:center;margin-top:8px;font-size:1.4rem;
+            color:#e2ff5d;animation:pulse 1.6s ease-in-out infinite">↓</div>
+        <style>
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; transform: translateY(0); }
+            50%      { opacity: 1; transform: translateY(4px); }
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
+    # ANON_SCROLL_CUE_v1: louder preview header below the form
     st.markdown("""
-    <div style="text-align:center;margin:40px 0 20px 0;padding-top:30px;
-        border-top:1px solid #131320">
-        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;
-            letter-spacing:0.2em">
-            Preview · 25 random jobs from today's feed
+    <div style="text-align:center;margin:48px 0 20px 0;padding-top:30px;
+        border-top:1px solid #1e1e32">
+        <div style="font-size:0.95rem;color:#e2ff5d;font-weight:600;
+            margin-bottom:6px;letter-spacing:0.03em">
+            Live sample below
+        </div>
+        <div style="font-size:0.7rem;color:#888;text-transform:uppercase;
+            letter-spacing:0.18em">
+            25 random jobs from today's feed · Updated nightly
         </div>
     </div>
     """, unsafe_allow_html=True)
