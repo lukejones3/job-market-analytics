@@ -1,1580 +1,1096 @@
 import streamlit as st
+# RECRUITER_RESUME_PATCH_v1 + RECRUITER_RESUME_HOTFIX_v1
+import sys, os
+# Resolve python/ dir relative to this file — works on both droplet and Streamlit Cloud
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
+_RESUME_PATH = os.path.join(_THIS_DIR, "python")
+if _RESUME_PATH not in sys.path:
+    sys.path.insert(0, _RESUME_PATH)
+# Fallback for droplet location
+_DROPLET_PATH = "/opt/job-market-analytics/python"
+if os.path.isdir(_DROPLET_PATH) and _DROPLET_PATH not in sys.path:
+    sys.path.insert(0, _DROPLET_PATH)
+try:
+    from resume import parse_resume, extract_skills, infer_experience_level
+    _RESUME_AVAILABLE = True
+except Exception as _e:
+    _RESUME_AVAILABLE = False
+    _RESUME_IMPORT_ERR = str(_e)
 import psycopg2
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import os
+from datetime import datetime, timedelta
 
-# ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Job Market Analytics",
-    page_icon="📊",
+    page_title="DataHiringIQ · Data & ML Job Search",
+    page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# ── Styling ───────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@300;400;500&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
 
-html, body, [class*="css"] {
-    font-family: 'DM Mono', monospace;
-}
+html, body, [class*="css"] { font-family: 'IBM Plex Mono', monospace; }
+h1, h2, h3 { font-family: 'Bebas Neue', sans-serif !important; letter-spacing: 0.05em; }
 
-h1, h2, h3 { font-family: 'Syne', sans-serif !important; font-weight: 800; }
+.stApp { background-color: #080810; color: #d4d4d8; }
 
-.stApp { background-color: #0a0a0f; color: #e8e6e0; }
-
-section[data-testid="stSidebar"] {
-    background-color: #0f0f18;
-    border-right: 1px solid #1e1e2e;
-}
-
-.metric-card {
-    background: #111120;
-    border: 1px solid #1e1e2e;
-    border-radius: 4px;
-    padding: 20px;
-    margin: 4px 0;
-}
-
-.metric-value {
-    font-family: 'Syne', sans-serif;
-    font-size: 2.2rem;
-    font-weight: 800;
-    color: #c8f542;
-    line-height: 1;
-}
-
-.metric-label {
-    font-size: 0.7rem;
-    color: #666;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    margin-top: 6px;
-}
-
-.score-pill {
-    display: inline-block;
-    padding: 2px 10px;
-    border-radius: 2px;
-    font-size: 0.75rem;
-    font-weight: 500;
-    font-family: 'DM Mono', monospace;
-}
-
-.score-high { background: #2d1f1f; color: #ff6b6b; border: 1px solid #ff6b6b33; }
-.score-med  { background: #2d2a1f; color: #ffd166; border: 1px solid #ffd16633; }
-.score-low  { background: #1f2d1f; color: #06d6a0; border: 1px solid #06d6a033; }
-
-.tag {
-    display: inline-block;
-    background: #1a1a2e;
-    border: 1px solid #2e2e4e;
-    color: #8888aa;
-    font-size: 0.65rem;
-    padding: 2px 8px;
-    border-radius: 2px;
-    margin: 2px;
-}
-
-.section-header {
-    font-family: 'Syne', sans-serif;
-    font-size: 0.65rem;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.2em;
-    color: #444;
-    border-bottom: 1px solid #1e1e2e;
-    padding-bottom: 8px;
-    margin: 24px 0 16px 0;
-}
+section[data-testid="stSidebar"] { display: none; }
 
 div[data-testid="stMetric"] {
-    background: #111120;
-    border: 1px solid #1e1e2e;
-    border-radius: 4px;
-    padding: 16px;
+    background: #0e0e1a;
+    border: 1px solid #1e1e32;
+    border-radius: 3px;
+    padding: 14px;
 }
-
-div[data-testid="stMetric"] label { color: #666 !important; font-size: 0.7rem !important; }
+div[data-testid="stMetric"] label { color: #555 !important; font-size: 0.65rem !important; text-transform: uppercase; letter-spacing: 0.1em; }
 div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-    color: #c8f542 !important;
-    font-family: 'Syne', sans-serif !important;
-    font-weight: 800 !important;
+    color: #e2ff5d !important;
+    font-family: 'Bebas Neue', sans-serif !important;
+    font-size: 2rem !important;
 }
 
-.stDataFrame { border: 1px solid #1e1e2e; }
-.stSelectbox label, .stMultiSelect label { color: #888 !important; font-size: 0.7rem !important; }
-
-.hero-stat {
-    font-family: 'Syne', sans-serif;
-    font-size: 4rem;
-    font-weight: 800;
-    color: #c8f542;
-    line-height: 1;
+.job-card {
+    background: #0c0c18;
+    border: 1px solid #1a1a2e;
+    border-radius: 4px;
+    padding: 18px 20px;
+    margin-bottom: 6px;
+    transition: border-color 0.15s;
 }
-.hero-label {
-    font-size: 0.7rem;
-    color: #555;
+.job-card:hover { border-color: #2a2a4a; }
+.job-card.signal-fresh { border-left: 3px solid #e2ff5d; }
+.job-card.signal-strong { border-left: 3px solid #4ade80; }
+.job-card.signal-moderate { border-left: 3px solid #facc15; }
+.job-card.signal-weak { border-left: 3px solid #f87171; }
+
+.job-title {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #f0f0f4;
+    margin-bottom: 2px;
+}
+.job-company {
+    font-size: 0.75rem;
+    color: #888;
+    margin-bottom: 10px;
+}
+.badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    padding: 2px 8px;
+    border-radius: 2px;
+    margin-right: 4px;
+    font-family: 'IBM Plex Mono', monospace;
     text-transform: uppercase;
-    letter-spacing: 0.15em;
+    letter-spacing: 0.05em;
+}
+.badge-quality { background: #1a2a1a; color: #4ade80; border: 1px solid #4ade8033; }
+.badge-urgency { background: #1a1a2a; color: #818cf8; border: 1px solid #818cf833; }
+.badge-salary { background: #2a1a0a; color: #fb923c; border: 1px solid #fb923c33; }
+.badge-sector { background: #1a1a1a; color: #71717a; border: 1px solid #27272a; }
+.badge-age { background: #0a0a1a; color: #a78bfa; border: 1px solid #a78bfa33; }
+.badge-source { background: #0a1a1a; color: #22d3ee; border: 1px solid #22d3ee22; }
+.badge-location { background: #1a1a0a; color: #a3e635; border: 1px solid #a3e63533; }
+
+.signal-dot-fresh { color: #e2ff5d; }
+.signal-dot-strong { color: #4ade80; }
+.signal-dot-moderate { color: #facc15; }
+.signal-dot-weak { color: #f87171; }
+
+.skill-tag {
+    display: inline-block;
+    background: #13131f;
+    border: 1px solid #1e1e32;
+    color: #6b6b8a;
+    font-size: 0.6rem;
+    padding: 1px 7px;
+    border-radius: 2px;
+    margin: 1px;
+    font-family: 'IBM Plex Mono', monospace;
 }
 
-.stAlert { background: #111120 !important; border-color: #1e1e2e !important; }
+.section-divider {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
+    color: #333;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    border-bottom: 1px solid #131320;
+    padding-bottom: 6px;
+    margin: 20px 0 14px 0;
+}
+
+.paywall {
+    max-width: 560px;
+    margin: 80px auto;
+    text-align: center;
+    padding: 48px;
+    background: #0c0c18;
+    border: 1px solid #1e1e32;
+    border-radius: 6px;
+}
+
+.stSelectbox label, .stMultiSelect label { color: #666 !important; font-size: 0.65rem !important; text-transform: uppercase; letter-spacing: 0.08em; }
+.stTextInput label { color: #666 !important; font-size: 0.65rem !important; }
+
+.hiring-manager-cell {
+    font-size: 0.7rem;
+    color: #4ade80;
+}
+.hiring-manager-empty {
+    font-size: 0.65rem;
+    color: #333;
+    font-style: italic;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # ── DB Connection ─────────────────────────────────────────────────────────────
-def get_connection():
+def get_conn():
     return psycopg2.connect(
-        host=st.secrets.get("db_host", os.getenv("PGHOST", "REMOVED_DB_HOST")),
+        host=st.secrets.get("db_host", os.getenv("PGHOST", "208.68.38.249")),
         port=int(st.secrets.get("db_port", os.getenv("PGPORT", 5432))),
         dbname=st.secrets.get("db_name", os.getenv("PGDATABASE", "job_analytics")),
         user=st.secrets.get("db_user", os.getenv("PGUSER", "lukejones")),
         password=st.secrets.get("db_password", os.getenv("PGPASSWORD", "")),
     )
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=1800)
 def query(sql, params=None):
-    conn = get_connection()
+    conn = get_conn()
     try:
         return pd.read_sql(sql, conn, params=params)
     finally:
         conn.close()
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-with st.sidebar:
+def verify_token(token: str):
+    """Check token against api_keys table. Returns client info or None.
+    Rejects expired tokens (past expires_at)."""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT client_name, client_email, tier, active, expires_at
+            FROM api_keys
+            WHERE api_key_prefix = %s
+              AND active = true
+              AND (expires_at IS NULL OR expires_at > NOW())
+            LIMIT 1
+        """, (token[:8] if len(token) >= 8 else token,))
+        row = cur.fetchone()
+        conn.close()
+        if row:
+            return {"name": row[0], "email": row[1], "tier": row[2], "expires_at": row[4]}
+        return None
+    except Exception:
+        return None
+
+# ── Signal strength mapping ───────────────────────────────────────────────────
+def signal_strength(urgency_score):
+    """Convert hiring urgency score to signal label."""
+    if urgency_score is None:
+        return "unknown", "●"
+    u = float(urgency_score)
+    if u >= 85:
+        return "fresh", "⚡"
+    if u >= 65:
+        return "strong", "●"
+    if u >= 40:
+        return "moderate", "●"
+    return "weak", "●"
+
+def urgency_from_ghost(ghost_prob, days_old):
+    """Invert ghost probability + recency into hiring urgency score."""
+    if ghost_prob is None:
+        ghost_prob = 50
+    base = 100 - float(ghost_prob)
+    # Boost for recency
+    if days_old <= 1:
+        base = min(100, base + 20)
+    elif days_old <= 3:
+        base = min(100, base + 10)
+    elif days_old >= 30:
+        base = max(0, base - 15)
+    return round(base, 1)
+
+def posting_quality(honesty_score):
+    """Map honesty score to posting quality score (same thing, different name)."""
+    return honesty_score
+
+# ── Token check ───────────────────────────────────────────────────────────────
+params = st.query_params
+token = params.get("token", "")
+
+# For demo/dev — allow a hardcoded preview token
+PREVIEW_TOKEN = "preview2026"
+is_preview = (token == PREVIEW_TOKEN)
+
+client = None
+if token and not is_preview:
+    client = verify_token(token)
+
+# ── PAYWALL ───────────────────────────────────────────────────────────────────
+if not token or (not client and not is_preview):
     st.markdown("""
-    <div style="margin-bottom:32px">
-        <div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:#c8f542;letter-spacing:-0.02em">
-            JOB MARKET<br>ANALYTICS
+    <div class="paywall">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:3rem;color:#e2ff5d;
+            letter-spacing:0.05em;line-height:1;margin-bottom:8px">
+            DATAHIRINGIQ
         </div>
-        <div style="font-size:0.6rem;color:#444;text-transform:uppercase;letter-spacing:0.15em;margin-top:4px">
-            Data & ML Hiring Intelligence
+        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;
+            letter-spacing:0.2em;margin-bottom:32px">
+            Data & ML Job Search, Faster
         </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    page = st.radio(
-        "Navigate",
-        ["📊 Overview", "🏢 Company Scorecard", "🔧 Skill Premiums", "🏭 Sector Dashboard", "🎯 Role Explorer", "🔥 Hiring Intensity", "📖 Metrics Guide"],
-        label_visibility="collapsed"
-    )
-
-    st.markdown("---")
-    st.markdown("""
-    <div style="font-size:0.6rem;color:#333;text-transform:uppercase;letter-spacing:0.1em">
-        Coverage
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Quick stats
-    stats = query("""
-        SELECT
-            COUNT(*) FILTER (WHERE status='raw' AND data_tier=1) as active,
-            COUNT(DISTINCT company_id) FILTER (WHERE status='raw' AND data_tier=1) as companies,
-            MAX(ingested_at)::date as last_updated
-        FROM job_postings
-        WHERE data_tier=1
-    """)
-    if not stats.empty:
-        r = stats.iloc[0]
-        st.markdown(f"""
-        <div style="margin-top:8px">
-            <div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:#c8f542">{r['active']:,}</div>
-            <div style="font-size:0.6rem;color:#555">active Tier 1 jobs</div>
-            <div style="font-family:'Syne',sans-serif;font-size:1.4rem;font-weight:800;color:#c8f542;margin-top:8px">{r['companies']:,}</div>
-            <div style="font-size:0.6rem;color:#555">companies hiring</div>
-            <div style="font-size:0.6rem;color:#333;margin-top:12px">Updated {r['last_updated']}</div>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown("""
-    <div style="font-size:0.6rem;color:#333;text-transform:uppercase;letter-spacing:0.1em">Sources</div>
-    <div style="margin-top:6px;font-size:0.65rem;color:#555;line-height:2">
-        Greenhouse · Lever · Ashby<br>Workday · Amazon · Eightfold
-    </div>
-    """, unsafe_allow_html=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: OVERVIEW
-# ══════════════════════════════════════════════════════════════════════════════
-if page == "📊 Overview":
-    # Live counts for hero
-    hero_counts = query("""
-        SELECT
-            COUNT(*) FILTER (WHERE status='raw' AND data_tier=1) as active,
-            COUNT(*) FILTER (WHERE data_tier=1) as total,
-            COUNT(DISTINCT company_id) FILTER (WHERE status='raw' AND data_tier=1) as companies
-        FROM job_postings
-    """)
-    hc = hero_counts.iloc[0] if not hero_counts.empty else None
-    active_count = f"{int(hc['active']):,}" if hc is not None else "5,000+"
-    total_count  = f"{int(hc['total']):,}"  if hc is not None else "6,000+"
-    co_count     = f"{int(hc['companies']):,}" if hc is not None else "1,000+"
-
-    st.markdown(f"""
-    <div style="margin-bottom:40px">
-        <div style="font-family:'Syne',sans-serif;font-size:2.5rem;font-weight:800;color:#e8e6e0;letter-spacing:-0.03em;line-height:1.1">
-            Data & ML Hiring<br>Intelligence
-        </div>
-        <div style="font-size:0.75rem;color:#555;margin-top:12px;max-width:560px">
-            Insights from {active_count} active job postings across {co_count} companies.
-            Understand how compensation, role design, and transparency impact hiring outcomes.
-            Updated nightly from 6 ATS sources.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Top metrics
-    col1, col2, col3, col4, col5 = st.columns(5)
-
-    overview = query("""
-        SELECT
-            COUNT(*) FILTER (WHERE status='raw' AND data_tier=1) as active_jobs,
-            COUNT(DISTINCT company_id) FILTER (WHERE status='raw' AND data_tier=1) as companies,
-            ROUND(AVG(CASE WHEN salary_max_annual IS NOT NULL THEN 1.0 ELSE 0.0 END) FILTER (WHERE status='raw' AND data_tier=1)*100,1) as salary_pct,
-            ROUND(AVG(jh.honesty_score),1) as avg_honesty,
-            COUNT(*) FILTER (WHERE status='expired' AND data_tier=1) as expired
-        FROM job_postings jp
-        LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
-        WHERE data_tier=1
-    """)
-
-    if not overview.empty:
-        r = overview.iloc[0]
-        with col1:
-            st.metric("Active Roles", f"{int(r['active_jobs']):,}")
-        with col2:
-            st.metric("Companies", f"{int(r['companies']):,}")
-        with col3:
-            st.metric("Salary Coverage", f"{r['salary_pct']}%")
-        with col4:
-            st.metric("Avg Honesty Score", f"{r['avg_honesty']}/100")
-        with col5:
-            st.metric("Tracked (Total)", f"{int(r['active_jobs'] + r['expired']):,}")
-
-    # ── Key Market Signals ────────────────────────────────────────────────────
-    signals = query("""
-        SELECT
-            ROUND(AVG(CASE WHEN salary_max_annual IS NULL THEN 1.0 ELSE 0.0 END)*100) as no_salary_pct,
-            COUNT(DISTINCT company_id) as companies
-        FROM job_postings
-        WHERE data_tier=1 AND status='raw'
-    """)
-    skill_signals = query("""
-        SELECT
-            ROUND(PERCENTILE_CONT(0.8) WITHIN GROUP (ORDER BY sc.skill_count)) as p80_skills,
-            ROUND(AVG(sc.skill_count),1) as avg_skills
-        FROM job_postings jp
-        JOIN (SELECT job_id, COUNT(*) as skill_count FROM job_skills GROUP BY job_id) sc
-            ON sc.job_id = jp.job_id
-        WHERE jp.data_tier=1 AND jp.status='raw'
-    """)
-    ghost_signals = query("""
-        SELECT COUNT(*) as high_ghost
-        FROM vw_ghost_job_index
-        WHERE ghost_tier = 'high'
-    """)
-    salary_signals = query("""
-        SELECT
-            ROUND(PERCENTILE_CONT(0.4) WITHIN GROUP (ORDER BY salary_max_annual)) as p40_sal,
-            ROUND(PERCENTILE_CONT(0.6) WITHIN GROUP (ORDER BY salary_max_annual)) as p60_sal
-        FROM job_postings
-        WHERE data_tier=1 AND status='raw'
-          AND salary_max_annual BETWEEN 50000 AND 500000
-    """)
-
-    sv  = signals.iloc[0]      if not signals.empty      else None
-    skv = skill_signals.iloc[0] if not skill_signals.empty else None
-    gv  = ghost_signals.iloc[0] if not ghost_signals.empty else None
-    salv= salary_signals.iloc[0] if not salary_signals.empty else None
-
-    signal_bullets = []
-    if sv  is not None: signal_bullets.append(f"{int(sv['no_salary_pct'])}% of active roles do not disclose salary")
-    if skv is not None: signal_bullets.append(f"Top 20% of roles require {int(skv['p80_skills'])}+ skills — avg is {float(skv['avg_skills']):.0f}")
-    if gv  is not None: signal_bullets.append(f"{int(gv['high_ghost']):,} active roles show high ghost job probability")
-    if salv is not None and pd.notna(salv['p40_sal']) and pd.notna(salv['p60_sal']):
-        signal_bullets.append(f"Mid-market salary bands cluster between ${int(salv['p40_sal']):,}–${int(salv['p60_sal']):,}")
-    signal_bullets.append(f"{active_count} active roles tracked across {co_count} companies as of today")
-
-    bullet_html = "".join([
-        f"<div style='font-size:0.75rem;color:#aaa;padding:4px 0;border-bottom:1px solid #111'>· {b}</div>"
-        for b in signal_bullets
-    ])
-
-    st.markdown("<div class='section-header'>Key Market Signals</div>", unsafe_allow_html=True)
-    st.markdown(f"""
-    <div style="background:#0d0d18;border:1px solid #1e1e2e;border-radius:4px;
-                padding:16px 20px;margin-bottom:24px">
-        {bullet_html}
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("<div class='section-header'>Ghost Job Index — Active Postings</div>", unsafe_allow_html=True)
-
-    ghost = query("""
-        SELECT ghost_tier, COUNT(*) as jobs,
-            ROUND(AVG(ghost_probability)::numeric,1) as avg_prob
-        FROM vw_ghost_job_index
-        GROUP BY ghost_tier
-        ORDER BY avg_prob DESC
-    """)
-
-    if not ghost.empty:
-        gcol1, gcol2, gcol3, gcol4 = st.columns(4)
-        colors = {'high': '#ff6b6b', 'medium': '#ffd166', 'low': '#06d6a0', 'fresh': '#c8f542'}
-        icons  = {'high': '🔴', 'medium': '🟡', 'low': '🟢', 'fresh': '✨'}
-        cols = [gcol1, gcol2, gcol3, gcol4]
-        for i, row in ghost.iterrows():
-            tier = row['ghost_tier']
-            with cols[i % 4]:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div style="font-size:0.6rem;color:#444;text-transform:uppercase;letter-spacing:0.1em">{icons.get(tier,'')} {tier}</div>
-                    <div class="metric-value" style="color:{colors.get(tier,'#c8f542')}">{int(row['jobs']):,}</div>
-                    <div class="metric-label">{row['avg_prob']}% avg probability</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-    st.markdown("<div class='section-header'>Salary Premium by Skill — Top 15</div>", unsafe_allow_html=True)
-
-    skills = query("""
-        SELECT s.skill_name,
-            COUNT(DISTINCT jp.job_id) as jobs,
-            ROUND(AVG(jp.salary_max_annual)) as avg_max,
-            ROUND((AVG(jp.salary_max_annual) -
-                (SELECT AVG(salary_max_annual) FROM job_postings
-                 WHERE data_tier=1 AND salary_max_annual BETWEEN 50000 AND 500000)) /
-                (SELECT AVG(salary_max_annual) FROM job_postings
-                 WHERE data_tier=1 AND salary_max_annual BETWEEN 50000 AND 500000) * 100, 1) as premium_pct
-        FROM job_skills js
-        JOIN skills s ON s.skill_id = js.skill_id
-        JOIN job_postings jp ON jp.job_id = js.job_id
-        WHERE jp.data_tier=1 AND jp.status='raw'
-          AND jp.salary_max_annual BETWEEN 50000 AND 500000
-          AND s.difficulty_relevant = true
-        GROUP BY s.skill_name
-        HAVING COUNT(DISTINCT jp.job_id) >= 30
-        ORDER BY premium_pct DESC
-        LIMIT 15
-    """)
-
-    if not skills.empty:
-        fig = px.bar(
-            skills,
-            x='premium_pct', y='skill_name',
-            orientation='h',
-            color='premium_pct',
-            color_continuous_scale=[[0,'#1a1a2e'],[0.5,'#4444aa'],[1,'#c8f542']],
-            labels={'premium_pct': 'Salary Premium %', 'skill_name': ''},
-            text=skills['premium_pct'].apply(lambda x: f"+{x}%"),
-        )
-        fig.update_layout(
-            plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
-            font_color='#888', font_family='DM Mono',
-            height=420,
-            coloraxis_showscale=False,
-            margin=dict(l=0, r=20, t=0, b=0),
-            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-            yaxis=dict(showgrid=False, categoryorder='total ascending'),
-        )
-        fig.update_traces(textposition='outside', textfont_color='#c8f542', marker_line_width=0)
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("<div class='section-header'>Sector Snapshot</div>", unsafe_allow_html=True)
-
-    sectors = query("""
-        SELECT c.sector,
-            COUNT(DISTINCT jp.job_id) as active_roles,
-            ROUND(AVG(CASE WHEN jp.salary_max_annual IS NOT NULL THEN 1.0 ELSE 0.0 END)*100) as transparency_pct,
-            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY jp.salary_max_annual)
-                FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as median_salary,
-            ROUND(AVG(jh.honesty_score),1) as avg_honesty
-        FROM job_postings jp
-        JOIN companies c ON c.company_id = jp.company_id
-        LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
-        WHERE jp.data_tier=1 AND jp.status='raw' AND c.sector IS NOT NULL
-        GROUP BY c.sector
-        HAVING COUNT(DISTINCT jp.job_id) >= 10
-        ORDER BY active_roles DESC
-        LIMIT 12
-    """)
-
-    if not sectors.empty:
-        sectors['median_salary_fmt'] = sectors['median_salary'].apply(
-            lambda x: f"${int(x/1000)}K" if pd.notna(x) else "—"
-        )
-        fig2 = make_subplots(specs=[[{"secondary_y": True}]])
-        fig2.add_trace(go.Bar(
-            x=sectors['sector'], y=sectors['active_roles'],
-            name='Active Roles', marker_color='#1e1e3e',
-            marker_line_color='#c8f542', marker_line_width=1,
-        ))
-        fig2.add_trace(go.Scatter(
-            x=sectors['sector'], y=sectors['transparency_pct'],
-            name='Transparency %', mode='lines+markers',
-            line=dict(color='#c8f542', width=2),
-            marker=dict(size=6, color='#c8f542'),
-        ), secondary_y=True)
-        fig2.update_layout(
-            plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
-            font_color='#888', font_family='DM Mono',
-            height=320, showlegend=True,
-            legend=dict(bgcolor='#0a0a0f', bordercolor='#1e1e2e', borderwidth=1),
-            margin=dict(l=0, r=0, t=0, b=0),
-            xaxis=dict(showgrid=False, tickangle=-35),
-            yaxis=dict(showgrid=False, title='Active Roles', title_font_color='#444'),
-            yaxis2=dict(showgrid=False, title='Transparency %', title_font_color='#c8f542',
-                        range=[0,100]),
-        )
-        st.plotly_chart(fig2, use_container_width=True)
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: COMPANY SCORECARD
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "🏢 Company Scorecard":
-    st.markdown("""
-    <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:#e8e6e0;margin-bottom:8px">
-        Company Scorecard
-    </div>
-    <div style="font-size:0.7rem;color:#555;margin-bottom:32px">
-        Hiring intelligence + action flags — updated nightly
-    </div>
-    """, unsafe_allow_html=True)
-
-    fcol1, fcol2, fcol3, fcol4 = st.columns([2, 2, 1, 1])
-    with fcol1:
-        sectors_list = query("SELECT DISTINCT sector FROM analytics_analytics.mart_company_scorecard WHERE sector IS NOT NULL ORDER BY sector")
-        sector_filter = st.multiselect("Filter by Sector", sectors_list["sector"].tolist(), placeholder="All sectors")
-    with fcol2:
-        search = st.text_input("Search company", placeholder="e.g. Capital One, OpenAI...")
-    with fcol3:
-        sort_by = st.selectbox("Sort by", ["active_roles", "difficulty_score", "avg_honesty_score", "transparency_pct", "avg_ghost_probability", "salary_below_score"])
-    with fcol4:
-        flag_filter = st.selectbox("Show only", ["All companies", "🚨 Has action flags", "💸 Underpaying", "🧱 Over-specified", "👻 Ghost risk", "🔴 Opaque"])
-
-    where = ["active_roles >= 3"]
-    if sector_filter:
-        where.append(f"sector IN ({','.join([repr(s) for s in sector_filter])})")
-    if search:
-        where.append(f"lower(company_name) LIKE lower('%{search}%')")
-
-    scorecard = query(f"""
-        SELECT company_name, sector, active_roles,
-            difficulty_score, rarity_score, complexity_score,
-            salary_below_score, avg_honesty_score, transparency_pct,
-            avg_ghost_probability, ghost_rate_pct,
-            avg_max_salary, primary_level, primary_workplace,
-            left(top_skills, 150) as top_skills
-        FROM analytics_analytics.mart_company_scorecard
-        WHERE {' AND '.join(where)}
-        ORDER BY {sort_by} DESC NULLS LAST
-        LIMIT 150
-    """)
-
-    def get_flags(row):
-        flags = []
-        if pd.notna(row["salary_below_score"]) and row["salary_below_score"] > 30:
-            flags.append(("underpaying", f"💸 Underpaying ~{int(row['salary_below_score'])}% vs sector median"))
-        if pd.notna(row["complexity_score"]) and row["complexity_score"] > 70:
-            flags.append(("overspec", "🧱 Over-specified role"))
-        if pd.notna(row["avg_ghost_probability"]) and row["avg_ghost_probability"] > 60:
-            flags.append(("ghost", f"👻 Ghost risk {int(row['avg_ghost_probability'])}%"))
-        if pd.notna(row["transparency_pct"]) and row["transparency_pct"] == 0:
-            flags.append(("opaque", "🔴 0% salary transparency"))
-        if pd.notna(row["rarity_score"]) and row["rarity_score"] > 15:
-            flags.append(("rare", "🎯 Niche skill requirements"))
-        return flags
-
-    def get_recs(flags, row):
-        recs = []
-        types = [f[0] for f in flags]
-        if "underpaying" in types and pd.notna(row["avg_max_salary"]) and row["salary_below_score"] < 100:
-            target = int(row["avg_max_salary"] / (1 - row["salary_below_score"] / 100) / 1000) * 1000
-            recs.append(f"Raise max salary to ~${target:,} to match sector median")
-        if "opaque" in types:
-            recs.append("Add salary band — transparency drives 2-3x more applicants")
-        if "overspec" in types:
-            recs.append("Reduce required skills to 5-7 core requirements")
-        if "rare" in types:
-            recs.append("Replace niche tools with transferable equivalents")
-        if "ghost" in types:
-            recs.append("Audit open roles — high ghost probability signals stale postings")
-        return recs
-
-    def estimate_ttf(row):
-        base = 30
-        if pd.notna(row["avg_ghost_probability"]):
-            base += row["avg_ghost_probability"] * 0.3
-        if pd.notna(row["difficulty_score"]):
-            base += row["difficulty_score"] * 0.2
-        return int(base)
-
-    if not scorecard.empty:
-        scorecard["_flags"] = scorecard.apply(get_flags, axis=1)
-        scorecard["_ftypes"] = scorecard["_flags"].apply(lambda f: [x[0] for x in f])
-
-        if flag_filter == "🚨 Has action flags":
-            scorecard = scorecard[scorecard["_flags"].apply(len) > 0]
-        elif flag_filter == "💸 Underpaying":
-            scorecard = scorecard[scorecard["_ftypes"].apply(lambda f: "underpaying" in f)]
-        elif flag_filter == "🧱 Over-specified":
-            scorecard = scorecard[scorecard["_ftypes"].apply(lambda f: "overspec" in f)]
-        elif flag_filter == "👻 Ghost risk":
-            scorecard = scorecard[scorecard["_ftypes"].apply(lambda f: "ghost" in f)]
-        elif flag_filter == "🔴 Opaque":
-            scorecard = scorecard[scorecard["_ftypes"].apply(lambda f: "opaque" in f)]
-
-    st.markdown(f"<div style='font-size:0.65rem;color:#444;margin-bottom:16px'>{len(scorecard)} companies</div>", unsafe_allow_html=True)
-
-    if not scorecard.empty:
-        for _, row in scorecard.iterrows():
-            flags = row["_flags"]
-            recs  = get_recs(flags, row)
-            ttf   = estimate_ttf(row)
-
-            diff  = row["difficulty_score"]
-            hon   = row["avg_honesty_score"]
-            ghost = row["avg_ghost_probability"]
-            trans = row["transparency_pct"]
-
-            diff_class  = "score-high" if pd.notna(diff)  and diff  > 70 else "score-med" if pd.notna(diff)  and diff  > 40 else "score-low"
-            hon_class   = "score-low"  if pd.notna(hon)   and hon   >= 85 else "score-med" if pd.notna(hon)  and hon   >= 70 else "score-high"
-            trans_class = "score-low"  if pd.notna(trans) and trans >= 80 else "score-med" if pd.notna(trans) and trans >= 50 else "score-high"
-
-            diff_str  = f"<span class='score-pill {diff_class}'>Difficulty {diff:.0f}</span>"  if pd.notna(diff)  else ""
-            hon_str   = f"<span class='score-pill {hon_class}'>Honesty {hon:.0f}</span>"        if pd.notna(hon)   else ""
-            ghost_str = f"<span class='score-pill {'score-high' if ghost > 50 else 'score-low'}'>Ghost {ghost:.0f}%</span>" if pd.notna(ghost) else ""
-            trans_str = f"<span class='score-pill {trans_class}'>{trans:.0f}% transparent</span>" if pd.notna(trans) else ""
-            sal_str   = f"${int(row['avg_max_salary']):,} avg max" if pd.notna(row["avg_max_salary"]) else "No salary data"
-
-            skills_html = ""
-            if pd.notna(row["top_skills"]):
-                for sk in row["top_skills"].split(", ")[:8]:
-                    skills_html += f"<span class='tag'>{sk.strip()}</span>"
-
-            border = "#ff6b6b44" if flags else "#1e1e2e"
-            bg     = "#110d0d"   if flags else "#0d0d1a"
-            lvl    = row["primary_level"] or ""
-            wp     = row["primary_workplace"] or ""
-            meta   = f"{lvl} · {wp}" if lvl or wp else ""
-
-            # Main card — no interpolated HTML blocks, just static values
-            st.markdown(f"""
-            <div style="border:1px solid {border};border-radius:4px;padding:16px;margin-bottom:4px;background:{bg}">
-                <div style="display:flex;justify-content:space-between;align-items:flex-start">
-                    <div>
-                        <span style="font-family:'Syne',sans-serif;font-size:1rem;font-weight:700;color:#e8e6e0">{row["company_name"]}</span>
-                        <span style="font-size:0.65rem;color:#444;margin-left:10px">{row["sector"] or "—"}</span>
-                        <span style="font-size:0.6rem;color:#333;margin-left:8px">{meta}</span>
-                    </div>
-                    <div style="text-align:right">
-                        <div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:#c8f542">{int(row["active_roles"])} roles</div>
-                        <div style="font-size:0.6rem;color:#444">{sal_str}</div>
-                    </div>
-                </div>
-                <div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:4px">
-                    {diff_str} {hon_str} {trans_str} {ghost_str}
-                </div>
-                <div style="margin-top:8px">{skills_html}</div>
+        <p style="color:#666;font-size:0.85rem;line-height:1.7;margin-bottom:28px">
+            Stop wasting applications on ghost jobs. Fresh data & ML roles updated nightly from 6 ATS sources — every posting scored for ghost probability and posting quality, with the hiring manager's LinkedIn mapped so you can reach out before disappearing into the resume black hole.
+        </p>
+        <div style="background:#080810;border:1px solid #1e1e32;border-radius:4px;
+            padding:20px;margin-bottom:28px;text-align:left">
+            <div style="font-size:0.6rem;color:#444;text-transform:uppercase;
+                letter-spacing:0.15em;margin-bottom:12px">What you get</div>
+            <div style="font-size:0.75rem;color:#888;line-height:2">
+                👤 Hiring manager LinkedIn — skip the resume black hole, reach out directly<br>
+                ⚡ Fresh postings — last 5 days, updated nightly<br>
+                📊 Posting Quality Score — how complete & specific the role is<br>
+                🎯 Hiring Urgency Score — likelihood the role is actively filling<br>
+                💰 Salary data where disclosed (55%+ of roles)<br>
+                🔧 Required skills for each role<br>
+                🏢 Company sector, size, and hiring intensity
             </div>
-            """, unsafe_allow_html=True)
+        </div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:2rem;color:#e2ff5d;
+            margin-bottom:4px">$19 / 30 days</div>
+        <div style="font-size:0.65rem;color:#444;margin-bottom:24px">
+            One-time payment · Full access for 30 days
+        </div>
+        <a href="https://buy.stripe.com/dRm7sEeBOeET9Iva12fnO01"
+           style="background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
+               font-size:0.75rem;font-weight:500;padding:12px 28px;border-radius:3px;
+               text-decoration:none;letter-spacing:0.05em;text-transform:uppercase">
+            Get Access →
+        </a>
+        <div style="margin-top:20px;font-size:0.6rem;color:#333">
+            datahiringiq.com · jones31luke@gmail.com
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    st.stop()
 
-            # Action flags — separate st.markdown call, no quote conflicts
-            if flags:
-                flag_rows = "".join([f"<div style='font-size:0.7rem;color:#ff6b6b;padding:2px 0'>{f[1]}</div>" for f in flags])
-                st.markdown(f"""
-                <div style="margin:-4px 0 4px 0;padding:10px 12px;background:#1a0f0f;border:1px solid #ff6b6b22;border-left:3px solid #ff6b6b;border-radius:0 0 3px 3px">
-                    <div style="font-size:0.6rem;color:#555;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Action Required</div>
-                    {flag_rows}
-                </div>
-                """, unsafe_allow_html=True)
+# ── HEADER ────────────────────────────────────────────────────────────────────
+client_name = client["name"] if client else "Preview"
 
-                # Recommendations
-                if recs:
-                    rec_rows = "".join([f"<div style='font-size:0.68rem;color:#aaa;padding:2px 0'>→ {r}</div>" for r in recs])
-                    st.markdown(f"""
-                    <div style="margin:-4px 0 4px 0;padding:10px 12px;background:#0f1a0f;border:1px solid #06d6a022;border-left:3px solid #06d6a0;border-radius:0 0 3px 3px">
-                        <div style="font-size:0.6rem;color:#555;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Recommended Fix</div>
-                        {rec_rows}
-                    </div>
-                    """, unsafe_allow_html=True)
+st.markdown(f"""
+<div style="display:flex;justify-content:space-between;align-items:flex-start;
+    margin-bottom:32px;padding-bottom:20px;border-bottom:1px solid #131320">
+    <div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:2.2rem;
+            color:#e2ff5d;letter-spacing:0.05em;line-height:1">
+            DATAHIRINGIQ
+        </div>
+        <div style="font-size:0.6rem;color:#444;text-transform:uppercase;
+            letter-spacing:0.2em;margin-top:2px">
+            Data & ML Job Search · Fresh Nightly
+        </div>
+    </div>
+    <div style="text-align:right">
+        <div style="font-size:0.65rem;color:#555">Welcome, {client_name}</div>
+        <div style="font-size:0.6rem;color:#333;margin-top:2px">
+            Updated nightly · {datetime.now().strftime('%b %d, %Y')}
+        </div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
 
-                # If unchanged
-                pool_reduction = min(60, len(flags) * 15)
-                competing = max(5, int(row["active_roles"] * 3.2)) if pd.notna(row["active_roles"]) else 20
-                st.markdown(f"""
-                <div style="margin:-4px 0 12px 0;padding:10px 12px;background:#111120;border:1px solid #1e1e2e;border-radius:0 0 4px 4px">
-                    <div style="font-size:0.6rem;color:#555;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px">If Unchanged</div>
-                    <div style="font-size:0.68rem;color:#666">
-                        Est. time-to-fill: <span style="color:#ffd166">{ttf}–{ttf+18} days</span>
-                        &nbsp;·&nbsp; Candidate pool: <span style="color:#ff6b6b">-{pool_reduction}%</span>
-                        &nbsp;·&nbsp; Competing roles with better terms: <span style="color:#ff6b6b">{competing}</span>
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
+# ── PERSONALIZE WITH RESUME ────────────────────────────────────────────────────
+# RECRUITER_RESUME_PATCH_v1
+if "resume_skills" not in st.session_state:
+    st.session_state.resume_skills = None
+    st.session_state.resume_skills_names = set()
+    st.session_state.resume_exp = "mid"
+    st.session_state.resume_skill_count = 0
+    st.session_state.resume_filename = None
+
+with st.expander("📄 Personalize with your resume (optional)", expanded=bool(st.session_state.resume_skills)):
+    if not _RESUME_AVAILABLE:
+        st.error(f"Resume module unavailable: {_RESUME_IMPORT_ERR}")
+    else:
+        rcol1, rcol2, rcol3 = st.columns([2, 1, 1])
+        with rcol1:
+            uploaded = st.file_uploader(
+                "Upload .pdf / .docx / .txt",
+                type=["pdf", "docx", "txt"],
+                key="resume_upload",
+                label_visibility="visible",
+            )
+            if uploaded is not None and uploaded.name != st.session_state.resume_filename:
+                try:
+                    file_bytes = uploaded.read()
+                    text_content = parse_resume(file_bytes, uploaded.name)
+                    # RECRUITER_RESUME_HOTFIX_v2: use existing get_conn() helper
+                    from psycopg2.extras import RealDictCursor
+                    _conn = get_conn()
+                    _cur = _conn.cursor(cursor_factory=RealDictCursor)
+                    skills = extract_skills(text_content, _cur)
+                    inferred_exp = infer_experience_level(text_content)
+                    _cur.close()
+                    _conn.close()
+
+                    st.session_state.resume_skills = skills
+                    st.session_state.resume_skills_names = {
+                        v["name"].lower() for v in skills.values()
+                    }
+                    st.session_state.resume_exp = inferred_exp
+                    st.session_state.resume_exp_parsed = inferred_exp  # RECRUITER_RESUME_HOTFIX_v3
+                    if "resume_exp_choice" in st.session_state:
+                        del st.session_state["resume_exp_choice"]  # reset override on new upload
+                    st.session_state.resume_skill_count = len(skills)
+                    st.session_state.resume_filename = uploaded.name
+                    st.success(f"Parsed {uploaded.name}: {len(skills)} skills, level={inferred_exp}")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to parse resume: {e}")
+
+        with rcol2:
+            # RECRUITER_RESUME_HOTFIX_v3: auto-detected default, explicit override
+            level_options = ["entry", "associate", "mid", "senior"]
+            # Track parser's last-inferred value separately from override
+            parser_exp = st.session_state.get("resume_exp_parsed", st.session_state.resume_exp)
+            override_options = [f"Auto-detected ({parser_exp})"] + level_options
+            # Default to "Auto-detected" unless user explicitly picked something
+            new_choice = st.selectbox("Your level (auto-detected, override if needed)", override_options, index=0, key="resume_exp_choice")
+            if new_choice.startswith("Auto-detected"):
+                st.session_state.resume_exp = parser_exp
             else:
-                st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
+                st.session_state.resume_exp = new_choice
+        with rcol3:
+            salary_floor = st.number_input(
+                "Salary floor ($, optional)",
+                min_value=0, max_value=500000, value=0, step=5000,
+                key="resume_salary_floor",
+            )
+            if st.button("Clear resume", key="resume_clear"):
+                st.session_state.resume_skills = None
+                st.session_state.resume_skills_names = set()
+                st.session_state.resume_exp = "mid"
+                st.session_state.resume_exp_parsed = "mid"  # RECRUITER_RESUME_HOTFIX_v3
+                st.session_state.resume_skill_count = 0
+                st.session_state.resume_filename = None
+                if "resume_exp_choice" in st.session_state:
+                    del st.session_state["resume_exp_choice"]
+                st.rerun()
 
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: SKILL PREMIUMS
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "🔧 Skill Premiums":
-    st.markdown("""
-    <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:#e8e6e0;margin-bottom:8px">
-        Skill Salary Premiums
-    </div>
-    <div style="font-size:0.7rem;color:#555;margin-bottom:32px">
-        % compensation lift vs dataset average ($192K baseline) — Tier 1 active roles only
-    </div>
-    """, unsafe_allow_html=True)
-
-    dataset_avg = query("""
-        SELECT ROUND(AVG(salary_max_annual)) as avg
-        FROM job_postings
-        WHERE data_tier=1 AND status='raw'
-          AND salary_max_annual BETWEEN 50000 AND 500000
-    """).iloc[0]['avg']
-
-    all_skills = query("""
-        SELECT s.skill_name,
-            COUNT(DISTINCT jp.job_id) as jobs,
-            ROUND(AVG(jp.salary_max_annual)) as avg_max,
-            ROUND((AVG(jp.salary_max_annual) - %s) / %s * 100, 1) as premium_pct
-        FROM job_skills js
-        JOIN skills s ON s.skill_id = js.skill_id
-        JOIN job_postings jp ON jp.job_id = js.job_id
-        WHERE jp.data_tier=1 AND jp.status='raw'
-          AND jp.salary_max_annual BETWEEN 50000 AND 500000
-          AND s.difficulty_relevant = true
-        GROUP BY s.skill_name
-        HAVING COUNT(DISTINCT jp.job_id) >= 20
-        ORDER BY premium_pct DESC
-    """, params=(float(dataset_avg), float(dataset_avg)))
-
-    scol1, scol2 = st.columns([1, 2])
-    with scol1:
-        selected_skill = st.selectbox("Select a skill", all_skills['skill_name'].tolist())
-        min_jobs = st.slider("Min jobs required", 10, 200, 30)
-
-    filtered = all_skills[all_skills['jobs'] >= min_jobs]
-
-    with scol2:
-        st.metric("Dataset Avg Max Salary", f"${int(dataset_avg):,}")
-
-    # Skill detail
-    if selected_skill:
-        skill_row = all_skills[all_skills['skill_name'] == selected_skill].iloc[0]
-        st.markdown("<div class='section-header'>Selected Skill Detail</div>", unsafe_allow_html=True)
-        dc1, dc2, dc3, dc4 = st.columns(4)
-        with dc1:
-            st.metric("Skill", selected_skill)
-        with dc2:
-            st.metric("Avg Max Salary", f"${int(skill_row['avg_max']):,}")
-        with dc3:
-            premium = skill_row['premium_pct']
-            st.metric("Premium vs Baseline", f"+{premium}%" if premium > 0 else f"{premium}%")
-        with dc4:
-            st.metric("Jobs Requiring It", f"{int(skill_row['jobs']):,}")
-
-        # Top companies for this skill
-        top_cos = query("""
-            SELECT c.company_name, c.sector,
-                COUNT(DISTINCT jp.job_id) as jobs,
-                ROUND(AVG(jp.salary_max_annual)) as avg_salary
-            FROM job_skills js
-            JOIN skills s ON s.skill_id = js.skill_id
-            JOIN job_postings jp ON jp.job_id = js.job_id
-            JOIN companies c ON c.company_id = jp.company_id
-            WHERE jp.data_tier=1 AND jp.status='raw'
-              AND s.skill_name = %s
-              AND jp.salary_max_annual BETWEEN 50000 AND 500000
-            GROUP BY c.company_name, c.sector
-            ORDER BY avg_salary DESC NULLS LAST
-            LIMIT 10
-        """, params=(selected_skill,))
-
-        if not top_cos.empty:
-            st.markdown(f"<div class='section-header'>Top Companies Hiring for {selected_skill}</div>", unsafe_allow_html=True)
-            top_cos['avg_salary'] = top_cos['avg_salary'].apply(lambda x: f"${int(x):,}" if pd.notna(x) else "—")
-            st.dataframe(
-                top_cos.rename(columns={'company_name':'Company','sector':'Sector','jobs':'Roles','avg_salary':'Avg Max Salary'}),
-                use_container_width=True, hide_index=True
+        if st.session_state.resume_skills:
+            skill_chips = " ".join(
+                f"<span style='display:inline-block;background:#1a1a2e;color:#e2ff5d;font-size:0.7rem;padding:3px 9px;border-radius:2px;margin:2px;font-family:IBM Plex Mono,monospace'>{v['name']}</span>"
+                for v in sorted(st.session_state.resume_skills.values(), key=lambda x: -x["confidence"])
+            )
+            st.markdown(
+                f"<div style='margin-top:8px'><span style='font-size:0.7rem;color:#666;text-transform:uppercase;letter-spacing:0.1em'>Extracted skills:</span><br>{skill_chips}</div>",
+                unsafe_allow_html=True,
             )
 
-    st.markdown("<div class='section-header'>All Skills — Salary Premium Ranking</div>", unsafe_allow_html=True)
+# ── FILTERS ───────────────────────────────────────────────────────────────────
+# REMOVE_SECTOR_FILTER_v1: dropped Sector multiselect (recruiter-side concern, not job-seeker)
+sector_filter = []  # kept as empty list so downstream WHERE-clause logic remains a no-op
 
-    fig = px.scatter(
-        filtered,
-        x='jobs', y='premium_pct',
-        text='skill_name',
-        size='jobs',
-        color='premium_pct',
-        color_continuous_scale=[[0,'#1a1a2e'],[0.4,'#333366'],[1,'#c8f542']],
-        labels={'jobs':'Jobs Requiring Skill','premium_pct':'Salary Premium %','skill_name':'Skill'},
+f1, f2, f3 = st.columns([2, 1, 1])
+
+with f1:
+    role_types = ["Data Engineer", "Data Scientist", "ML Engineer", "AI Engineer",
+                  "Data Analyst", "Analytics Engineer", "Leadership", "Revenue/Ops"]
+    role_filter = st.multiselect("Role Type", role_types, placeholder="All roles", key="rf_role")
+
+with f2:
+    workplace_filter = st.selectbox("Workplace", ["All", "Remote", "Hybrid", "Onsite"], key="rf_workplace")
+
+with f3:
+    days_filter = st.selectbox("Posted within", ["3 days", "24 hours", "7 days", "15 days", "30 days"], key="rf_days")
+
+f5, f6, f7, f8 = st.columns([2, 1, 1, 1])
+
+with f5:
+    # RECRUITER_RESUME_PATCH_v1: pre-populate from resume if loaded
+    _default_skills = ""
+    if st.session_state.get("resume_skills"):
+        _default_skills = ", ".join(
+            v["name"] for v in sorted(
+                st.session_state.resume_skills.values(),
+                key=lambda x: -x["confidence"],
+            )
+        )
+    skills_input = st.text_input(
+        "Your skills (comma-separated)",
+        value=_default_skills,
+        placeholder="e.g. Python, SQL, PyTorch",
+        key="rf_skills",
     )
-    fig.update_traces(
-        textposition='top center',
-        textfont=dict(size=9, color='#888', family='DM Mono'),
-        marker=dict(line=dict(width=0)),
-    )
-    fig.update_layout(
-        plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
-        font_color='#888', font_family='DM Mono',
-        height=480,
-        coloraxis_showscale=False,
-        margin=dict(l=0, r=0, t=0, b=0),
-        xaxis=dict(showgrid=False, title='Number of Jobs Requiring Skill'),
-        yaxis=dict(showgrid=False, title='Salary Premium vs Baseline %',
-                   zeroline=True, zerolinecolor='#1e1e2e', zerolinewidth=1),
-    )
-    st.plotly_chart(fig, use_container_width=True)
 
+with f6:
+    exp_filter = st.multiselect("Experience", ["Entry", "Associate", "Mid", "Senior"], placeholder="All levels", key="rf_exp")
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: SECTOR DASHBOARD
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "🏭 Sector Dashboard":
-    st.markdown("""
-    <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:#e8e6e0;margin-bottom:8px">
-        Sector Dashboard
-    </div>
-    <div style="font-size:0.7rem;color:#555;margin-bottom:32px">
-        Hiring activity, compensation, transparency, and ghost rates by sector
-    </div>
-    """, unsafe_allow_html=True)
+with f7:
+    # RECRUITER_RESUME_PATCH_v1: add Best Match option
+    _sort_options = ["Date", "Salary (high)", "Signal", "Skills match"]
+    if st.session_state.get("resume_skills"):
+        _sort_options = ["Best Match"] + _sort_options
+    sort_by = st.selectbox("Sort by", _sort_options, key="rf_sort")
 
-    sector_data = query("""
-        SELECT c.sector,
-            COUNT(DISTINCT jp.job_id) as active_roles,
-            COUNT(DISTINCT c.company_id) as companies,
-            ROUND(AVG(CASE WHEN jp.salary_max_annual IS NOT NULL THEN 1.0 ELSE 0.0 END)*100,1) as transparency_pct,
-            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY jp.salary_max_annual)
-                FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as median_salary,
-            ROUND(AVG(jh.honesty_score),1) as avg_honesty
-        FROM job_postings jp
-        JOIN companies c ON c.company_id = jp.company_id
-        LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
-        WHERE jp.data_tier=1 AND jp.status='raw' AND c.sector IS NOT NULL
-        GROUP BY c.sector
-        HAVING COUNT(DISTINCT jp.job_id) >= 10
-        ORDER BY active_roles DESC
-    """)
+with f8:
+    signal_filter = st.selectbox("Min Signal", ["All", "⚡ Fresh", "● Strong", "● Moderate"], key="rf_signal")
 
-    if not sector_data.empty:
-        # Highlight top/bottom
-        best_trans = sector_data.loc[sector_data['transparency_pct'].idxmax(), 'sector']
-        worst_trans = sector_data.loc[sector_data['transparency_pct'].idxmin(), 'sector']
-        highest_pay = sector_data.loc[sector_data['median_salary'].idxmax(), 'sector']
+# RECRUITER_LOC_PATCH_v1: state + city filters
+f9, f10, f11, f12 = st.columns([2, 2, 1, 1])
+with f9:
+    state_filter = st.multiselect("State", [
+        "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA",
+        "KS","KY","LA","ME","MD","MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ",
+        "NM","NY","NC","ND","OH","OK","OR","PA","RI","SC","SD","TN","TX","UT","VT",
+        "VA","WA","WV","WI","WY","DC"
+    ], placeholder="All states", key="rf_state")
+with f10:
+    city_filter = st.text_input("City contains", placeholder="e.g. New York, Austin", key="rf_city")
+with f11:
+    pass
+with f12:
+    pass
+    salary_only = st.checkbox("Salary only", key="rf_salary")
 
-        hcol1, hcol2, hcol3 = st.columns(3)
-        with hcol1:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div style="font-size:0.6rem;color:#444;text-transform:uppercase;letter-spacing:0.1em">Most Transparent</div>
-                <div style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:#06d6a0;margin-top:4px">{best_trans}</div>
-                <div style="font-size:0.7rem;color:#555">{sector_data[sector_data['sector']==best_trans]['transparency_pct'].values[0]:.0f}% post salary</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with hcol2:
-            st.markdown(f"""
-            <div class="metric-card">
-                <div style="font-size:0.6rem;color:#444;text-transform:uppercase;letter-spacing:0.1em">Least Transparent</div>
-                <div style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:#ff6b6b;margin-top:4px">{worst_trans}</div>
-                <div style="font-size:0.7rem;color:#555">{sector_data[sector_data['sector']==worst_trans]['transparency_pct'].values[0]:.0f}% post salary</div>
-            </div>
-            """, unsafe_allow_html=True)
-        with hcol3:
-            pay_val = sector_data[sector_data['sector']==highest_pay]['median_salary'].values[0]
-            st.markdown(f"""
-            <div class="metric-card">
-                <div style="font-size:0.6rem;color:#444;text-transform:uppercase;letter-spacing:0.1em">Highest Paying</div>
-                <div style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:#c8f542;margin-top:4px">{highest_pay}</div>
-                <div style="font-size:0.7rem;color:#555">${int(pay_val/1000)}K median max</div>
-            </div>
-            """, unsafe_allow_html=True)
+days_map = {"24 hours": 1, "3 days": 3, "7 days": 7, "15 days": 15, "30 days": 30}
+days_back = days_map[days_filter]
 
-        st.markdown("<div class='section-header'>Transparency vs Median Salary</div>", unsafe_allow_html=True)
+# ── QUERY ─────────────────────────────────────────────────────────────────────
+role_family_sql = """
+CASE
+    WHEN lower(r.role_name) ~ 'director|head of|vp |vice president|chief data|chief analytics|manager, data|manager, analytics|manager, ml|data science manager|analytics manager' THEN 'Leadership'
+    WHEN lower(r.role_name) ~ 'data engineer|analytics engineer|data architect|data platform|mlops|data reliability|data infrastructure' THEN 'Data Engineer'
+    WHEN lower(r.role_name) ~ 'machine learning|ml engineer|ai/ml|computer vision|applied scientist|applied researcher|ai researcher' THEN 'ML Engineer'
+    WHEN lower(r.role_name) ~ 'ai engineer|applied ai|llm engineer|ai specialist' THEN 'AI Engineer'
+    WHEN lower(r.role_name) ~ 'data scientist|quantitative researcher|research scientist|data science' THEN 'Data Scientist'
+    WHEN lower(r.role_name) ~ 'analytics engineer' THEN 'Analytics Engineer'
+    WHEN lower(r.role_name) ~ 'data analyst|business analyst|bi analyst|financial analyst|fp&a|product analyst|marketing analyst|fraud analyst|growth analyst|risk analyst|pricing analyst' THEN 'Data Analyst'
+    WHEN lower(r.role_name) ~ 'sales op|revenue op|marketing op|operations analyst|revops' THEN 'Revenue/Ops'
+    ELSE 'Other'
+END
+"""
 
-        fig = px.scatter(
-            sector_data.dropna(subset=['median_salary']),
-            x='transparency_pct', y='median_salary',
-            text='sector', size='active_roles',
-            color='avg_honesty',
-            color_continuous_scale=[[0,'#ff6b6b'],[0.5,'#ffd166'],[1,'#06d6a0']],
-            labels={
-                'transparency_pct': 'Salary Transparency %',
-                'median_salary': 'Median Max Salary ($)',
-                'avg_honesty': 'Honesty Score'
-            },
-        )
-        fig.update_traces(
-            textposition='top center',
-            textfont=dict(size=9, color='#888', family='DM Mono'),
-            marker=dict(line=dict(width=0)),
-        )
-        fig.update_layout(
-            plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
-            font_color='#888', font_family='DM Mono',
-            height=420,
-            margin=dict(l=0, r=0, t=0, b=0),
-            xaxis=dict(showgrid=False, range=[0,105]),
-            yaxis=dict(showgrid=False,
-                       tickformat='$,.0f'),
-            coloraxis_colorbar=dict(title='Honesty', tickfont=dict(color='#888')),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+# REMOVE_STALE_WORKDAY_FILTERS_v1: dropped two stale defensive filters
+# - workday-must-have-posted-date (195 legit jobs were being hidden)
+# - same-day workday < 300 cap (Apr 19 had 948 jobs all filtered)
+where_clauses = [
+    "jp.data_tier = 1",
+    "jp.status = 'raw'",
+    "(jp.role_category IS NULL OR jp.role_category != 'non_data')",
+    # LOC_COUNTRY_FILTER_v1: drop misclassified foreign + junk strings
+    "(jp.loc_country = 'US' OR (jp.loc_country = 'unknown' AND jp.loc_city IS NULL))",
+    f"(CASE WHEN jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END) > NOW() - INTERVAL '{days_back} days'",
+]
 
-        st.markdown("<div class='section-header'>Full Sector Table</div>", unsafe_allow_html=True)
+if sector_filter:
+    sectors_str = ",".join([f"'{s}'" for s in sector_filter])
+    where_clauses.append(f"c.sector IN ({sectors_str})")
 
-        display = sector_data.copy()
-        display['median_salary'] = display['median_salary'].apply(
-            lambda x: f"${int(x/1000)}K" if pd.notna(x) else "—"
-        )
-        display['transparency_pct'] = display['transparency_pct'].apply(lambda x: f"{x:.0f}%")
-        display['avg_honesty'] = display['avg_honesty'].apply(lambda x: f"{x:.1f}" if pd.notna(x) else "—")
-
-        st.dataframe(
-            display.rename(columns={
-                'sector':'Sector','active_roles':'Active Roles',
-                'companies':'Companies','transparency_pct':'Transparency',
-                'median_salary':'Median Max Salary','avg_honesty':'Honesty Score'
-            }),
-            use_container_width=True, hide_index=True
-        )
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: ROLE EXPLORER
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "🎯 Role Explorer":
-    st.markdown("""
-    <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:#e8e6e0;margin-bottom:8px">
-        Role Explorer
-    </div>
-    <div style="font-size:0.7rem;color:#555;margin-bottom:32px">
-        Compensation, skills, and hiring patterns by role family — Tier 1 active roles only
-    </div>
-    """, unsafe_allow_html=True)
-
-    ROLE_FAMILY_SQL = """
-    CASE
-        WHEN lower(r.role_name) ~ 'director|head of|vp |vice president|chief data|chief analytics|manager, data|manager, analytics|manager, ml|manager, machine|data science manager|analytics manager|marketing analytics manager|marketing science' THEN 'Leadership'
-        WHEN lower(r.role_name) ~ 'data engineer|analytics engineer|data architect|data platform engineer|mlops|data science engineer|data reliability|data infrastructure' THEN 'Data Engineer'
-        WHEN lower(r.role_name) ~ 'machine learning|ml engineer|ai/ml|computer vision|applied scientist|applied researcher|ai researcher' THEN 'ML Engineer'
-        WHEN lower(r.role_name) ~ 'ai engineer|applied ai|llm engineer|ai specialist|ai data' THEN 'AI Engineer'
-        WHEN lower(r.role_name) ~ 'data scientist|quantitative researcher|research scientist|data science' THEN 'Data Scientist'
-        WHEN lower(r.role_name) ~ 'data analyst|business analyst|bi analyst|financial analyst|fp&a|reporting analyst|business intelligence|product analyst|marketing analyst|fraud analyst|growth analyst|risk analyst|pricing analyst|compensation analyst|credit analyst|actuarial|clinical data|data quality analyst|analytics consultant|analytics lead|data analytics|data product manager|product manager, data|senior data product' THEN 'Data Analyst'
-        WHEN lower(r.role_name) ~ 'sales op|revenue op|marketing op|operations analyst|operations manager|operations lead|operations specialist|operations director|revops' THEN 'Revenue/Ops'
-        ELSE 'Other'
-    END
-    """
-
-    ROLE_COLORS = {
-        'Data Analyst':  '#4488ff',
-        'Data Engineer': '#c8f542',
-        'Data Scientist':'#ffd166',
-        'ML Engineer':   '#06d6a0',
-        'AI Engineer':   '#ff6b6b',
-        'Leadership':    '#cc88ff',
-        'Revenue/Ops':   '#ff9944',
-        'Other':         '#555577',
+if role_filter:
+    role_conditions = []
+    role_map = {
+        "Data Engineer": "data engineer|analytics engineer|data architect|data platform|mlops",
+        "Data Scientist": "data scientist|quantitative researcher|research scientist",
+        "ML Engineer": "machine learning|ml engineer|ai/ml|computer vision|applied scientist",
+        "AI Engineer": "ai engineer|applied ai|llm engineer|ai specialist",
+        "Data Analyst": "data analyst|business analyst|bi analyst|financial analyst|product analyst|marketing analyst",
+        "Analytics Engineer": "analytics engineer",
+        "Leadership": "director|head of|vp |vice president|chief data|manager, data|manager, analytics",
+        "Revenue/Ops": "sales op|revenue op|marketing op|operations analyst|revops",
     }
+    for rf in role_filter:
+        if rf in role_map:
+            role_conditions.append(f"lower(r.role_name) ~ '{role_map[rf]}'")
+    if role_conditions:
+        where_clauses.append(f"({' OR '.join(role_conditions)})")
 
-    # ── Role family overview strip ────────────────────────────────────────────
-    family_overview = query(f"""
-        SELECT
-            {ROLE_FAMILY_SQL} as role_family,
-            COUNT(DISTINCT jp.job_id) as jobs,
-            ROUND(AVG(jp.salary_max_annual) FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as avg_max,
-            ROUND(AVG(CASE WHEN jp.salary_max_annual IS NOT NULL THEN 1.0 ELSE 0.0 END)*100,1) as transparency_pct
-        FROM job_postings jp
-        JOIN roles r ON r.role_id = jp.role_id
-        WHERE jp.data_tier=1 AND jp.status='raw'
-        GROUP BY 1
-        ORDER BY jobs DESC
-    """)
+if salary_only:
+    where_clauses.append("jp.salary_max_annual IS NOT NULL")
 
-    FAMILY_ORDER = ['Data Analyst','Data Engineer','Data Scientist','ML Engineer','AI Engineer','Leadership','Revenue/Ops','Other']
-    family_overview['role_family'] = pd.Categorical(family_overview['role_family'], categories=FAMILY_ORDER, ordered=True)
-    family_overview = family_overview.sort_values('role_family')
+where_sql = " AND ".join(where_clauses)
 
-    # Pill selector
-    selected_family = st.radio(
-        "Role Family",
-        family_overview['role_family'].tolist(),
-        horizontal=True,
-        label_visibility="collapsed"
+fresh_jobs = query(f"""
+    SELECT
+        jp.job_id,
+        r.role_name,
+        c.company_name,
+        c.sector,
+        jp.source,
+        jp.ingested_at,
+        jp.salary_min_annual,
+        jp.salary_max_annual,
+        jp.workplace_type,
+        jp.experience_level,
+        jp.job_url,
+        cc.full_name as contact_name,
+        cc.title as contact_title,
+        cc.email as contact_email,
+        cc.linkedin_url as contact_linkedin,
+        jp.loc_city,
+        jp.loc_state,
+        jp.loc_country,
+        jh.honesty_score,
+        gi.ghost_probability,
+        EXTRACT(EPOCH FROM (NOW() - CASE WHEN jp.posted_date IS NOT NULL THEN jp.posted_date::timestamp ELSE jp.date_found END))/3600 as hours_old,
+        STRING_AGG(DISTINCT s.skill_name, ', ' ORDER BY s.skill_name) as skills,
+        ch.employee_count,
+        {role_family_sql} as role_family
+    FROM job_postings jp
+    JOIN roles r ON r.role_id = jp.role_id
+    LEFT JOIN companies c ON c.company_id = jp.company_id
+    LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
+    LEFT JOIN vw_ghost_job_index gi ON gi.job_id = jp.job_id
+    LEFT JOIN job_skills js ON js.job_id = jp.job_id
+    LEFT JOIN skills s ON s.skill_id = js.skill_id
+    LEFT JOIN company_headcount ch ON ch.company_name = c.company_name
+    -- RECRUITER_LOC_PATCH_v1: dropped LEFT JOIN locations (use jp.loc_* instead)
+    LEFT JOIN LATERAL (
+        SELECT full_name, title, email, linkedin_url
+        FROM company_contacts cc2
+        WHERE cc2.company_id = jp.company_id
+          AND cc2.email IS NOT NULL
+        ORDER BY cc2.fetched_at DESC
+        LIMIT 1
+    ) cc ON true
+    WHERE {where_sql}
+    GROUP BY jp.job_id, r.role_name, c.company_name, c.sector, jp.source,
+             jp.ingested_at, jp.salary_min_annual, jp.salary_max_annual,
+             jp.workplace_type, jp.experience_level, jp.job_url, jh.honesty_score,
+             jp.loc_city, jp.loc_state, jp.loc_country,
+             cc.full_name, cc.title, cc.email, cc.linkedin_url,
+             gi.ghost_probability, ch.employee_count
+    ORDER BY (CASE WHEN jp.posted_date IS NOT NULL
+                THEN jp.posted_date::timestamp
+                ELSE jp.date_found::timestamp END) DESC
+    LIMIT 2000
+""")
+
+# ── COMPUTE SCORES ────────────────────────────────────────────────────────────
+if not fresh_jobs.empty:
+    fresh_jobs["hours_old"] = fresh_jobs["hours_old"].fillna(0).astype(float)
+    fresh_jobs["days_old"] = (fresh_jobs["hours_old"] / 24).round(1)
+    fresh_jobs["urgency_score"] = fresh_jobs.apply(
+        lambda r: urgency_from_ghost(r["ghost_probability"], r["days_old"]), axis=1
     )
+    fresh_jobs["quality_score"] = fresh_jobs["honesty_score"]
+    fresh_jobs["signal_label"] = fresh_jobs["urgency_score"].apply(lambda u: signal_strength(u)[0])
+    fresh_jobs["signal_icon"] = fresh_jobs["urgency_score"].apply(lambda u: signal_strength(u)[1])
 
-    fam = family_overview[family_overview['role_family'] == selected_family].iloc[0]
-    fam_color = ROLE_COLORS.get(selected_family, '#c8f542')
+    # Apply signal filter
+    signal_map = {"⚡ Fresh": "fresh", "● Strong": "strong", "● Moderate": "moderate"}
+    if signal_filter != "All" and signal_filter in signal_map:
+        min_signal = signal_map[signal_filter]
+        signal_order = ["weak", "moderate", "strong", "fresh"]
+        min_idx = signal_order.index(min_signal)
+        fresh_jobs = fresh_jobs[fresh_jobs["signal_label"].apply(
+            lambda s: signal_order.index(s) >= min_idx if s in signal_order else False
+        )]
 
+    # Apply workplace filter
+    if workplace_filter != "All":
+        wp_map = {"Remote": "remote", "Hybrid": "hybrid", "Onsite": "onsite"}
+        fresh_jobs = fresh_jobs[fresh_jobs["workplace_type"] == wp_map[workplace_filter]]
 
-    # ── Market Reality Block ──────────────────────────────────────────────────
-    reality = query(f"""
-        SELECT
-            ROUND(AVG(sc.skill_count), 1)                                           as avg_skills,
-            PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY sc.skill_count)            as p75_skills,
-            ROUND(AVG(jp.salary_max_annual)
-                FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000))       as avg_max,
-            ROUND(AVG(jp.salary_min_annual)
-                FILTER (WHERE jp.salary_min_annual BETWEEN 30000 AND 500000))       as avg_min,
-            ROUND(AVG(CASE WHEN jp.salary_max_annual IS NOT NULL
-                THEN 1.0 ELSE 0.0 END) * 100, 1)                                   as transparency_pct,
-            ROUND(AVG(jp.salary_max_annual)
-                FILTER (WHERE jp.experience_level = 'entry'
-                    AND jp.salary_max_annual BETWEEN 50000 AND 500000))             as entry_avg_max,
-            ROUND(AVG(jp.salary_max_annual)
-                FILTER (WHERE jp.experience_level = 'mid'
-                    AND jp.salary_max_annual BETWEEN 50000 AND 500000))             as mid_avg_max,
-            ROUND(AVG(jp.salary_max_annual)
-                FILTER (WHERE jp.experience_level = 'senior'
-                    AND jp.salary_max_annual BETWEEN 50000 AND 500000))             as senior_avg_max,
-            COUNT(DISTINCT jp.job_id)                                               as total_jobs,
-            ROUND(AVG(CASE WHEN jp.workplace_type = 'remote'
-                THEN 1.0 ELSE 0.0 END) * 100)                                      as remote_pct
-        FROM job_postings jp
-        JOIN roles r ON r.role_id = jp.role_id
-        LEFT JOIN (
-            SELECT job_id, COUNT(*) as skill_count FROM job_skills GROUP BY job_id
-        ) sc ON sc.job_id = jp.job_id
-        WHERE jp.data_tier = 1 AND jp.status = 'raw'
-          AND ({ROLE_FAMILY_SQL}) = %s
-    """, params=(selected_family,))
+    # Experience filter
+    if exp_filter:
+        exp_map = {"Entry": "entry", "Associate": "associate", "Mid": "mid", "Senior": "senior"}
+        selected_levels = [exp_map[e] for e in exp_filter]
+        fresh_jobs = fresh_jobs[fresh_jobs["experience_level"].isin(selected_levels)]
 
-    if not reality.empty:
-        rv = reality.iloc[0]
+    # RECRUITER_LOC_PATCH_v1: state + city filters
+    if state_filter:
+        fresh_jobs = fresh_jobs[fresh_jobs["loc_state"].isin(state_filter)]
+    if city_filter:
+        city_lower = city_filter.strip().lower()
+        fresh_jobs = fresh_jobs[
+            fresh_jobs["loc_city"].fillna("").str.lower().str.contains(city_lower, na=False)
+        ]
 
-        # ── Build alerts from real data ───────────────────────────────────────
-        alerts = []
-        insights = []
-
-        # Transparency
-        t = float(rv['transparency_pct']) if pd.notna(rv['transparency_pct']) else 0
-        if t < 50:
-            alerts.append(f"Only {t:.0f}% of {selected_family} roles post salary — most employers are hiding comp")
-        elif t >= 70:
-            alerts.append(f"{t:.0f}% of {selected_family} roles post salary — above-average transparency for this market")
-
-        # Entry-level salary
-        if pd.notna(rv['entry_avg_max']):
-            entry = int(rv['entry_avg_max'])
-            alerts.append(f"Entry-level avg max: ${entry:,} — {'competitive starting point' if entry > 120000 else 'below $120K signals high competition for junior roles'}")
-
-        # Skill complexity
-        if pd.notna(rv['p75_skills']):
-            p75 = int(rv['p75_skills'])
-            avg_sk = float(rv['avg_skills']) if pd.notna(rv['avg_skills']) else 0
-            alerts.append(f"Avg role requires {avg_sk:.0f} skills — top 25% of postings require {p75}+")
-
-        # Remote
-        if pd.notna(rv['remote_pct']):
-            rpct = int(rv['remote_pct'])
-            alerts.append(f"{rpct}% of active {selected_family} roles are remote")
-
-        # ── What this means (hiring vs job seeking) ───────────────────────────
-        if pd.notna(rv['avg_max']) and pd.notna(rv['mid_avg_max']):
-            avg_max = int(rv['avg_max'])
-            mid_max = int(rv['mid_avg_max'])
-            p75_sk  = int(rv['p75_skills']) if pd.notna(rv['p75_skills']) else 8
-            insights.append(("If you're hiring", [
-                f"Posting below ${int(mid_max * 0.9):,} puts you below 90% of mid-level market rate",
-                f"Requiring {p75_sk + 2}+ skills places your role in the top 10% complexity — expect longer fill times",
-                f"{'Adding' if t < 50 else 'Keeping'} a salary band {'increases' if t < 50 else 'maintains'} applicant volume significantly",
-            ]))
-            insights.append(("If you're job seeking", [
-                f"Market mid-level max is ${mid_max:,} — negotiate toward this if offered less",
-                f"Roles requiring {p75_sk}+ skills are harder to fill — stronger negotiating position",
-                f"{'Only' if t < 50 else ''} {t:.0f}% of roles show salary — always ask in screening",
-            ]))
-
-        # ── Render ────────────────────────────────────────────────────────────
-        st.markdown(f"""
-        <div style="background:#0d0d1a;border:1px solid #ff6b6b33;border-left:3px solid #ff6b6b;
-                    border-radius:4px;padding:16px 20px;margin-bottom:24px">
-            <div style="font-size:0.6rem;color:#ff6b6b;text-transform:uppercase;
-                        letter-spacing:0.15em;margin-bottom:12px">
-                🚨 Market Reality — {selected_family} (US, Active Roles)
-            </div>
-            {"".join([f"<div style='font-size:0.75rem;color:#ccc;padding:3px 0'>⚠️ {a}</div>" for a in alerts])}
-        </div>
-        """, unsafe_allow_html=True)
-
-        if insights:
-            ic1, ic2 = st.columns(2)
-            for col, (label, points) in zip([ic1, ic2], insights):
-                with col:
-                    point_html = "".join([
-                        f"<div style='font-size:0.7rem;color:#aaa;padding:3px 0'>→ {p}</div>"
-                        for p in points
-                    ])
-                    st.markdown(f"""
-                    <div style="background:#111120;border:1px solid #1e1e2e;border-left:3px solid #c8f542;
-                                border-radius:4px;padding:14px 16px;height:100%">
-                        <div style="font-size:0.6rem;color:#c8f542;text-transform:uppercase;
-                                    letter-spacing:0.12em;margin-bottom:10px">🎯 {label}</div>
-                        {point_html}
-                    </div>
-                    """, unsafe_allow_html=True)
-
-        st.markdown("<div style='margin-bottom:8px'></div>", unsafe_allow_html=True)
-
-    st.markdown("<div class='section-header'>Overview</div>", unsafe_allow_html=True)
-
-
-    # Hero metrics
-    hc1, hc2, hc3, hc4 = st.columns(4)
-    with hc1:
-        st.metric("Active Roles", f"{int(fam['jobs']):,}")
-    with hc2:
-        avg_max = f"${int(fam['avg_max']):,}" if pd.notna(fam['avg_max']) else "—"
-        st.metric("Avg Max Salary", avg_max)
-    with hc3:
-        st.metric("Salary Transparency", f"{fam['transparency_pct']}%")
-    with hc4:
-        # Share of total market
-        total = family_overview['jobs'].sum()
-        share = round(int(fam['jobs']) / total * 100, 1)
-        st.metric("Market Share", f"{share}%")
-
-    # ── Salary by experience level ────────────────────────────────────────────
-    st.markdown("<div class='section-header'>Compensation by Experience Level</div>", unsafe_allow_html=True)
-
-    sal_by_level = query(f"""
-        SELECT
-            jp.experience_level,
-            COUNT(DISTINCT jp.job_id) as jobs,
-            ROUND(AVG(jp.salary_min_annual) FILTER (WHERE jp.salary_min_annual BETWEEN 30000 AND 500000)) as avg_min,
-            ROUND(AVG(jp.salary_max_annual) FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as avg_max,
-            ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY jp.salary_max_annual)
-                FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as median_max
-        FROM job_postings jp
-        JOIN roles r ON r.role_id = jp.role_id
-        WHERE jp.data_tier=1 AND jp.status='raw'
-          AND jp.experience_level IS NOT NULL
-          AND ({ROLE_FAMILY_SQL}) = %s
-        GROUP BY jp.experience_level
-        ORDER BY
-            CASE jp.experience_level
-                WHEN 'entry' THEN 1 WHEN 'associate' THEN 2
-                WHEN 'mid' THEN 3 WHEN 'senior' THEN 4
-                ELSE 5 END
-    """, params=(selected_family,))
-
-    if not sal_by_level.empty and sal_by_level['avg_max'].notna().any():
-        lc1, lc2 = st.columns([2, 1])
-        with lc1:
-            fig = go.Figure()
-            fig.add_trace(go.Bar(
-                x=sal_by_level['experience_level'],
-                y=sal_by_level['avg_min'],
-                name='Avg Min',
-                marker_color='#1e1e3e',
-                marker_line_color=fam_color,
-                marker_line_width=1,
-            ))
-            fig.add_trace(go.Bar(
-                x=sal_by_level['experience_level'],
-                y=sal_by_level['avg_max'],
-                name='Avg Max',
-                marker_color=fam_color,
-                opacity=0.85,
-            ))
-            fig.update_layout(
-                plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
-                font_color='#888', font_family='DM Mono',
-                height=280, barmode='overlay',
-                margin=dict(l=0, r=0, t=0, b=0),
-                xaxis=dict(showgrid=False),
-                yaxis=dict(showgrid=False, tickformat='$,.0f'),
-                legend=dict(bgcolor='#0a0a0f', bordercolor='#1e1e2e', borderwidth=1),
-            )
-            st.plotly_chart(fig, use_container_width=True)
-
-        with lc2:
-            for _, lvl in sal_by_level.iterrows():
-                avg = f"${int(lvl['avg_max']):,}" if pd.notna(lvl['avg_max']) else "—"
-                st.markdown(f"""
-                <div style="padding:10px;border:1px solid #1e1e2e;border-radius:3px;margin-bottom:6px;background:#111120">
-                    <div style="font-size:0.6rem;color:#444;text-transform:uppercase">{lvl['experience_level']}</div>
-                    <div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:{fam_color}">{avg}</div>
-                    <div style="font-size:0.6rem;color:#333">{int(lvl['jobs'])} roles</div>
-                </div>
-                """, unsafe_allow_html=True)
+    # Compute skills match score
+    user_skills = [s.strip().lower() for s in skills_input.split(",") if s.strip()] if skills_input else []
+    if user_skills:
+        def _match_score(skills_str):
+            if not skills_str or pd.isna(skills_str):
+                return 0
+            job_skills = [s.strip().lower() for s in str(skills_str).split(",")]
+            matches = sum(1 for us in user_skills if any(us in js or js in us for js in job_skills))
+            return int((matches / max(len(user_skills), 1)) * 100)
+        fresh_jobs["skills_match"] = fresh_jobs["skills"].apply(_match_score)
     else:
-        st.markdown("<div style='color:#444;font-size:0.7rem'>Not enough salary data for this role family.</div>", unsafe_allow_html=True)
+        fresh_jobs["skills_match"] = 0
 
-    # ── Top skills ────────────────────────────────────────────────────────────
-    st.markdown("<div class='section-header'>Top Skills & Salary Premium</div>", unsafe_allow_html=True)
+    # RECRUITER_RESUME_PATCH_v1: full match_score using resume + exp + salary + freshness
+    if st.session_state.get("resume_skills"):
+        _resume_skill_names = st.session_state.resume_skills_names
+        _resume_exp = st.session_state.resume_exp
+        _salary_floor = st.session_state.get("resume_salary_floor", 0) or 0
+        _exp_order = {"entry": 0, "associate": 1, "mid": 2, "senior": 3}
 
-    top_skills = query(f"""
-        SELECT s.skill_name,
-            COUNT(DISTINCT jp.job_id) as jobs,
-            ROUND(AVG(jp.salary_max_annual) FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as avg_max,
-            ROUND((AVG(jp.salary_max_annual) FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000) -
-                (SELECT AVG(jp2.salary_max_annual)
-                 FROM job_postings jp2 JOIN roles r2 ON r2.role_id = jp2.role_id
-                 WHERE jp2.data_tier=1 AND jp2.status='raw'
-                   AND jp2.salary_max_annual BETWEEN 50000 AND 500000
-                   AND (CASE WHEN lower(r2.role_name) ~ 'director|head of|vp |vice president|chief data|chief analytics|manager, data|manager, analytics|manager, ml|manager, machine|data science manager|analytics manager|marketing analytics manager|marketing science' THEN 'Leadership'
-                        WHEN lower(r2.role_name) ~ 'data engineer|analytics engineer|data architect|data platform engineer|mlops|data science engineer|data reliability|data infrastructure' THEN 'Data Engineer'
-                        WHEN lower(r2.role_name) ~ 'machine learning|ml engineer|ai/ml|computer vision|applied scientist|applied researcher|ai researcher' THEN 'ML Engineer'
-                        WHEN lower(r2.role_name) ~ 'ai engineer|applied ai|llm engineer|ai specialist|ai data' THEN 'AI Engineer'
-                        WHEN lower(r2.role_name) ~ 'data scientist|quantitative researcher|research scientist|data science' THEN 'Data Scientist'
-                        WHEN lower(r2.role_name) ~ 'data analyst|business analyst|bi analyst|financial analyst|fp&a|reporting analyst|business intelligence|product analyst|marketing analyst|fraud analyst|growth analyst|risk analyst|pricing analyst|compensation analyst|credit analyst|actuarial|clinical data|data quality analyst|analytics consultant|analytics lead|data analytics|data product manager|product manager, data|senior data product' THEN 'Data Analyst'
-                        WHEN lower(r2.role_name) ~ 'sales op|revenue op|marketing op|operations analyst|operations manager|operations lead|operations specialist|operations director|revops' THEN 'Revenue/Ops'
-                        ELSE 'Other' END) = %(fam)s))
-                /
-                NULLIF((SELECT AVG(jp2.salary_max_annual)
-                 FROM job_postings jp2 JOIN roles r2 ON r2.role_id = jp2.role_id
-                 WHERE jp2.data_tier=1 AND jp2.status='raw'
-                   AND jp2.salary_max_annual BETWEEN 50000 AND 500000
-                   AND (CASE WHEN lower(r2.role_name) ~ 'director|head of|vp |vice president|chief data|chief analytics|manager, data|manager, analytics|manager, ml|manager, machine|data science manager|analytics manager|marketing analytics manager|marketing science' THEN 'Leadership'
-                        WHEN lower(r2.role_name) ~ 'data engineer|analytics engineer|data architect|data platform engineer|mlops|data science engineer|data reliability|data infrastructure' THEN 'Data Engineer'
-                        WHEN lower(r2.role_name) ~ 'machine learning|ml engineer|ai/ml|computer vision|applied scientist|applied researcher|ai researcher' THEN 'ML Engineer'
-                        WHEN lower(r2.role_name) ~ 'ai engineer|applied ai|llm engineer|ai specialist|ai data' THEN 'AI Engineer'
-                        WHEN lower(r2.role_name) ~ 'data scientist|quantitative researcher|research scientist|data science' THEN 'Data Scientist'
-                        WHEN lower(r2.role_name) ~ 'data analyst|business analyst|bi analyst|financial analyst|fp&a|reporting analyst|business intelligence|product analyst|marketing analyst|fraud analyst|growth analyst|risk analyst|pricing analyst|compensation analyst|credit analyst|actuarial|clinical data|data quality analyst|analytics consultant|analytics lead|data analytics|data product manager|product manager, data|senior data product' THEN 'Data Analyst'
-                        WHEN lower(r2.role_name) ~ 'sales op|revenue op|marketing op|operations analyst|operations manager|operations lead|operations specialist|operations director|revops' THEN 'Revenue/Ops'
-                        ELSE 'Other' END) = %(fam)s), 0)
-                * 100, 1) as premium_pct
-        FROM job_postings jp
-        JOIN roles r ON r.role_id = jp.role_id
-        JOIN job_skills js ON js.job_id = jp.job_id
-        JOIN skills s ON s.skill_id = js.skill_id
-        WHERE jp.data_tier=1 AND jp.status='raw'
-          AND s.difficulty_relevant = true
-          AND ({ROLE_FAMILY_SQL}) = %(fam)s
-        GROUP BY s.skill_name
-        HAVING COUNT(DISTINCT jp.job_id) >= 5
-        ORDER BY jobs DESC
-        LIMIT 20
-    """, params={"fam": selected_family})
+        def _exp_fit(row_exp):
+            if not row_exp or row_exp not in _exp_order:
+                return 0.7
+            if _resume_exp not in _exp_order:
+                return 0.5
+            d = abs(_exp_order[row_exp] - _exp_order[_resume_exp])
+            if d == 0: return 1.0
+            if d == 1: return 0.5
+            return 0.0
 
-    if not top_skills.empty:
-        sc1, sc2 = st.columns(2)
-        with sc1:
-            fig2 = px.bar(
-                top_skills.head(15),
-                x='jobs', y='skill_name',
-                orientation='h',
-                color='jobs',
-                color_continuous_scale=[[0,'#1a1a2e'],[1,fam_color]],
-                labels={'jobs':'Roles Requiring Skill','skill_name':''},
-                text='jobs',
-            )
-            fig2.update_layout(
-                plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
-                font_color='#888', font_family='DM Mono',
-                height=400, coloraxis_showscale=False,
-                margin=dict(l=0, r=20, t=0, b=0),
-                xaxis=dict(showgrid=False, showticklabels=False),
-                yaxis=dict(showgrid=False, categoryorder='total ascending'),
-                title=dict(text='Most In-Demand', font=dict(color='#555', size=10)),
-            )
-            fig2.update_traces(textposition='outside', textfont_color=fam_color, marker_line_width=0)
-            st.plotly_chart(fig2, use_container_width=True)
+        def _salary_fit(smin, smax):
+            if _salary_floor <= 0:
+                return 1.0
+            high = smax if pd.notna(smax) and smax else (smin if pd.notna(smin) else None)
+            if high is None:
+                return 0.7
+            if high >= _salary_floor:
+                return 1.0
+            if high >= _salary_floor * 0.9:
+                return 0.5
+            return 0.0
 
-        with sc2:
-            premium_data = top_skills.dropna(subset=['premium_pct']).sort_values('premium_pct', ascending=False).head(15)
-            if not premium_data.empty:
-                fig3 = px.bar(
-                    premium_data,
-                    x='premium_pct', y='skill_name',
-                    orientation='h',
-                    color='premium_pct',
-                    color_continuous_scale=[[0,'#1a1a2e'],[0.5,'#333366'],[1,fam_color]],
-                    labels={'premium_pct':'Salary Premium %','skill_name':''},
-                    text=premium_data['premium_pct'].apply(lambda x: f"+{x}%" if x > 0 else f"{x}%"),
-                )
-                fig3.update_layout(
-                    plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
-                    font_color='#888', font_family='DM Mono',
-                    height=400, coloraxis_showscale=False,
-                    margin=dict(l=0, r=20, t=0, b=0),
-                    xaxis=dict(showgrid=False, zeroline=True, zerolinecolor='#1e1e2e', showticklabels=False),
-                    yaxis=dict(showgrid=False, categoryorder='total ascending'),
-                    title=dict(text='Salary Premium vs Baseline', font=dict(color='#555', size=10)),
-                )
-                fig3.update_traces(textposition='outside', textfont_color=fam_color, marker_line_width=0)
-                st.plotly_chart(fig3, use_container_width=True)
+        def _full_match_score(row):
+            skills_str = row.get("skills") or ""
+            if pd.isna(skills_str) or not skills_str:
+                job_skill_names = set()
+            else:
+                job_skill_names = {s.strip().lower() for s in str(skills_str).split(",") if s.strip()}
+            n_job = len(job_skill_names)
+            if n_job == 0:
+                return 0
+            overlap = _resume_skill_names & job_skill_names
+            raw = len(overlap) / n_job
+            if n_job == 1: raw = min(raw, 0.40)
+            elif n_job == 2: raw = min(raw, 0.55)
+            elif n_job == 3: raw = min(raw, 0.75)
 
-    # ── Workplace & remote breakdown ──────────────────────────────────────────
-    st.markdown("<div class='section-header'>Work Model & Top Hiring Companies</div>", unsafe_allow_html=True)
+            ef = _exp_fit(row.get("experience_level"))
+            sf = _salary_fit(row.get("salary_min_annual"), row.get("salary_max_annual"))
 
-    wc1, wc2 = st.columns([1, 2])
+            q = row.get("quality_score")
+            if pd.notna(q) and q is not None:
+                qn = float(q) / 100.0 if float(q) > 1.0 else float(q)
+                qn = max(0.0, min(1.0, qn))
+            else:
+                qn = 0.5
+            hours = float(row.get("hours_old") or 0)
+            days_old = hours / 24.0
+            if days_old <= 3: decay = 1.0
+            elif days_old >= 30: decay = 0.5
+            else: decay = 1.0 - (0.5 * (days_old - 3) / 27)
+            fq = qn * decay
 
-    with wc1:
-        workplace = query(f"""
-            SELECT
-                COALESCE(jp.workplace_type, 'unspecified') as workplace_type,
-                COUNT(*) as jobs
-            FROM job_postings jp
-            JOIN roles r ON r.role_id = jp.role_id
-            WHERE jp.data_tier=1 AND jp.status='raw'
-              AND ({ROLE_FAMILY_SQL}) = %s
-            GROUP BY 1 ORDER BY 2 DESC
-        """, params=(selected_family,))
+            score = 0.50 * raw + 0.20 * ef + 0.20 * sf + 0.10 * fq
+            return int(round(score * 100))
 
-        if not workplace.empty:
-            wp_colors = {'remote':'#06d6a0','hybrid':'#ffd166','onsite':'#ff6b6b','unspecified':'#333355'}
-            fig4 = px.pie(
-                workplace, values='jobs', names='workplace_type',
-                color='workplace_type',
-                color_discrete_map=wp_colors,
-                hole=0.6,
-            )
-            fig4.update_layout(
-                plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
-                font_color='#888', font_family='DM Mono',
-                height=280, margin=dict(l=0, r=0, t=0, b=0),
-                showlegend=True,
-                legend=dict(bgcolor='#0a0a0f', bordercolor='#1e1e2e', borderwidth=1, font=dict(size=10)),
-            )
-            fig4.update_traces(textinfo='percent', textfont_size=10)
-            st.plotly_chart(fig4, use_container_width=True)
+        fresh_jobs["match_score"] = fresh_jobs.apply(_full_match_score, axis=1)
 
-    with wc2:
-        top_cos = query(f"""
-            SELECT c.company_name, c.sector,
-                COUNT(DISTINCT jp.job_id) as roles,
-                ROUND(AVG(jp.salary_max_annual) FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000)) as avg_max,
-                ROUND(AVG(CASE WHEN jp.salary_max_annual IS NOT NULL THEN 1.0 ELSE 0.0 END)*100) as transparency_pct
-            FROM job_postings jp
-            JOIN roles r ON r.role_id = jp.role_id
-            JOIN companies c ON c.company_id = jp.company_id
-            WHERE jp.data_tier=1 AND jp.status='raw'
-              AND ({ROLE_FAMILY_SQL}) = %s
-            GROUP BY c.company_name, c.sector
-            ORDER BY roles DESC
-            LIMIT 12
-        """, params=(selected_family,))
-
-        if not top_cos.empty:
-            top_cos['avg_max'] = top_cos['avg_max'].apply(lambda x: f"${int(x):,}" if pd.notna(x) else "—")
-            top_cos['transparency_pct'] = top_cos['transparency_pct'].apply(lambda x: f"{int(x)}%" if pd.notna(x) else "—")
-            st.dataframe(
-                top_cos.rename(columns={
-                    'company_name':'Company','sector':'Sector',
-                    'roles':'Roles','avg_max':'Avg Max','transparency_pct':'Transparent'
-                }),
-                use_container_width=True, hide_index=True
-            )
-
-
-
-
-elif page == "📖 Metrics Guide":
-
-    st.markdown("""
-    <div style="margin-bottom:32px">
-        <div style="font-family:'Syne',sans-serif;font-size:0.65rem;color:#444;
-            text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px">Documentation</div>
-        <h1 style="font-family:'Syne',sans-serif;font-size:2.2rem;font-weight:800;
-            color:#e8e6e0;margin:0;line-height:1.1">How Our Metrics Work</h1>
-        <p style="color:#555;margin-top:12px;max-width:600px;font-size:0.85rem;line-height:1.7">
-            Every score on this platform is derived from live ATS data — not surveys, not estimates.
-            Here's exactly how each metric is calculated.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div style="background:#0f0f18;border:1px solid #1e1e2e;border-radius:6px;padding:28px 32px;margin-bottom:16px">
-        <div style="display:flex;align-items:flex-start;gap:20px">
-            <div style="font-size:2rem;line-height:1;flex-shrink:0">👻</div>
-            <div style="flex:1">
-                <div style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:#e8e6e0;margin-bottom:6px">Ghost Job Probability</div>
-                <div style="font-size:0.75rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px">0–100 · Higher = More Likely a Ghost</div>
-                <p style="color:#888;font-size:0.85rem;line-height:1.7;margin-bottom:16px">
-                    A ghost job is a posting that is no longer actively being filled — the position may be on hold,
-                    already filled internally, or posted to build a pipeline. We calculate ghost probability using three signals:
-                </p>
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
-                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
-                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Days Active</div>
-                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">40%</div>
-                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Postings older than 30 days score higher. After 60 days the signal is strong. Most legitimate openings fill within 45 days.</div>
-                    </div>
-                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
-                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Repost Count</div>
-                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">35%</div>
-                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Jobs taken down and reposted repeatedly are a strong signal of pipeline-building rather than active hiring.</div>
-                    </div>
-                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
-                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Company Velocity</div>
-                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">25%</div>
-                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Companies with rapidly declining active role counts are more likely to have stale postings not yet cleaned up.</div>
-                    </div>
-                </div>
-                <div style="background:#0a0a0f;border-left:3px solid #c8f542;padding:12px 16px;border-radius:0 4px 4px 0">
-                    <div style="font-size:0.75rem;color:#888;line-height:1.6">
-                        <strong style="color:#c8f542">Tiers:</strong>
-                        &nbsp;🔴 High (75+) · 🟡 Medium (40–74) · 🟢 Low (15–39) · ✨ Fresh (&lt;15)
-                        &nbsp;·&nbsp; Fresh jobs are under 7 days old and score near zero regardless of other signals.
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div style="background:#0f0f18;border:1px solid #1e1e2e;border-radius:6px;padding:28px 32px;margin-bottom:16px">
-        <div style="display:flex;align-items:flex-start;gap:20px">
-            <div style="font-size:2rem;line-height:1;flex-shrink:0">🎯</div>
-            <div style="flex:1">
-                <div style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:#e8e6e0;margin-bottom:6px">Honesty Score</div>
-                <div style="font-size:0.75rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px">0–100 · Higher = More Transparent</div>
-                <p style="color:#888;font-size:0.85rem;line-height:1.7;margin-bottom:16px">
-                    Measures how transparent and specific a job posting is. Vague postings with no salary,
-                    generic requirements, and boilerplate descriptions score low. Honest postings score high.
-                </p>
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px;margin-bottom:16px">
-                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
-                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Salary Disclosed</div>
-                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">+40 pts</div>
-                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Disclosing a salary range is the single biggest honesty signal.</div>
-                    </div>
-                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
-                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Description Quality</div>
-                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">+30 pts</div>
-                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Scored on length, specificity, and ratio of responsibilities to boilerplate.</div>
-                    </div>
-                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
-                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Requirement Fit</div>
-                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">+20 pts</div>
-                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Checks whether years of experience match the stated level. "Entry level: 5+ years" scores a penalty.</div>
-                    </div>
-                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px">
-                        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:6px">Location Clarity</div>
-                        <div style="font-size:0.85rem;color:#c8f542;font-weight:600;margin-bottom:6px">+10 pts</div>
-                        <div style="font-size:0.75rem;color:#666;line-height:1.5">Specifying city/state or clearly stating remote earns full credit.</div>
-                    </div>
-                </div>
-                <div style="background:#0a0a0f;border-left:3px solid #c8f542;padding:12px 16px;border-radius:0 4px 4px 0">
-                    <div style="font-size:0.75rem;color:#888;line-height:1.6">
-                        <strong style="color:#c8f542">Interpretation:</strong>
-                        &nbsp;80–100 = High quality · 60–79 = Acceptable · Below 60 = Proceed with caution
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div style="background:#0f0f18;border:1px solid #1e1e2e;border-radius:6px;padding:28px 32px;margin-bottom:16px">
-        <div style="display:flex;align-items:flex-start;gap:20px">
-            <div style="font-size:2rem;line-height:1;flex-shrink:0">🔥</div>
-            <div style="flex:1">
-                <div style="font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:#e8e6e0;margin-bottom:6px">Hiring Intensity</div>
-                <div style="font-size:0.75rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px">Active Roles ÷ Total Employees × 100</div>
-                <p style="color:#888;font-size:0.85rem;line-height:1.7;margin-bottom:16px">
-                    The percentage of a company's workforce they are actively trying to hire for in data and ML roles right now.
-                    Normalizes for company size — a startup with 5 open roles is hiring more aggressively than a Fortune 500 with 50.
-                </p>
-                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px">
-                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px;text-align:center">
-                        <div style="font-family:'Syne',sans-serif;font-size:1.6rem;font-weight:800;color:#c8f542">&lt;0.5%</div>
-                        <div style="font-size:0.7rem;color:#666;margin-top:6px;text-transform:uppercase;letter-spacing:0.08em">Steady State</div>
-                        <div style="font-size:0.75rem;color:#555;margin-top:6px;line-height:1.5">Normal ongoing hiring. No urgency signal.</div>
-                    </div>
-                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px;text-align:center">
-                        <div style="font-family:'Syne',sans-serif;font-size:1.6rem;font-weight:800;color:#c8f542">0.5–2%</div>
-                        <div style="font-size:0.7rem;color:#666;margin-top:6px;text-transform:uppercase;letter-spacing:0.08em">Active Build-Out</div>
-                        <div style="font-size:0.75rem;color:#555;margin-top:6px;line-height:1.5">Actively scaling the data team. Good signal for recruiters.</div>
-                    </div>
-                    <div style="background:#0a0a0f;border:1px solid #1e1e2e;border-radius:4px;padding:14px;text-align:center">
-                        <div style="font-family:'Syne',sans-serif;font-size:1.6rem;font-weight:800;color:#c8f542">&gt;2%</div>
-                        <div style="font-size:0.7rem;color:#666;margin-top:6px;text-transform:uppercase;letter-spacing:0.08em">Hyper-Growth</div>
-                        <div style="font-size:0.75rem;color:#555;margin-top:6px;line-height:1.5">Major data team expansion. High urgency. Act fast.</div>
-                    </div>
-                </div>
-                <div style="background:#0a0a0f;border-left:3px solid #c8f542;padding:12px 16px;border-radius:0 4px 4px 0">
-                    <div style="font-size:0.75rem;color:#888;line-height:1.6">
-                        <strong style="color:#c8f542">Data source:</strong>
-                        &nbsp;Employee counts sourced from Wikipedia, public filings, and verified company data.
-                        Intensity is scoped to <em>data and ML roles only</em> — not total company hiring.
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div style="background:#0f0f18;border:1px solid #1e1e2e;border-radius:6px;padding:28px 32px;margin-bottom:16px">
-        <div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:#e8e6e0;margin-bottom:16px">📡 Data Sources & Methodology</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px">
-            <div>
-                <div style="font-size:0.7rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">ATS Sources (Tier 1)</div>
-                <div style="font-size:0.8rem;color:#666;line-height:2">Greenhouse · Lever · Ashby · Workday · Eightfold · Amazon<br><span style="color:#444">Full job descriptions, salary data, and metadata</span></div>
-            </div>
-            <div>
-                <div style="font-size:0.7rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Update Cadence</div>
-                <div style="font-size:0.8rem;color:#666;line-height:2">All sources crawled nightly at 6am UTC<br>Scores rebuilt daily at 11am UTC<br><span style="color:#444">~6,000 active Tier 1 jobs tracked</span></div>
-            </div>
-            <div>
-                <div style="font-size:0.7rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Scope</div>
-                <div style="font-size:0.8rem;color:#666;line-height:2">Data, ML, and analytics roles only<br>US market focus · Remote roles included<br><span style="color:#444">500+ companies with headcount data</span></div>
-            </div>
-            <div>
-                <div style="font-size:0.7rem;color:#444;text-transform:uppercase;letter-spacing:0.1em;margin-bottom:10px">Salary Data</div>
-                <div style="font-size:0.8rem;color:#666;line-height:2">Parsed directly from job descriptions<br>Annualized from hourly/monthly where needed<br><span style="color:#444">~55% of active jobs have salary data</span></div>
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-
-
-elif page == "🔥 Hiring Intensity":
-    st.markdown("""
-    <div style="margin-bottom:32px">
-        <div style="font-family:'Syne',sans-serif;font-size:0.65rem;color:#444;
-            text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px">Company Intelligence</div>
-        <h1 style="font-family:'Syne',sans-serif;font-size:2.2rem;font-weight:800;
-            color:#e8e6e0;margin:0;line-height:1.1">Hiring Intensity</h1>
-        <p style="color:#555;margin-top:12px;max-width:600px;font-size:0.85rem;line-height:1.7">
-            Active data & ML roles as a % of total headcount. Normalizes for company size —
-            a startup hiring 5 data roles is more aggressive than a Fortune 500 hiring 50.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # Filters
-    hi_col1, hi_col2, hi_col3 = st.columns([2, 1, 1])
-    with hi_col1:
-        hi_sectors = query("SELECT DISTINCT sector FROM analytics_analytics.mart_company_scorecard WHERE sector IS NOT NULL AND hiring_intensity_pct IS NOT NULL ORDER BY sector")
-        hi_sector_filter = st.multiselect("Filter by Sector", hi_sectors["sector"].tolist(), placeholder="All sectors", key="hi_sector")
-    with hi_col2:
-        min_employees = st.selectbox("Min headcount", [0, 200, 500, 1000, 2000, 5000], index=0, key="hi_min_emp")
-    with hi_col3:
-        hi_sort = st.selectbox("Sort by", ["hiring_intensity_pct", "active_roles", "employee_count"], key="hi_sort")
-
-    hi_where = ["hiring_intensity_pct IS NOT NULL", f"employee_count >= {min_employees}"]
-    if hi_sector_filter:
-        hi_where.append(f"sector IN ({','.join([repr(s) for s in hi_sector_filter])})")
-
-    intensity_data = query(f"""
-        SELECT company_name, sector, active_roles, employee_count,
-               hiring_intensity_pct, avg_max_salary
-        FROM analytics_analytics.mart_company_scorecard
-        WHERE {' AND '.join(hi_where)}
-        ORDER BY {hi_sort} DESC NULLS LAST
-        LIMIT 500
-    """)
-
-    if not intensity_data.empty:
-        # Summary metrics
-        m1, m2, m3, m4 = st.columns(4)
-        with m1:
-            st.metric("Companies Tracked", f"{len(intensity_data):,}")
-        with m2:
-            avg_i = intensity_data['hiring_intensity_pct'].mean()
-            st.metric("Avg Intensity", f"{avg_i:.2f}%")
-        with m3:
-            hyper = len(intensity_data[intensity_data['hiring_intensity_pct'] >= 2])
-            st.metric("Hyper-Growth (>2%)", f"{hyper}")
-        with m4:
-            active_build = len(intensity_data[(intensity_data['hiring_intensity_pct'] >= 0.5) & (intensity_data['hiring_intensity_pct'] < 2)])
-            st.metric("Active Build-Out (0.5–2%)", f"{active_build}")
-
-        # Tier bands
-        st.markdown("<div class='section-header'>Intensity Distribution</div>", unsafe_allow_html=True)
-        tc1, tc2, tc3 = st.columns(3)
-        hyper_df  = intensity_data[intensity_data['hiring_intensity_pct'] >= 2]
-        active_df = intensity_data[(intensity_data['hiring_intensity_pct'] >= 0.5) & (intensity_data['hiring_intensity_pct'] < 2)]
-        steady_df = intensity_data[intensity_data['hiring_intensity_pct'] < 0.5]
-
-        for col, df, label, color, desc in [
-            (tc1, hyper_df,  "🔥 Hyper-Growth",    "#ff6b6b", ">2% intensity"),
-            (tc2, active_df, "📈 Active Build-Out", "#ffd166", "0.5–2% intensity"),
-            (tc3, steady_df, "🟢 Steady State",     "#06d6a0", "<0.5% intensity"),
-        ]:
-            with col:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <div style="font-size:0.6rem;color:#444;text-transform:uppercase;letter-spacing:0.1em">{label}</div>
-                    <div style="font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:{color};margin-top:4px">{len(df)}</div>
-                    <div style="font-size:0.65rem;color:#555;margin-top:4px">{desc}</div>
-                    <div style="margin-top:10px;font-size:0.7rem;color:#666;line-height:1.8">
-                        {"<br>".join([f"<span style='color:#888'>{r['company_name']}</span> <span style='color:{color}'>{r['hiring_intensity_pct']}%</span>" for _, r in df.head(5).iterrows()])}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-        # Bubble chart
-        st.markdown("<div class='section-header'>Roles vs Headcount — Bubble = Intensity</div>", unsafe_allow_html=True)
-
-        chart_df = intensity_data[intensity_data['employee_count'] > 0].copy()
-        chart_df['size'] = chart_df['hiring_intensity_pct'].clip(upper=10)
-        chart_df['label'] = chart_df['company_name'] + "<br>" + chart_df['hiring_intensity_pct'].apply(lambda x: f"{x:.1f}%")
-
-        fig = px.scatter(
-            chart_df,
-            x='employee_count', y='active_roles',
-            size='size', color='hiring_intensity_pct',
-            color_continuous_scale=[[0,'#1a1a2e'],[0.3,'#333366'],[0.7,'#ffd166'],[1,'#ff6b6b']],
-            hover_name='company_name',
-            hover_data={'sector': True, 'hiring_intensity_pct': ':.2f', 'employee_count': ':,', 'active_roles': True, 'size': False},
-            labels={'employee_count': 'Total Employees', 'active_roles': 'Active Data/ML Roles', 'hiring_intensity_pct': 'Intensity %'},
-            log_x=True,
-        )
-        fig.update_layout(
-            plot_bgcolor='#0a0a0f', paper_bgcolor='#0a0a0f',
-            font_color='#888', font_family='DM Mono',
-            height=480,
-            margin=dict(l=0, r=0, t=0, b=0),
-            xaxis=dict(showgrid=False, title='Total Employees (log scale)'),
-            yaxis=dict(showgrid=False, title='Active Data & ML Roles'),
-            coloraxis_colorbar=dict(title='Intensity %', tickfont=dict(color='#888')),
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Full table
-        st.markdown("<div class='section-header'>Full Rankings</div>", unsafe_allow_html=True)
-
-        display = intensity_data.copy()
-        display['hiring_intensity_pct'] = display['hiring_intensity_pct'].apply(lambda x: f"{x:.2f}%")
-        display['avg_max_salary'] = display['avg_max_salary'].apply(lambda x: f"${int(x):,}" if pd.notna(x) else "—")
-        display['employee_count'] = display['employee_count'].apply(lambda x: f"{int(x):,}" if pd.notna(x) else "—")
-
-        def tier_label(row):
-            pct = float(row['hiring_intensity_pct'].replace('%',''))
-            if pct >= 2: return "🔥 Hyper"
-            if pct >= 0.5: return "📈 Active"
-            return "🟢 Steady"
-
-        display['tier'] = display.apply(tier_label, axis=1)
-
-        st.dataframe(
-            display[['company_name','sector','tier','active_roles','employee_count','hiring_intensity_pct','avg_max_salary']]
-            .rename(columns={
-                'company_name':'Company', 'sector':'Sector', 'tier':'Tier',
-                'active_roles':'Active Roles', 'employee_count':'Employees',
-                'hiring_intensity_pct':'Intensity', 'avg_max_salary':'Avg Max Salary'
-            }),
-            use_container_width=True, hide_index=True
-        )
+        # Compute matched/missing skills per row for the expander
+        def _matched(skills_str):
+            if not skills_str or pd.isna(skills_str): return ""
+            job_set = {s.strip().lower() for s in str(skills_str).split(",") if s.strip()}
+            return ", ".join(sorted(s.title() for s in (_resume_skill_names & job_set)))
+        def _missing(skills_str):
+            if not skills_str or pd.isna(skills_str): return ""
+            job_set = {s.strip().lower() for s in str(skills_str).split(",") if s.strip()}
+            return ", ".join(sorted(s.title() for s in (job_set - _resume_skill_names)))
+        fresh_jobs["_matched_skills_str"] = fresh_jobs["skills"].apply(_matched)
+        fresh_jobs["_missing_skills_str"] = fresh_jobs["skills"].apply(_missing)
     else:
-        st.markdown("<div style='color:#444;font-size:0.8rem'>No data available with current filters.</div>", unsafe_allow_html=True)
+        fresh_jobs["match_score"] = 0
+        fresh_jobs["_matched_skills_str"] = ""
+        fresh_jobs["_missing_skills_str"] = ""
 
+    # Sort
+    if sort_by == "Salary (high)":
+        fresh_jobs = fresh_jobs.sort_values(by="salary_max_annual", ascending=False, na_position="last")
+    elif sort_by == "Signal":
+        signal_rank = {"fresh": 0, "strong": 1, "moderate": 2, "weak": 3}
+        fresh_jobs["_sig_rank"] = fresh_jobs["signal_label"].map(lambda s: signal_rank.get(s, 99))
+        fresh_jobs = fresh_jobs.sort_values(by=["_sig_rank", "urgency_score"], ascending=[True, False])
+        fresh_jobs = fresh_jobs.drop(columns=["_sig_rank"])
+    elif sort_by == "Skills match" and user_skills:
+        fresh_jobs = fresh_jobs.sort_values(by="skills_match", ascending=False)
+    elif sort_by == "Best Match" and st.session_state.get("resume_skills"):
+        # RECRUITER_RESUME_PATCH_v1
+        fresh_jobs = fresh_jobs.sort_values(by="match_score", ascending=False)
 
-# ── Footer ────────────────────────────────────────────────────────────────────
+# ── SUMMARY METRICS ───────────────────────────────────────────────────────────
+m1, m2, m3, m4, m5 = st.columns(5)
+with m1:
+    st.metric("Fresh Roles", f"{len(fresh_jobs):,}" if not fresh_jobs.empty else "0")
+with m2:
+    if not fresh_jobs.empty:
+        fresh_count = len(fresh_jobs[fresh_jobs["signal_label"] == "fresh"])
+        st.metric("⚡ Fresh Signal", f"{fresh_count:,}")
+    else:
+        st.metric("⚡ Fresh Signal", "0")
+with m3:
+    if not fresh_jobs.empty and fresh_jobs["quality_score"].notna().any():
+        avg_q = fresh_jobs["quality_score"].dropna().mean()
+        st.metric("Avg Quality Score", f"{avg_q:.0f}/100")
+    else:
+        st.metric("Avg Quality Score", "—")
+with m4:
+    if not fresh_jobs.empty:
+        sal_pct = fresh_jobs["salary_max_annual"].notna().mean() * 100
+        st.metric("Salary Disclosed", f"{sal_pct:.0f}%")
+    else:
+        st.metric("Salary Disclosed", "—")
+with m5:
+    if not fresh_jobs.empty:
+        cos = fresh_jobs["company_name"].nunique()
+        st.metric("Companies", f"{cos:,}")
+    else:
+        st.metric("Companies", "0")
+
+# ── JOB FEED ─────────────────────────────────────────────────────────────────
+# GAPS_v2_PATCH: skill gaps query a wider slice (respects role_filter, ignores exp_filter)
+if st.session_state.get("resume_skills"):
+    from collections import Counter
+    import statistics as _stats
+
+    # Build SQL filter for the gap query: same as main feed, but ignore exp_filter
+    # so users see aspirational skills at all levels
+    _gap_where = [
+        "jp.data_tier = 1",
+        "jp.status = 'raw'",
+        "(jp.role_category IS NULL OR jp.role_category != 'non_data')",
+        "(jp.loc_country = 'US' OR (jp.loc_country = 'unknown' AND jp.loc_city IS NULL))",
+    ]
+    # Inherit role filter from existing UI (role_filter is the multiselect)
+    if role_filter:
+        _role_categories_for_gaps = []
+        _role_map = {
+            "Data Engineer": "data_engineering",
+            "Data Scientist": "data_science",
+            "ML Engineer": "ml_engineering",
+            "AI Engineer": "ai_research",
+            "Data Analyst": "data_analytics",
+            "Analytics Engineer": "analytics_engineering",
+        }
+        _selected_categories = [_role_map[r] for r in role_filter if r in _role_map]
+        if _selected_categories:
+            _cats_str = ",".join([f"'{c}'" for c in _selected_categories])
+            _gap_where.append(f"jp.role_category IN ({_cats_str})")
+
+    _gap_sql = f'''
+        SELECT
+            jp.job_id,
+            COALESCE(jp.salary_max_annual, jp.salary_min_annual) AS salary,
+            STRING_AGG(DISTINCT s.skill_name, ', ' ORDER BY s.skill_name) AS skills
+        FROM job_postings jp
+        LEFT JOIN job_skills js ON js.job_id = jp.job_id
+        LEFT JOIN skills s ON s.skill_id = js.skill_id
+        WHERE {' AND '.join(_gap_where)}
+        GROUP BY jp.job_id, jp.salary_min_annual, jp.salary_max_annual
+        HAVING COUNT(DISTINCT js.skill_id) > 0
+    '''
+    _gap_jobs = query(_gap_sql)
+
+    _resume_names = st.session_state.resume_skills_names
+    _gap_counter = Counter()
+    _gap_salaries = {}
+    _strong_match_salaries = []
+    for _, _row in _gap_jobs.iterrows():
+        _job_skills_str = _row.get("skills") or ""
+        if pd.isna(_job_skills_str) or not _job_skills_str:
+            continue
+        _job_set = {s.strip().lower() for s in str(_job_skills_str).split(",") if s.strip()}
+        if not _job_set:
+            continue
+        _overlap = _resume_names & _job_set
+        _overlap_pct = len(_overlap) / len(_job_set)
+        _missing_in_job = _job_set - _resume_names
+        _smax = _row.get("salary")
+        if _overlap_pct >= 0.70 and _smax and pd.notna(_smax):
+            _strong_match_salaries.append(float(_smax))
+        for _msk in _missing_in_job:
+            _other = _job_set - {_msk}
+            if not _other: continue
+            _other_pct = len(_resume_names & _other) / len(_other)
+            if _other_pct >= 0.70:
+                _gap_counter[_msk] += 1
+                if _smax and pd.notna(_smax):
+                    _gap_salaries.setdefault(_msk, []).append(float(_smax))
+
+    if _gap_counter and _strong_match_salaries:
+        _current_median = _stats.median(_strong_match_salaries)
+        _all_gaps = []
+        for _sk, _cnt in _gap_counter.most_common(30):
+            if _cnt < 3: continue
+            _sals = _gap_salaries.get(_sk, [])
+            if not _sals: continue
+            _delta = _stats.median(_sals) - _current_median
+            _all_gaps.append((_sk, _cnt, _delta))
+
+        # Split into positive (high-value) and negative (saturated) buckets
+        _positive_gaps = sorted([g for g in _all_gaps if g[2] > 0], key=lambda t: (-t[2], -t[1]))[:5]
+        _negative_gaps = sorted([g for g in _all_gaps if g[2] <= 0], key=lambda t: (-t[1], t[2]))[:3]
+
+        def _fmt_delta(d):
+            # Fix formatting: -$24,750 not $-24,750
+            if d > 0:
+                return f"+${int(d):,}"
+            elif d < 0:
+                return f"-${int(abs(d)):,}"
+            else:
+                return "$0"
+
+        if _positive_gaps or _negative_gaps:
+            _gap_html = "<div style='background:#0f0f1a;border:1px solid #1a1a2e;border-radius:4px;padding:14px 18px;margin:18px 0'>"
+
+            if _positive_gaps:
+                _gap_html += "<div style='font-size:0.65rem;color:#666;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:8px'>💡 High-value skills to add</div>"
+                _gap_html += "<div style='display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px'>"
+                for _sk, _cnt, _delta in _positive_gaps:
+                    _gap_html += "<div style='background:#1a1a2e;border-radius:2px;padding:6px 12px;font-family:IBM Plex Mono,monospace;font-size:0.7rem'>"
+                    _gap_html += f"<span style='color:#e2ff5d'>{_sk.title()}</span> "
+                    _gap_html += f"<span style='color:#888'>· {_cnt} jobs</span> "
+                    _gap_html += f"<span style='color:#22c55e'>· {_fmt_delta(_delta)}</span>"
+                    _gap_html += "</div>"
+                _gap_html += "</div>"
+
+            if _negative_gaps:
+                _gap_html += "<div style='font-size:0.65rem;color:#666;text-transform:uppercase;letter-spacing:0.15em;margin-bottom:6px;margin-top:6px'>"
+                _gap_html += "⚠ Required-but-saturated skills</div>"
+                _gap_html += "<div style='font-size:0.65rem;color:#555;margin-bottom:8px;font-style:italic'>"
+                _gap_html += "These skills appear in many jobs but median pay is below your current match band. They likely won't lift your salary, though they may broaden options.</div>"
+                _gap_html += "<div style='display:flex;flex-wrap:wrap;gap:8px'>"
+                for _sk, _cnt, _delta in _negative_gaps:
+                    _gap_html += "<div style='background:#15151f;border:1px dashed #2a2a3a;border-radius:2px;padding:6px 12px;font-family:IBM Plex Mono,monospace;font-size:0.7rem'>"
+                    _gap_html += f"<span style='color:#a8a8b8'>{_sk.title()}</span> "
+                    _gap_html += f"<span style='color:#666'>· {_cnt} jobs</span> "
+                    _gap_html += f"<span style='color:#71717a'>· {_fmt_delta(_delta)}</span>"
+                    _gap_html += "</div>"
+                _gap_html += "</div>"
+
+            _gap_html += "</div>"
+            st.markdown(_gap_html, unsafe_allow_html=True)
+
+# GAPS_v2_PATCH: empty state when no results
+if fresh_jobs.empty:
+    st.markdown('''
+    <div style="text-align:center;padding:60px 20px;background:#0f0f1a;border:1px dashed #1a1a2e;border-radius:4px;margin:24px 0">
+        <div style="font-size:2rem;color:#444;margin-bottom:12px">🔍</div>
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:1.4rem;color:#888;letter-spacing:0.05em;margin-bottom:8px">No matches found</div>
+        <div style="font-size:0.8rem;color:#666;line-height:1.6;max-width:500px;margin:0 auto">
+            Try loosening your filters: extend the date range, remove sector/role restrictions, or lower your salary floor. Check the active filters above.
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
+st.markdown(f"<div class='section-divider'>{len(fresh_jobs):,} roles — sorted by most recent</div>",
+            unsafe_allow_html=True)
+
+if fresh_jobs.empty:
+    st.markdown("<div style='color:#444;font-size:0.8rem;padding:40px;text-align:center'>No roles match current filters.</div>",
+                unsafe_allow_html=True)
+else:
+    for _, row in fresh_jobs.iterrows():
+        signal, icon = signal_strength(row["urgency_score"])
+
+        # Format age
+        hours = float(row["hours_old"])
+        if hours < 1:
+            age_str = "< 1hr ago"
+        elif hours < 24:
+            age_str = f"{hours:.0f}h ago"
+        else:
+            age_str = f"{hours/24:.0f}d ago"
+
+        # Salary
+        if pd.notna(row["salary_min_annual"]) and pd.notna(row["salary_max_annual"]):
+            sal_str = f"${int(row['salary_min_annual']):,}–${int(row['salary_max_annual']):,}"
+        elif pd.notna(row["salary_max_annual"]):
+            sal_str = f"Up to ${int(row['salary_max_annual']):,}"
+        else:
+            sal_str = None
+
+        # Quality score
+        qs = f"{row['quality_score']:.0f}" if pd.notna(row["quality_score"]) else "—"
+        us = f"{row['urgency_score']:.0f}" if pd.notna(row["urgency_score"]) else "—"
+
+        # Skills
+        skills_html = ""
+        if pd.notna(row["skills"]) and row["skills"]:
+            for sk in str(row["skills"]).split(", ")[:8]:
+                skills_html += f"<span class='skill-tag'>{sk.strip()}</span>"
+
+        # Workplace
+        wp = (row["workplace_type"] if pd.notna(row["workplace_type"]) else "").capitalize()
+        exp = (row["experience_level"] if pd.notna(row["experience_level"]) else "").capitalize()
+        source_map = {
+            "greenhouse": ("GH", "#22c55e", "#052e16"),
+            "workday":    ("WD", "#38bdf8", "#0c1a2e"),
+            "lever":      ("LV", "#f97316", "#2a1000"),
+            "ashby":      ("AS", "#e879f9", "#1a0a1e"),
+            "eightfold":  ("EF", "#facc15", "#1a1400"),
+            "amazon":     ("AMZ","#fb923c", "#1a0800"),
+        }
+        src_info = source_map.get(row["source"], (row["source"][:2].upper(), "#71717a", "#111"))
+        source_display, src_color, src_bg = src_info
+
+        sal_badge = ("<span class=\"badge badge-salary\">💰 " + sal_str + "</span>") if sal_str else ""
+        sector_badge = ("<span class=\"badge badge-sector\">" + str(row["sector"]) + "</span>") if pd.notna(row["sector"]) and row["sector"] else ""
+        wp_badge = ("<span class=\"badge badge-sector\">" + wp + "</span>") if wp else ""
+        # RECRUITER_LOC_PATCH_v1: clean loc_city + loc_state usage
+        loc_str = ""
+        loc_city = row.get("loc_city")
+        loc_state = row.get("loc_state")
+        if pd.notna(loc_city) and loc_city and pd.notna(loc_state) and loc_state:
+            loc_str = f"{loc_city}, {loc_state}"
+        elif pd.notna(loc_state) and loc_state:
+            loc_str = str(loc_state)
+        elif pd.notna(loc_city) and loc_city:
+            loc_str = str(loc_city)
+        loc_badge = ("<span class=\"badge badge-location\">" + loc_str + "</span>") if loc_str else ""
+        exp_badge = ("<span class=\"badge badge-sector\">" + exp + "</span>") if exp else ""
+        age_badge = "<span class=\"badge badge-age\">" + icon + " " + age_str + "</span>"
+        # TRAFFIC_LIGHT_v1: replace numeric Quality/Urgency with signal traffic light
+        # Compute score from agreed ruleset
+        _has_salary = bool(row.get("salary_min_annual")) or bool(row.get("salary_max_annual"))
+        _has_contact = bool(row.get("contact_linkedin"))
+        _hscore = row.get("honesty_score")
+        _days_old_val = row.get("days_old") or 0
+        _signal_score = 0
+        _reasons_pos = []
+        _reasons_neg = []
+        if _has_salary:
+            _signal_score += 2
+            _reasons_pos.append("Salary disclosed")
+        else:
+            _signal_score -= 1
+            _reasons_neg.append("No salary")
+        if _has_contact:
+            _signal_score += 2
+            _reasons_pos.append("Hiring contact")
+        else:
+            _signal_score -= 1
+            _reasons_neg.append("No contact")
+        if _days_old_val <= 3:
+            _signal_score += 1
+            _reasons_pos.append(f"Posted {int(_days_old_val)}d ago" if _days_old_val >= 1 else "Posted today")
+        elif _days_old_val >= 7 and _days_old_val < 14:
+            _signal_score -= 1
+            _reasons_neg.append(f"Posted {int(_days_old_val)}d ago")
+        if _hscore is not None:
+            try:
+                _hs = int(_hscore)
+                if _hs >= 85:
+                    _signal_score += 2
+                    _reasons_pos.append("High honesty score")
+                elif _hs < 50:
+                    _signal_score -= 2
+                    _reasons_neg.append("Low honesty score")
+                elif _hs < 70:
+                    _signal_score -= 1
+                    _reasons_neg.append("Mixed honesty signals")
+            except (ValueError, TypeError):
+                pass
+
+        if _signal_score >= 3:
+            _signal_emoji = "🟢"
+            _signal_label = "Worth applying"
+            _signal_color = "#22c55e"
+            _signal_bg = "#0d1f0d"
+        elif _signal_score >= -1:
+            _signal_emoji = "🟡"
+            _signal_label = "Mixed signals"
+            _signal_color = "#facc15"
+            _signal_bg = "#1f1a00"
+        else:
+            _signal_emoji = "🔴"
+            _signal_label = "Likely skip"
+            _signal_color = "#ef4444"
+            _signal_bg = "#1f0d0d"
+
+        signal_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;font-weight:600;background:{_signal_bg};color:{_signal_color};border:1px solid {_signal_color}55;text-transform:uppercase;letter-spacing:0.05em">{_signal_emoji} {_signal_label}</span>'
+        # Kept as empty for backward compat; do not display old numeric badges
+        q_badge = ""
+        u_badge = ""
+        src_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;text-transform:uppercase;letter-spacing:0.05em;background:{src_bg};color:{src_color};border:1px solid {src_color}33">{source_display}</span>'
+        # RECRUITER_RESUME_PATCH_v1: match badge prepended (only when resume loaded)
+        match_badge = ""
+        if st.session_state.get("resume_skills"):
+            _ms = int(row.get("match_score") or 0)
+            if _ms > 0:
+                _color = "#22c55e" if _ms >= 80 else ("#facc15" if _ms >= 60 else "#71717a")
+                _bg = "#0d1f0d" if _ms >= 80 else ("#1f1a00" if _ms >= 60 else "#15151f")
+                match_badge = f'<span style="display:inline-block;font-size:0.62rem;padding:2px 8px;border-radius:2px;margin-right:4px;font-family:IBM Plex Mono,monospace;font-weight:600;background:{_bg};color:{_color};border:1px solid {_color}55">★ {_ms}% MATCH</span>'
+        badges = match_badge + age_badge + signal_badge + sal_badge + loc_badge + sector_badge + wp_badge + exp_badge + src_badge  # TRAFFIC_LIGHT_v1
+        # TRAFFIC_LIGHT_v1: build reasons row HTML
+        _reasons_parts = []
+        for _r in _reasons_pos:
+            _reasons_parts.append(f'<span style="color:#22c55e;margin-right:10px">✓ {_r}</span>')
+        for _r in _reasons_neg:
+            _reasons_parts.append(f'<span style="color:#a1a1aa;margin-right:10px">⚠ {_r}</span>')
+        reasons_html = (
+            f'<div style="font-size:0.62rem;font-family:IBM Plex Mono,monospace;margin-top:6px;color:#666;line-height:1.6">'
+            + "".join(_reasons_parts)
+            + '</div>'
+        ) if _reasons_parts else ""
+
+        # Build Apply button
+        job_url = row.get('job_url', '') or ''
+        if job_url:
+            apply_html = (
+                f'<div style="margin-top:12px">'
+                f'<a href="{job_url}" target="_blank" '
+                f'style="display:inline-block;background:#e2ff5d;color:#080810;'
+                f'font-family:IBM Plex Mono,monospace;font-size:0.7rem;font-weight:600;'
+                f'padding:8px 18px;text-decoration:none;letter-spacing:0.05em;'
+                f'text-transform:uppercase;border-radius:2px">Apply →</a>'
+                f'</div>'
+            )
+        else:
+            apply_html = ''
+
+        # Build contact HTML - LinkedIn only (no email)
+        if pd.notna(row.get('contact_name')) and row.get('contact_name'):
+            li_url = row.get('contact_linkedin', '')
+            contact_html = (
+                f'<div style="font-size:0.72rem;color:#e2ff5d;font-weight:500">{row["contact_name"]}</div>'
+                f'<div style="font-size:0.62rem;color:#666;margin:2px 0">{(row.get("contact_title") or "")[:35]}</div>'
+                f'<div style="margin-top:4px;display:flex;gap:6px;justify-content:flex-end">'
+            )
+            if li_url:
+                contact_html += f'<a href="{li_url}" target="_blank" style="font-size:0.6rem;color:#38bdf8;text-decoration:none;border:1px solid #38bdf844;padding:2px 6px;border-radius:2px">View on LinkedIn</a>'
+            contact_html += '</div>'
+        else:
+            contact_html = '<div style="font-size:0.65rem;color:#333;font-style:italic">No contact found</div>'
+
+        company_display = row['company_name'] or '—'
+        sector_sub = f" · {row['sector']}" if pd.notna(row['sector']) and row['sector'] else ""
+        emp_sub = f" · {int(row['employee_count']):,} employees" if pd.notna(row.get('employee_count')) else ""
+        card_html = (
+            f"<div class=\"job-card signal-{signal}\">"
+            f"<div style=\"display:flex;justify-content:space-between;align-items:flex-start\">"
+            f"<div style=\"flex:1\">"
+            f"<div class=\"job-title\">{row['role_name']}</div>"
+            f"<div class=\"job-company\">{company_display}{sector_sub}{emp_sub}</div>"
+            f"<div style=\"margin-bottom:8px\">{badges}</div>{reasons_html}"
+            f"<div>{skills_html}</div>"
+            f"</div>"
+            f"<div style=\"text-align:right;min-width:140px;padding-left:16px\">"
+            f"<div style=\"font-size:0.6rem;color:#333;text-transform:uppercase;"
+            f"letter-spacing:0.1em;margin-bottom:4px\">Hiring Contact</div>"
+            f"<div>{contact_html}</div>"
+            f"{apply_html}"
+            f"</div></div></div>"
+        )
+        st.markdown(card_html, unsafe_allow_html=True)
+
+# ── FOOTER ────────────────────────────────────────────────────────────────────
 st.markdown("""
-<div style="margin-top:48px;padding-top:16px;border-top:1px solid #1e1e2e;font-size:0.6rem;color:#333;display:flex;justify-content:space-between">
-    <span>Job Market Analytics · Data & ML Hiring Intelligence</span>
-    <span>jones31luke@gmail.com · linkedin.com/in/luke-j-78a02121b</span>
+<div style="margin-top:48px;padding-top:16px;border-top:1px solid #131320;
+    font-size:0.6rem;color:#2a2a3a;display:flex;justify-content:space-between">
+    <span>DataHiringIQ · Data & ML Job Search</span>
+    <span>datahiringiq.com · jones31luke@gmail.com</span>
 </div>
 """, unsafe_allow_html=True)
