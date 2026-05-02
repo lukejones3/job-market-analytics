@@ -340,12 +340,17 @@ if is_anonymous:
     # Signup form — centered
     _form_col_l, _form_col_c, _form_col_r = st.columns([1, 2, 1])
     with _form_col_c:
+        # ANON_LANDING_POLISH_v1: value-prop header replaces "Get Free Access" label
         st.markdown("""
         <div style="background:#0f0f1a;border:1px solid #1e1e32;border-radius:6px;
             padding:24px;margin-bottom:8px">
-            <div style="font-size:0.7rem;color:#888;text-transform:uppercase;
-                letter-spacing:0.15em;margin-bottom:14px;text-align:center">
-                Get Free Access
+            <div style="font-size:1.05rem;color:#e2ff5d;font-weight:600;
+                margin-bottom:6px;text-align:center;letter-spacing:0.02em">
+                Try it free — get 500 fresh roles
+            </div>
+            <div style="font-size:0.72rem;color:#888;text-align:center;
+                margin-bottom:6px;letter-spacing:0.05em">
+                No credit card · Updated nightly · Drop your email below
             </div>
         </div>
         """, unsafe_allow_html=True)
@@ -1013,8 +1018,8 @@ if st.session_state.get("resume_skills"):
 
             _gap_html += "</div>"
 
-            # BLUR_SKILL_GAPS_v1: blur entire panel + overlay for free-tier users
-            if is_free:
+            # BLUR_SKILL_GAPS_v1 + ANON_LANDING_POLISH_v1: blur for free OR anonymous users
+            if is_free or is_anonymous:
                 import urllib.parse as _urlparse_g
                 _free_email_g = (client.get("email") if client else "") or ""
                 _stripe_url_g = "https://buy.stripe.com/3cI4gs9hugN14obehifnO02"
@@ -1292,8 +1297,8 @@ else:
         else:
             contact_html = '<div style="font-size:0.65rem;color:#333;font-style:italic">No contact found</div>'
 
-        # BLUR_CONTACT_v1: wrap contact panel for free-tier users
-        if is_free:
+        # BLUR_CONTACT_v1 + ANON_LANDING_POLISH_v1: wrap for free OR anonymous users
+        if is_free or is_anonymous:
             contact_html = (
                 '<div style="position:relative;min-height:60px">'
                 '<div style="filter:blur(4px);user-select:none;pointer-events:none">'
