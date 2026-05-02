@@ -37,6 +37,17 @@ h1, h2, h3 { font-family: 'Bebas Neue', sans-serif !important; letter-spacing: 0
 
 .stApp { background-color: #080810; color: #d4d4d8; }
 
+/* BUTTON_TEXT_CONTRAST_v1: force dark text on primary button (lime is too light for white) */
+.stButton > button[kind="primary"] {
+    color: #080810 !important;
+    font-weight: 600 !important;
+    border: none !important;
+}
+.stButton > button[kind="primary"]:hover {
+    color: #080810 !important;
+    background-color: #c9e84f !important;
+}
+
 section[data-testid="stSidebar"] { display: none; }
 
 div[data-testid="stMetric"] {
@@ -234,51 +245,180 @@ if token and not is_preview:
     client = verify_token(token)
 
 # ── PAYWALL ───────────────────────────────────────────────────────────────────
-if not token or (not client and not is_preview):
+# FREEMIUM_STATE_v1: three-state freemium detection
+# Replaces the old all-or-nothing paywall.
+_tier = (client.get("tier") if client else None) or ("pro" if is_preview else None)
+is_paid       = (_tier == "pro")
+is_free       = (_tier == "free")
+is_anonymous  = (not is_paid and not is_free)
+# Helpful flags downstream:
+#   is_paid       — full feed, all features unlocked
+#   is_free       — 500-job feed, blurred premium features, sticky upgrade banner
+#   is_anonymous  — 25-job preview, signup CTA front and center
+
+# UPGRADE_BANNER_v1: free-tier upgrade banner + floating CTA
+if is_free:
+    import urllib.parse as _urlparse
+    _free_email = (client.get("email") if client else "") or ""
+    _stripe_url = "https://buy.stripe.com/3cI4gs9hugN14obehifnO02"
+    if _free_email:
+        _stripe_url = f"{_stripe_url}?prefilled_email={_urlparse.quote(_free_email)}"
+
+    # Banner at top of dashboard
+    st.markdown(f"""
+    <div style="background:linear-gradient(90deg,#0f0f1a 0%,#1a1a2e 100%);
+        border:1px solid #2a2a4a;border-left:3px solid #e2ff5d;
+        border-radius:4px;padding:14px 20px;margin-bottom:20px;
+        display:flex;justify-content:space-between;align-items:center;
+        flex-wrap:wrap;gap:12px">
+        <div style="font-size:0.85rem;color:#d4d4d8;flex:1;min-width:280px">
+            <span style="color:#e2ff5d;font-weight:600">You're on the free plan</span>
+            <span style="color:#666;margin:0 8px">·</span>
+            <span style="color:#aaa">Upgrade to Pro for $19/mo to unlock the full 2,000-job feed, hiring manager LinkedIn, and full resume match top-50.</span>
+        </div>
+        <a href="{_stripe_url}" target="_blank"
+           style="background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
+               font-size:0.7rem;font-weight:600;padding:8px 18px;border-radius:3px;
+               text-decoration:none;letter-spacing:0.05em;text-transform:uppercase;
+               white-space:nowrap;flex-shrink:0">
+            Upgrade $19/mo →
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Floating CTA bottom-right (always visible while scrolling)
+    st.markdown(f"""
+    <a href="{_stripe_url}" target="_blank"
+       style="position:fixed;bottom:24px;right:24px;z-index:9999;
+           background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
+           font-size:0.72rem;font-weight:600;padding:10px 18px;border-radius:24px;
+           text-decoration:none;letter-spacing:0.05em;text-transform:uppercase;
+           box-shadow:0 4px 16px rgba(226,255,93,0.25);
+           border:1px solid #c9e84f;
+           transition:transform 0.15s,box-shadow 0.15s">
+        💎 Upgrade
+    </a>
+    <style>
+    a[href="{_stripe_url}"]:hover {{
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px rgba(226,255,93,0.4);
+    }}
+    </style>
+    """, unsafe_allow_html=True)
+
+
+# FREEMIUM_LANDING_v1: anonymous landing hero + email signup form
+if is_anonymous:
+    import requests as _requests
+
+    # Initialize session state for signup feedback
+    if "_signup_status" not in st.session_state:
+        st.session_state._signup_status = None  # None | "ok" | "err"
+    if "_signup_msg" not in st.session_state:
+        st.session_state._signup_msg = ""
+
+    # Hero / landing
     st.markdown("""
-    <div class="paywall">
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:3rem;color:#e2ff5d;
+    <div style="text-align:center;padding:60px 20px 20px 20px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:4rem;color:#e2ff5d;
             letter-spacing:0.05em;line-height:1;margin-bottom:8px">
             DATAHIRINGIQ
         </div>
-        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;
+        <div style="font-size:0.7rem;color:#666;text-transform:uppercase;
             letter-spacing:0.2em;margin-bottom:32px">
-            Data & ML Job Search, Faster
+            Fresh Data &amp; ML Jobs · Updated Nightly
         </div>
-        <p style="color:#666;font-size:0.85rem;line-height:1.7;margin-bottom:28px">
-            Stop wasting applications on ghost jobs. Fresh data & ML roles updated nightly from 6 ATS sources — every posting scored for ghost probability and posting quality, with the hiring manager's LinkedIn mapped so you can reach out before disappearing into the resume black hole.
+        <p style="color:#888;font-size:1rem;line-height:1.7;max-width:580px;
+            margin:0 auto 40px auto">
+            Stop wasting applications on ghost jobs. We track 1,000+ companies across
+            6 ATS sources, score each posting for honesty, and map the hiring manager's
+            LinkedIn so you can reach out directly.
         </p>
-        <div style="background:#080810;border:1px solid #1e1e32;border-radius:4px;
-            padding:20px;margin-bottom:28px;text-align:left">
-            <div style="font-size:0.6rem;color:#444;text-transform:uppercase;
-                letter-spacing:0.15em;margin-bottom:12px">What you get</div>
-            <div style="font-size:0.75rem;color:#888;line-height:2">
-                👤 Hiring manager LinkedIn — skip the resume black hole, reach out directly<br>
-                ⚡ Fresh postings — last 5 days, updated nightly<br>
-                📊 Posting Quality Score — how complete & specific the role is<br>
-                🎯 Hiring Urgency Score — likelihood the role is actively filling<br>
-                💰 Salary data where disclosed (55%+ of roles)<br>
-                🔧 Required skills for each role<br>
-                🏢 Company sector, size, and hiring intensity
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Signup form — centered
+    _form_col_l, _form_col_c, _form_col_r = st.columns([1, 2, 1])
+    with _form_col_c:
+        st.markdown("""
+        <div style="background:#0f0f1a;border:1px solid #1e1e32;border-radius:6px;
+            padding:24px;margin-bottom:8px">
+            <div style="font-size:0.7rem;color:#888;text-transform:uppercase;
+                letter-spacing:0.15em;margin-bottom:14px;text-align:center">
+                Get Free Access
             </div>
         </div>
-        <div style="font-family:'Bebas Neue',sans-serif;font-size:2rem;color:#e2ff5d;
-            margin-bottom:4px">$19 / 30 days</div>
-        <div style="font-size:0.65rem;color:#444;margin-bottom:24px">
-            One-time payment · Full access for 30 days
+        """, unsafe_allow_html=True)
+
+        _email = st.text_input(
+            "Email",
+            placeholder="you@example.com",
+            label_visibility="collapsed",
+            key="_signup_email",
+        )
+
+        _btn_clicked = st.button(
+            "Send me my access link →",
+            type="primary",
+            use_container_width=True,
+            key="_signup_btn",
+        )
+
+        if _btn_clicked:
+            _e = (_email or "").strip().lower()
+            if "@" not in _e or "." not in _e.split("@")[-1]:
+                st.session_state._signup_status = "err"
+                st.session_state._signup_msg = "Please enter a valid email address."
+            else:
+                try:
+                    _r = _requests.post(
+                        "https://api.datahiringiq.com/auth/free-signup",
+                        json={"email": _e},
+                        timeout=8,
+                    )
+                    if _r.status_code == 200:
+                        st.session_state._signup_status = "ok"
+                        st.session_state._signup_msg = (
+                            "Check your email — your access link is on its way. "
+                            "It may take a minute to arrive."
+                        )
+                    elif _r.status_code == 400:
+                        st.session_state._signup_status = "err"
+                        try:
+                            st.session_state._signup_msg = _r.json().get("detail", "Invalid request.")
+                        except Exception:
+                            st.session_state._signup_msg = "Invalid request."
+                    else:
+                        st.session_state._signup_status = "err"
+                        st.session_state._signup_msg = "Something went wrong. Please try again."
+                except Exception as _ex:
+                    st.session_state._signup_status = "err"
+                    st.session_state._signup_msg = f"Connection error. Please try again."
+
+        if st.session_state._signup_status == "ok":
+            st.success(st.session_state._signup_msg)
+        elif st.session_state._signup_status == "err":
+            st.error(st.session_state._signup_msg)
+
+        st.markdown("""
+        <div style="font-size:0.7rem;color:#555;text-align:center;margin-top:16px;line-height:1.6">
+            Free tier includes:<br>
+            500 fresh jobs daily · Basic filters · Traffic-light job signals<br><br>
+            <span style="color:#666">Or upgrade to Pro for $19/mo: full 2,000-job feed, hiring manager LinkedIn, full resume match top-50.</span>
         </div>
-        <a href="https://buy.stripe.com/dRm7sEeBOeET9Iva12fnO01"
-           style="background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
-               font-size:0.75rem;font-weight:500;padding:12px 28px;border-radius:3px;
-               text-decoration:none;letter-spacing:0.05em;text-transform:uppercase">
-            Get Access →
-        </a>
-        <div style="margin-top:20px;font-size:0.6rem;color:#333">
-            datahiringiq.com · jones31luke@gmail.com
+        """, unsafe_allow_html=True)
+
+    # Below the form: small "preview the feed" header
+    st.markdown("""
+    <div style="text-align:center;margin:40px 0 20px 0;padding-top:30px;
+        border-top:1px solid #131320">
+        <div style="font-size:0.65rem;color:#444;text-transform:uppercase;
+            letter-spacing:0.2em">
+            Preview · 25 random jobs from today's feed
         </div>
     </div>
     """, unsafe_allow_html=True)
-    st.stop()
+
 
 # ── HEADER ────────────────────────────────────────────────────────────────────
 client_name = client["name"] if client else "Preview"
@@ -872,6 +1012,40 @@ if st.session_state.get("resume_skills"):
                 _gap_html += "</div>"
 
             _gap_html += "</div>"
+
+            # BLUR_SKILL_GAPS_v1: blur entire panel + overlay for free-tier users
+            if is_free:
+                import urllib.parse as _urlparse_g
+                _free_email_g = (client.get("email") if client else "") or ""
+                _stripe_url_g = "https://buy.stripe.com/3cI4gs9hugN14obehifnO02"
+                if _free_email_g:
+                    _stripe_url_g = f"{_stripe_url_g}?prefilled_email={_urlparse_g.quote(_free_email_g)}"
+                _gap_html = (
+                    '<div style="position:relative;margin:18px 0">'
+                    '<div style="filter:blur(5px);user-select:none;pointer-events:none">'
+                    + _gap_html +
+                    '</div>'
+                    '<div style="position:absolute;top:50%;left:50%;'
+                    'transform:translate(-50%,-50%);text-align:center;'
+                    'background:rgba(8,8,16,0.92);padding:18px 24px;border-radius:6px;'
+                    'border:1px solid #e2ff5d33;min-width:280px">'
+                    '<div style="font-size:1.4rem;margin-bottom:6px">🔒</div>'
+                    '<div style="font-size:0.78rem;color:#e2ff5d;font-weight:600;'
+                    'margin-bottom:4px;text-transform:uppercase;letter-spacing:0.05em">'
+                    'Upgrade to see skill gaps'
+                    '</div>'
+                    '<div style="font-size:0.66rem;color:#888;margin-bottom:12px;line-height:1.5">'
+                    'See which skills lift your salary band — and which ones won\'t.'
+                    '</div>'
+                    f'<a href="{_stripe_url_g}" target="_blank" '
+                    'style="background:#e2ff5d;color:#080810;font-family:IBM Plex Mono,monospace;'
+                    'font-size:0.68rem;font-weight:600;padding:6px 14px;border-radius:3px;'
+                    'text-decoration:none;letter-spacing:0.05em;text-transform:uppercase;'
+                    'display:inline-block">Upgrade $19/mo &rarr;</a>'
+                    '</div>'
+                    '</div>'
+                )
+
             st.markdown(_gap_html, unsafe_allow_html=True)
 
 # GAPS_v2_PATCH: empty state when no results
@@ -885,6 +1059,14 @@ if fresh_jobs.empty:
         </div>
     </div>
     ''', unsafe_allow_html=True)
+# FEED_CAP_FREE_v1: free tier gets 500 freshest jobs (paid gets full 2000)
+if is_free and len(fresh_jobs) > 500:
+    fresh_jobs = fresh_jobs.head(500).reset_index(drop=True)
+
+# FREEMIUM_LANDING_v1: anonymous gets 25 random jobs only
+if is_anonymous and len(fresh_jobs) > 25:
+    fresh_jobs = fresh_jobs.sample(n=25, random_state=None).reset_index(drop=True)
+
 st.markdown(f"<div class='section-divider'>{len(fresh_jobs):,} roles — sorted by most recent</div>",
             unsafe_allow_html=True)
 
@@ -892,7 +1074,47 @@ if fresh_jobs.empty:
     st.markdown("<div style='color:#444;font-size:0.8rem;padding:40px;text-align:center'>No roles match current filters.</div>",
                 unsafe_allow_html=True)
 else:
-    for _, row in fresh_jobs.iterrows():
+    # BLUR_MATCH_v1: free-tier users see top 5 matches, then single CTA card
+    _show_match_cta = (
+        is_free
+        and bool(st.session_state.get("resume_skills"))
+        and len(fresh_jobs) > 5
+    )
+    _hidden_match_count = max(0, len(fresh_jobs) - 5) if _show_match_cta else 0
+
+    for _idx, (_, row) in enumerate(fresh_jobs.iterrows()):
+        # Break out at rank 6+ for free users with resume → render CTA card and stop
+        if _show_match_cta and _idx >= 5:
+            import urllib.parse as _urlparse
+            _free_email_2 = (client.get("email") if client else "") or ""
+            _stripe_url_2 = "https://buy.stripe.com/3cI4gs9hugN14obehifnO02"
+            if _free_email_2:
+                _stripe_url_2 = f"{_stripe_url_2}?prefilled_email={_urlparse.quote(_free_email_2)}"
+            st.markdown(f"""
+            <div style="background:linear-gradient(135deg,#0f0f1a 0%,#1a1a2e 100%);
+                border:1px dashed #e2ff5d55;border-radius:6px;padding:32px 24px;
+                margin-top:8px;text-align:center">
+                <div style="font-size:2rem;margin-bottom:8px">🔒</div>
+                <div style="font-family:'Bebas Neue',sans-serif;font-size:1.6rem;
+                    color:#e2ff5d;letter-spacing:0.05em;margin-bottom:6px">
+                    {_hidden_match_count} more matches available
+                </div>
+                <div style="font-size:0.78rem;color:#aaa;line-height:1.6;
+                    max-width:520px;margin:0 auto 20px auto">
+                    Upgrade to Pro to see your full match top-50 — ranked by your resume,
+                    experience level, and salary floor. Plus hiring manager LinkedIn on
+                    every job.
+                </div>
+                <a href="{_stripe_url_2}" target="_blank"
+                   style="background:#e2ff5d;color:#080810;font-family:'IBM Plex Mono',monospace;
+                       font-size:0.78rem;font-weight:600;padding:10px 24px;border-radius:3px;
+                       text-decoration:none;letter-spacing:0.05em;text-transform:uppercase;
+                       display:inline-block">
+                    Upgrade $19/mo →
+                </a>
+            </div>
+            """, unsafe_allow_html=True)
+            break
         signal, icon = signal_strength(row["urgency_score"])
 
         # Format age
@@ -954,21 +1176,26 @@ else:
         age_badge = "<span class=\"badge badge-age\">" + icon + " " + age_str + "</span>"
         # TRAFFIC_LIGHT_v1: replace numeric Quality/Urgency with signal traffic light
         # Compute score from agreed ruleset
-        _has_salary = bool(row.get("salary_min_annual")) or bool(row.get("salary_max_annual"))
-        _has_contact = bool(row.get("contact_linkedin"))
+        # TRAFFIC_LIGHT_NAN_FIX_v1: pd.notna handles NaN correctly (bool(NaN)==True is wrong)
+        _smin = row.get("salary_min_annual")
+        _smax = row.get("salary_max_annual")
+        _has_salary = (pd.notna(_smin) and _smin) or (pd.notna(_smax) and _smax)
+        _contact = row.get("contact_linkedin")
+        _has_contact = pd.notna(_contact) and bool(_contact)
         _hscore = row.get("honesty_score")
         _days_old_val = row.get("days_old") or 0
         _signal_score = 0
         _reasons_pos = []
         _reasons_neg = []
+        # TRAFFIC_LIGHT_RECAL_v1: weight tuned down +2 -> +1
         if _has_salary:
-            _signal_score += 2
+            _signal_score += 1
             _reasons_pos.append("Salary disclosed")
         else:
             _signal_score -= 1
             _reasons_neg.append("No salary")
         if _has_contact:
-            _signal_score += 2
+            _signal_score += 1
             _reasons_pos.append("Hiring contact")
         else:
             _signal_score -= 1
@@ -1064,6 +1291,24 @@ else:
             contact_html += '</div>'
         else:
             contact_html = '<div style="font-size:0.65rem;color:#333;font-style:italic">No contact found</div>'
+
+        # BLUR_CONTACT_v1: wrap contact panel for free-tier users
+        if is_free:
+            contact_html = (
+                '<div style="position:relative;min-height:60px">'
+                '<div style="filter:blur(4px);user-select:none;pointer-events:none">'
+                + contact_html +
+                '</div>'
+                '<div style="position:absolute;top:50%;left:50%;'
+                'transform:translate(-50%,-50%);'
+                'font-size:0.6rem;color:#e2ff5d;font-weight:600;'
+                'background:rgba(8,8,16,0.85);padding:4px 8px;border-radius:3px;'
+                'border:1px solid #e2ff5d33;white-space:nowrap;'
+                'text-transform:uppercase;letter-spacing:0.05em">'
+                '🔒 Upgrade to see contact'
+                '</div>'
+                '</div>'
+            )
 
         company_display = row['company_name'] or '—'
         sector_sub = f" · {row['sector']}" if pd.notna(row['sector']) and row['sector'] else ""
