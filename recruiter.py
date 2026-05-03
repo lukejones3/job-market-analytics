@@ -1397,6 +1397,6 @@ st.markdown("""
 <div style="margin-top:48px;padding-top:16px;border-top:1px solid #131320;
     font-size:0.6rem;color:#2a2a3a;display:flex;justify-content:space-between">
     <span>DataHiringIQ · Data & ML Job Search</span>
-    <span>datahiringiq.com · jones31luke@gmail.com</span>
+    <span><a href="https://datahiringiq.com/privacy" target="_blank" style="color:#2a2a3a;text-decoration:none">Privacy</a> · <a href="https://datahiringiq.com/terms" target="_blank" style="color:#2a2a3a;text-decoration:none">Terms</a> · datahiringiq.com</span>
 </div>
 """, unsafe_allow_html=True)
