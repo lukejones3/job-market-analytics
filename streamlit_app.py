@@ -184,8 +184,9 @@ def verify_token(token: str):
     try:
         conn = get_conn()
         cur = conn.cursor()
+        # VISIT_TRACKING_v1: also return key_id so we can update last_seen_at
         cur.execute("""
-            SELECT client_name, client_email, tier, active, expires_at
+            SELECT key_id, client_name, client_email, tier, active, expires_at
             FROM api_keys
             WHERE api_key_prefix = %s
               AND active = true
@@ -195,10 +196,40 @@ def verify_token(token: str):
         row = cur.fetchone()
         conn.close()
         if row:
-            return {"name": row[0], "email": row[1], "tier": row[2], "expires_at": row[4]}
+            return {
+                "key_id": row[0], "name": row[1], "email": row[2],
+                "tier": row[3], "expires_at": row[5],
+            }
         return None
     except Exception:
         return None
+
+
+# VISIT_TRACKING_v1: fire-once-per-session update of last_seen_at
+def _record_dashboard_visit(key_id: str):
+    """Update last_seen_at on api_keys + free_signups for this user.
+    Idempotent per Streamlit session via st.session_state guard.
+    Fails silently — never breaks the dashboard if DB hiccups."""
+    if not key_id:
+        return
+    if st.session_state.get("_visit_recorded") == key_id:
+        return  # already updated this session
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE api_keys SET last_seen_at = NOW() WHERE key_id = %s",
+            (key_id,),
+        )
+        cur.execute(
+            "UPDATE free_signups SET last_seen_at = NOW() WHERE api_key_id = %s",
+            (key_id,),
+        )
+        conn.commit()
+        conn.close()
+        st.session_state["_visit_recorded"] = key_id
+    except Exception:
+        pass  # never break the dashboard for a missed visit log
 
 # ── Signal strength mapping ───────────────────────────────────────────────────
 def signal_strength(urgency_score):
@@ -243,6 +274,9 @@ is_preview = (token == PREVIEW_TOKEN)
 client = None
 if token and not is_preview:
     client = verify_token(token)
+    # VISIT_TRACKING_v1: log this visit (once per session)
+    if client and client.get("key_id"):
+        _record_dashboard_visit(client["key_id"])
 
 # ── PAYWALL ───────────────────────────────────────────────────────────────────
 # FREEMIUM_STATE_v1: three-state freemium detection
