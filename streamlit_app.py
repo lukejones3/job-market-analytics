@@ -1324,12 +1324,15 @@ else:
             + '</div>'
         ) if _reasons_parts else ""
 
-        # Build Apply button
+        # Build Apply button (MARK_AS_APPLIED_v1)
         job_url = row.get('job_url', '') or ''
+        job_id_safe = str(row.get('job_id', '')).replace("'", "").replace('"', '')
         if job_url:
             apply_html = (
                 f'<div style="margin-top:12px">'
                 f'<a href="{job_url}" target="_blank" '
+                f'data-apply-job-id="{job_id_safe}" '
+                f'onclick="window.dhqMarkApplied && window.dhqMarkApplied(this)" '
                 f'style="display:inline-block;background:#e2ff5d;color:#080810;'
                 f'font-family:IBM Plex Mono,monospace;font-size:0.7rem;font-weight:600;'
                 f'padding:8px 18px;text-decoration:none;letter-spacing:0.05em;'
@@ -1374,8 +1377,9 @@ else:
         company_display = row['company_name'] or '—'
         sector_sub = f" · {row['sector']}" if pd.notna(row['sector']) and row['sector'] else ""
         emp_sub = f" · {int(row['employee_count']):,} employees" if pd.notna(row.get('employee_count')) else ""
+        # MARK_AS_APPLIED_v1: data-job-id enables localStorage hydration
         card_html = (
-            f"<div class=\"job-card signal-{signal}\">"
+            f"<div class=\"job-card signal-{signal}\" data-job-id=\"{job_id_safe}\">"
             f"<div style=\"display:flex;justify-content:space-between;align-items:flex-start\">"
             f"<div style=\"flex:1\">"
             f"<div class=\"job-title\">{row['role_name']}</div>"
@@ -1391,6 +1395,145 @@ else:
             f"</div></div></div>"
         )
         st.markdown(card_html, unsafe_allow_html=True)
+
+# ── MARK AS APPLIED (MARK_AS_APPLIED_v1) ──────────────────────────────────────
+st.markdown("""
+<style>
+.job-card.applied {
+    border-left: 4px solid #ef4444 !important;
+    background: linear-gradient(90deg, rgba(239,68,68,0.08) 0%, rgba(239,68,68,0) 60%) !important;
+    position: relative;
+}
+.job-card.applied::after {
+    content: "APPLIED";
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: #ef4444;
+    color: #fff;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.55rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    padding: 3px 8px;
+    border-radius: 2px;
+    z-index: 10;
+}
+.dhq-applied-controls {
+    margin: 16px 0;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    color: #666;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.dhq-applied-controls .count {
+    color: #e2ff5d;
+    font-weight: 600;
+}
+.dhq-applied-controls button {
+    background: transparent;
+    border: 1px solid #333;
+    color: #888;
+    font-family: inherit;
+    font-size: 0.6rem;
+    padding: 4px 10px;
+    cursor: pointer;
+    border-radius: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.dhq-applied-controls button:hover {
+    border-color: #ef4444;
+    color: #ef4444;
+}
+</style>
+
+<div id="dhq-applied-counter-mount" class="dhq-applied-controls" style="display:none">
+    <span>Applied: <span class="count" id="dhq-applied-count">0</span></span>
+    <button onclick="window.dhqClearApplied && window.dhqClearApplied()">Clear all</button>
+</div>
+
+<script>
+(function() {
+    const STORAGE_KEY = 'dhq_applied_jobs_v1';
+
+    function loadApplied() {
+        try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            return raw ? JSON.parse(raw) : {};
+        } catch (e) { return {}; }
+    }
+
+    function saveApplied(obj) {
+        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); } catch (e) {}
+    }
+
+    function hydrate() {
+        const applied = loadApplied();
+        const cards = document.querySelectorAll('.job-card[data-job-id]');
+        let count = 0;
+        cards.forEach(card => {
+            const jobId = card.getAttribute('data-job-id');
+            if (jobId && applied[jobId]) {
+                card.classList.add('applied');
+                count++;
+            }
+        });
+        const countEl = document.getElementById('dhq-applied-count');
+        const mount = document.getElementById('dhq-applied-counter-mount');
+        if (countEl) countEl.textContent = String(Object.keys(applied).length);
+        if (mount && Object.keys(applied).length > 0) {
+            mount.style.display = 'flex';
+        }
+    }
+
+    window.dhqMarkApplied = function(linkEl) {
+        const jobId = linkEl.getAttribute('data-apply-job-id');
+        if (!jobId) return true;
+        const applied = loadApplied();
+        applied[jobId] = Date.now();
+        saveApplied(applied);
+        // Find the parent card and add applied class
+        const card = linkEl.closest('.job-card');
+        if (card) card.classList.add('applied');
+        const countEl = document.getElementById('dhq-applied-count');
+        const mount = document.getElementById('dhq-applied-counter-mount');
+        if (countEl) countEl.textContent = String(Object.keys(applied).length);
+        if (mount) mount.style.display = 'flex';
+        return true;  // allow default link behavior (open in new tab)
+    };
+
+    window.dhqClearApplied = function() {
+        if (!confirm('Clear all applied job markers? This cannot be undone.')) return;
+        try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+        document.querySelectorAll('.job-card.applied').forEach(c => c.classList.remove('applied'));
+        const countEl = document.getElementById('dhq-applied-count');
+        const mount = document.getElementById('dhq-applied-counter-mount');
+        if (countEl) countEl.textContent = '0';
+        if (mount) mount.style.display = 'none';
+    };
+
+    // Run hydration after Streamlit finishes rendering
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', hydrate);
+    } else {
+        // Streamlit re-renders frequently; run multiple times to catch late mounts
+        hydrate();
+        setTimeout(hydrate, 200);
+        setTimeout(hydrate, 600);
+        setTimeout(hydrate, 1500);
+    }
+
+    // Watch for DOM mutations (Streamlit re-renders often)
+    const observer = new MutationObserver(() => {
+        hydrate();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+""", unsafe_allow_html=True)
 
 # ── FOOTER ────────────────────────────────────────────────────────────────────
 st.markdown("""
