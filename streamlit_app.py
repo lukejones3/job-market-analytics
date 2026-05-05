@@ -814,7 +814,7 @@ if not fresh_jobs.empty:
             fresh_jobs["loc_city"].fillna("").str.lower().str.contains(city_lower, na=False)
         ]
 
-    # Compute skills match score
+    # SKILLS_FILTER_FIX_v1: compute match score AND filter to jobs with at least one match
     user_skills = [s.strip().lower() for s in skills_input.split(",") if s.strip()] if skills_input else []
     if user_skills:
         def _match_score(skills_str):
@@ -824,6 +824,10 @@ if not fresh_jobs.empty:
             matches = sum(1 for us in user_skills if any(us in js or js in us for js in job_skills))
             return int((matches / max(len(user_skills), 1)) * 100)
         fresh_jobs["skills_match"] = fresh_jobs["skills"].apply(_match_score)
+        # Filter to only jobs with at least one matching skill
+        fresh_jobs = fresh_jobs[fresh_jobs["skills_match"] > 0].reset_index(drop=True)
+        # Auto-sort by best match so user sees the highest-relevance jobs first
+        fresh_jobs = fresh_jobs.sort_values(by="skills_match", ascending=False).reset_index(drop=True)
     else:
         fresh_jobs["skills_match"] = 0
 
