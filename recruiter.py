@@ -922,6 +922,15 @@ if not fresh_jobs.empty:
         # RECRUITER_RESUME_PATCH_v1
         fresh_jobs = fresh_jobs.sort_values(by="match_score", ascending=False)
 
+# METRIC_CAP_ORDER_v1: caps must run before metrics so summary tiles match actual feed
+# FEED_CAP_FREE_v1: free tier gets 500 freshest jobs (paid gets full 2000)
+if is_free and len(fresh_jobs) > 500:
+    fresh_jobs = fresh_jobs.head(500).reset_index(drop=True)
+
+# FREEMIUM_LANDING_v1: anonymous gets 25 random jobs only
+if is_anonymous and len(fresh_jobs) > 25:
+    fresh_jobs = fresh_jobs.sample(n=25, random_state=None).reset_index(drop=True)
+
 # ── SUMMARY METRICS ───────────────────────────────────────────────────────────
 m1, m2, m3, m4, m5 = st.columns(5)
 with m1:
@@ -1120,13 +1129,6 @@ if fresh_jobs.empty:
         </div>
     </div>
     ''', unsafe_allow_html=True)
-# FEED_CAP_FREE_v1: free tier gets 500 freshest jobs (paid gets full 2000)
-if is_free and len(fresh_jobs) > 500:
-    fresh_jobs = fresh_jobs.head(500).reset_index(drop=True)
-
-# FREEMIUM_LANDING_v1: anonymous gets 25 random jobs only
-if is_anonymous and len(fresh_jobs) > 25:
-    fresh_jobs = fresh_jobs.sample(n=25, random_state=None).reset_index(drop=True)
 
 st.markdown(f"<div class='section-divider'>{len(fresh_jobs):,} roles — sorted by most recent</div>",
             unsafe_allow_html=True)
