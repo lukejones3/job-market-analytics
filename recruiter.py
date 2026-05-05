@@ -1326,12 +1326,10 @@ else:
 
         # Build Apply button (MARK_AS_APPLIED_v1)
         job_url = row.get('job_url', '') or ''
-        job_id_safe = str(row.get('job_id', '')).replace("'", "").replace('"', '')
         if job_url:
             apply_html = (
                 f'<div style="margin-top:12px">'
                 f'<a href="{job_url}" target="_blank" '
-                f'data-apply-job-id="{job_id_safe}" '
                 f'style="display:inline-block;background:#e2ff5d;color:#080810;'
                 f'font-family:IBM Plex Mono,monospace;font-size:0.7rem;font-weight:600;'
                 f'padding:8px 18px;text-decoration:none;letter-spacing:0.05em;'
@@ -1378,7 +1376,7 @@ else:
         emp_sub = f" · {int(row['employee_count']):,} employees" if pd.notna(row.get('employee_count')) else ""
         # MARK_AS_APPLIED_v1: data-job-id enables localStorage hydration
         card_html = (
-            f"<div class=\"job-card signal-{signal}\" data-job-id=\"{job_id_safe}\">"
+            f"<div class=\"job-card signal-{signal}\">"
             f"<div style=\"display:flex;justify-content:space-between;align-items:flex-start\">"
             f"<div style=\"flex:1\">"
             f"<div class=\"job-title\">{row['role_name']}</div>"
@@ -1395,68 +1393,50 @@ else:
         )
         st.markdown(card_html, unsafe_allow_html=True)
 
-# ── MARK AS APPLIED (MARK_AS_APPLIED_v1) ── MARK_AS_APPLIED_FIX_v1────────────────────────────────────
-st.markdown("""
+# ── MARK AS APPLIED (MARK_AS_APPLIED_FINAL_v1) ────────────────────────────────
+# Uses st.components.v1.html() because st.markdown strips data-* attributes
+# and inline scripts. The component runs in an iframe and reaches into the
+# parent document to manipulate job cards by their visible text content.
+import streamlit.components.v1 as components
+
+components.html("""
 <style>
-.job-card.applied {
-    border-left: 4px solid #ef4444 !important;
-    background: linear-gradient(90deg, rgba(239,68,68,0.08) 0%, rgba(239,68,68,0) 60%) !important;
-    position: relative;
-}
-.job-card.applied::after {
-    content: "APPLIED";
-    position: absolute;
-    top: 12px;
-    right: 12px;
-    background: #ef4444;
-    color: #fff;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.55rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    padding: 3px 8px;
-    border-radius: 2px;
-    z-index: 10;
-}
-.dhq-applied-controls {
-    margin: 16px 0;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.7rem;
-    color: #666;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-.dhq-applied-controls .count {
-    color: #e2ff5d;
-    font-weight: 600;
-}
-.dhq-applied-controls button {
-    background: transparent;
-    border: 1px solid #333;
-    color: #888;
-    font-family: inherit;
-    font-size: 0.6rem;
-    padding: 4px 10px;
-    cursor: pointer;
-    border-radius: 2px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-.dhq-applied-controls button:hover {
-    border-color: #ef4444;
-    color: #ef4444;
-}
+/* Inject styles into iframe AND parent via JS below */
 </style>
-
-<div id="dhq-applied-counter-mount" class="dhq-applied-controls" style="display:none">
-    <span>Applied: <span class="count" id="dhq-applied-count">0</span></span>
-    <button data-dhq-clear="1">Clear all</button>
-</div>
-
 <script>
 (function() {
     const STORAGE_KEY = 'dhq_applied_jobs_v1';
+    const parentDoc = window.parent.document;
+
+    // Inject CSS into parent frame (where the actual cards live)
+    function injectStyles() {
+        if (parentDoc.getElementById('dhq-applied-styles')) return;
+        const style = parentDoc.createElement('style');
+        style.id = 'dhq-applied-styles';
+        style.textContent = `
+            .job-card.dhq-applied {
+                border-left: 4px solid #ef4444 !important;
+                background: linear-gradient(90deg, rgba(239,68,68,0.08) 0%, rgba(239,68,68,0) 60%) !important;
+                position: relative;
+            }
+            .job-card.dhq-applied::after {
+                content: "APPLIED";
+                position: absolute;
+                top: 12px;
+                right: 12px;
+                background: #ef4444;
+                color: #fff;
+                font-family: 'IBM Plex Mono', monospace;
+                font-size: 0.55rem;
+                font-weight: 700;
+                letter-spacing: 0.1em;
+                padding: 3px 8px;
+                border-radius: 2px;
+                z-index: 10;
+            }
+        `;
+        parentDoc.head.appendChild(style);
+    }
 
     function loadApplied() {
         try {
@@ -1469,73 +1449,77 @@ st.markdown("""
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); } catch (e) {}
     }
 
-    function updateCounter(applied) {
-        const countEl = document.getElementById('dhq-applied-count');
-        const mount = document.getElementById('dhq-applied-counter-mount');
-        const total = Object.keys(applied || loadApplied()).length;
-        if (countEl) countEl.textContent = String(total);
-        if (mount) mount.style.display = total > 0 ? 'flex' : 'none';
+    // Build a stable key from a job card by combining its title + company text
+    function cardKey(card) {
+        const title = (card.querySelector('.job-title') || {}).textContent || '';
+        const company = (card.querySelector('.job-company') || {}).textContent || '';
+        return (title.trim() + '||' + company.trim()).slice(0, 200);
     }
 
     function hydrate() {
         const applied = loadApplied();
-        const cards = document.querySelectorAll('.job-card[data-job-id]');
+        const cards = parentDoc.querySelectorAll('.job-card');
         cards.forEach(card => {
-            const jobId = card.getAttribute('data-job-id');
-            if (jobId && applied[jobId]) {
-                card.classList.add('applied');
+            const key = cardKey(card);
+            if (key && applied[key]) {
+                card.classList.add('dhq-applied');
             }
         });
-        updateCounter(applied);
     }
 
-    // Event delegation: catch any click on a link with data-apply-job-id.
-    // This works around React's stripping of inline onclick attributes.
-    function handleClick(evt) {
-        const link = evt.target.closest('a[data-apply-job-id]');
-        if (!link) return;
-        const jobId = link.getAttribute('data-apply-job-id');
-        if (!jobId) return;
-        const applied = loadApplied();
-        applied[jobId] = Date.now();
-        saveApplied(applied);
-        const card = link.closest('.job-card');
-        if (card) card.classList.add('applied');
-        updateCounter(applied);
-        // Don't preventDefault — let the link open the job URL in new tab
+    // Click delegation in the PARENT frame
+    function attachClickListener() {
+        if (parentDoc._dhqClickAttached) return;
+        parentDoc._dhqClickAttached = true;
+
+        parentDoc.addEventListener('click', function(evt) {
+            // Find the closest <a> link clicked
+            const link = evt.target.closest('a');
+            if (!link) return;
+            // Find the closest job-card containing this link
+            const card = link.closest('.job-card');
+            if (!card) return;
+            // Only react to "Apply" buttons (their text starts with "Apply")
+            const linkText = (link.textContent || '').trim();
+            if (!linkText.toLowerCase().startsWith('apply')) return;
+
+            const key = cardKey(card);
+            if (!key) return;
+
+            const applied = loadApplied();
+            applied[key] = Date.now();
+            saveApplied(applied);
+            card.classList.add('dhq-applied');
+            // Don't preventDefault — let the link open in new tab as normal
+        }, true);
     }
 
-    document.addEventListener('click', handleClick, true);
-
-    // Clear-all helper (called by inline onclick on the Clear button — but
-    // since React strips that too, we use event delegation for it as well).
-    function handleClearClick(evt) {
-        const btn = evt.target.closest('[data-dhq-clear]');
-        if (!btn) return;
-        if (!confirm('Clear all applied job markers? This cannot be undone.')) return;
-        try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
-        document.querySelectorAll('.job-card.applied').forEach(c => c.classList.remove('applied'));
-        updateCounter({});
-    }
-
-    document.addEventListener('click', handleClearClick, true);
-
-    // Initial hydration + retry for late-mounting cards
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', hydrate);
-    } else {
+    function init() {
+        injectStyles();
+        attachClickListener();
         hydrate();
-        setTimeout(hydrate, 200);
-        setTimeout(hydrate, 600);
-        setTimeout(hydrate, 1500);
     }
 
-    // Watch for DOM mutations (Streamlit re-renders frequently)
-    const observer = new MutationObserver(() => hydrate());
-    observer.observe(document.body, { childList: true, subtree: true });
+    // Initial run + retries for Streamlit's progressive rendering
+    init();
+    setTimeout(init, 200);
+    setTimeout(init, 600);
+    setTimeout(init, 1500);
+    setTimeout(hydrate, 3000);
+
+    // Watch parent for re-renders
+    try {
+        const observer = new MutationObserver(() => hydrate());
+        observer.observe(parentDoc.body, { childList: true, subtree: true });
+    } catch (e) {
+        // If we can't observe the parent (cross-origin), fall back to polling
+        setInterval(hydrate, 2000);
+    }
 })();
 </script>
-""", unsafe_allow_html=True)
+""", height=0)
+
+
 
 # ── FOOTER ────────────────────────────────────────────────────────────────────
 st.markdown("""
