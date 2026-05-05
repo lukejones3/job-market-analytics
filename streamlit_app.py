@@ -1332,7 +1332,6 @@ else:
                 f'<div style="margin-top:12px">'
                 f'<a href="{job_url}" target="_blank" '
                 f'data-apply-job-id="{job_id_safe}" '
-                f'onclick="window.dhqMarkApplied && window.dhqMarkApplied(this)" '
                 f'style="display:inline-block;background:#e2ff5d;color:#080810;'
                 f'font-family:IBM Plex Mono,monospace;font-size:0.7rem;font-weight:600;'
                 f'padding:8px 18px;text-decoration:none;letter-spacing:0.05em;'
@@ -1396,7 +1395,7 @@ else:
         )
         st.markdown(card_html, unsafe_allow_html=True)
 
-# ── MARK AS APPLIED (MARK_AS_APPLIED_v1) ──────────────────────────────────────
+# ── MARK AS APPLIED (MARK_AS_APPLIED_v1) ── MARK_AS_APPLIED_FIX_v1────────────────────────────────────
 st.markdown("""
 <style>
 .job-card.applied {
@@ -1452,7 +1451,7 @@ st.markdown("""
 
 <div id="dhq-applied-counter-mount" class="dhq-applied-controls" style="display:none">
     <span>Applied: <span class="count" id="dhq-applied-count">0</span></span>
-    <button onclick="window.dhqClearApplied && window.dhqClearApplied()">Clear all</button>
+    <button data-dhq-clear="1">Clear all</button>
 </div>
 
 <script>
@@ -1470,66 +1469,69 @@ st.markdown("""
         try { localStorage.setItem(STORAGE_KEY, JSON.stringify(obj)); } catch (e) {}
     }
 
+    function updateCounter(applied) {
+        const countEl = document.getElementById('dhq-applied-count');
+        const mount = document.getElementById('dhq-applied-counter-mount');
+        const total = Object.keys(applied || loadApplied()).length;
+        if (countEl) countEl.textContent = String(total);
+        if (mount) mount.style.display = total > 0 ? 'flex' : 'none';
+    }
+
     function hydrate() {
         const applied = loadApplied();
         const cards = document.querySelectorAll('.job-card[data-job-id]');
-        let count = 0;
         cards.forEach(card => {
             const jobId = card.getAttribute('data-job-id');
             if (jobId && applied[jobId]) {
                 card.classList.add('applied');
-                count++;
             }
         });
-        const countEl = document.getElementById('dhq-applied-count');
-        const mount = document.getElementById('dhq-applied-counter-mount');
-        if (countEl) countEl.textContent = String(Object.keys(applied).length);
-        if (mount && Object.keys(applied).length > 0) {
-            mount.style.display = 'flex';
-        }
+        updateCounter(applied);
     }
 
-    window.dhqMarkApplied = function(linkEl) {
-        const jobId = linkEl.getAttribute('data-apply-job-id');
-        if (!jobId) return true;
+    // Event delegation: catch any click on a link with data-apply-job-id.
+    // This works around React's stripping of inline onclick attributes.
+    function handleClick(evt) {
+        const link = evt.target.closest('a[data-apply-job-id]');
+        if (!link) return;
+        const jobId = link.getAttribute('data-apply-job-id');
+        if (!jobId) return;
         const applied = loadApplied();
         applied[jobId] = Date.now();
         saveApplied(applied);
-        // Find the parent card and add applied class
-        const card = linkEl.closest('.job-card');
+        const card = link.closest('.job-card');
         if (card) card.classList.add('applied');
-        const countEl = document.getElementById('dhq-applied-count');
-        const mount = document.getElementById('dhq-applied-counter-mount');
-        if (countEl) countEl.textContent = String(Object.keys(applied).length);
-        if (mount) mount.style.display = 'flex';
-        return true;  // allow default link behavior (open in new tab)
-    };
+        updateCounter(applied);
+        // Don't preventDefault — let the link open the job URL in new tab
+    }
 
-    window.dhqClearApplied = function() {
+    document.addEventListener('click', handleClick, true);
+
+    // Clear-all helper (called by inline onclick on the Clear button — but
+    // since React strips that too, we use event delegation for it as well).
+    function handleClearClick(evt) {
+        const btn = evt.target.closest('[data-dhq-clear]');
+        if (!btn) return;
         if (!confirm('Clear all applied job markers? This cannot be undone.')) return;
         try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
         document.querySelectorAll('.job-card.applied').forEach(c => c.classList.remove('applied'));
-        const countEl = document.getElementById('dhq-applied-count');
-        const mount = document.getElementById('dhq-applied-counter-mount');
-        if (countEl) countEl.textContent = '0';
-        if (mount) mount.style.display = 'none';
-    };
+        updateCounter({});
+    }
 
-    // Run hydration after Streamlit finishes rendering
+    document.addEventListener('click', handleClearClick, true);
+
+    // Initial hydration + retry for late-mounting cards
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', hydrate);
     } else {
-        // Streamlit re-renders frequently; run multiple times to catch late mounts
         hydrate();
         setTimeout(hydrate, 200);
         setTimeout(hydrate, 600);
         setTimeout(hydrate, 1500);
     }
 
-    // Watch for DOM mutations (Streamlit re-renders often)
-    const observer = new MutationObserver(() => {
-        hydrate();
-    });
+    // Watch for DOM mutations (Streamlit re-renders frequently)
+    const observer = new MutationObserver(() => hydrate());
     observer.observe(document.body, { childList: true, subtree: true });
 })();
 </script>
