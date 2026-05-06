@@ -25,10 +25,17 @@ import psycopg2
 import psycopg2.pool
 import stripe
 from psycopg2.extras import RealDictCursor
-from fastapi import FastAPI, HTTPException, Depends, Request, Query, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, Request, Query, BackgroundTasks, File, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
+from typing import Any, Dict, List
+from python.resume import parse_resume, extract_skills, infer_experience_level, match_jobs, find_skill_gaps
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware  # SLOWAPI_MIDDLEWARE_v1
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -84,6 +91,32 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
+
+# ── Rate limiter (AI_PROTECTION_v1, CF_REAL_IP_v1) ───────────────────────────
+def _get_real_client_ip(request: Request) -> str:
+    """Get the real client IP, preferring Cloudflare's CF-Connecting-IP header.
+
+    When traffic goes through Cloudflare, the immediate connection comes from a
+    Cloudflare edge IP. The real user IP is in CF-Connecting-IP. Falls back to
+    X-Forwarded-For, then to the direct connection IP for direct/local requests.
+    """
+    cf_ip = request.headers.get("CF-Connecting-IP")
+    if cf_ip:
+        log.debug(f"Rate limit key (CF-Connecting-IP): {cf_ip}")
+        return cf_ip
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client = forwarded.split(",")[0].strip()
+        log.debug(f"Rate limit key (X-Forwarded-For): {client}")
+        return client
+    fallback = get_remote_address(request)
+    log.debug(f"Rate limit key (fallback get_remote_address): {fallback}")
+    return fallback
+
+limiter = Limiter(key_func=_get_real_client_ip)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)  # SLOWAPI_MIDDLEWARE_v1: required for reliable rate limiting
 
 # ── Role family SQL ───────────────────────────────────────────────────────────
 ROLE_FAMILY_SQL = """
@@ -901,6 +934,25 @@ import re as _re_email
 
 EMAIL_RE = _re_email.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+# ── Disposable email domain blocklist (AI_PROTECTION_v1) ──────────────────────
+DISPOSABLE_EMAIL_DOMAINS = frozenset({
+    "10minutemail.com", "guerrillamail.com", "guerrillamail.net", "guerrillamail.org",
+    "mailinator.com", "mailinator.net", "trashmail.com", "trashmail.net",
+    "tempmail.com", "temp-mail.org", "tempmailo.com", "tempmail.io",
+    "yopmail.com", "throwawaymail.com", "fakeinbox.com", "maildrop.cc",
+    "getairmail.com", "dispostable.com", "mintemail.com", "spamgourmet.com",
+    "moakt.com", "emailondeck.com", "tempr.email", "luxusmail.org",
+    "anonbox.net", "tempinbox.com", "discard.email", "mohmal.com",
+    "trbvm.com", "sharklasers.com", "spam4.me", "armyspy.com",
+    "cuvox.de", "dayrep.com", "einrot.com", "fleckens.hu",
+    "gustr.com", "jourrapide.com", "rhyta.com", "superrito.com",
+    "teleworm.us", "minutemail.com", "mt2014.com", "onetimeemail.com",
+    "tempmailaddress.com", "tempmailo.org", "throwaway.email", "tmpeml.info",
+    "33mail.com", "burnermail.io", "dropmail.me", "mailcatch.com",
+    "mailtrap.io", "incognitomail.org", "mvrht.net", "spambox.us",
+    "spamspot.com", "trashymail.com", "mytemp.email", "sneakemail.com",
+})
+
 
 # RESEND_EMAIL_v1
 def _send_free_signup_email(email: str, access_url: str):
@@ -954,6 +1006,7 @@ def _send_free_signup_email(email: str, access_url: str):
 
 # FREEMIUM_BACKEND_v1_reorder
 @app.post("/auth/free-signup")
+@limiter.limit("3/minute")  # AI_PROTECTION_v1: max 3 signup attempts per IP per minute
 # FREEMIUM_BACKEND_v1_async
 async def free_signup(request: Request, background_tasks: BackgroundTasks):
     body = await request.json()
@@ -963,6 +1016,12 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
 
     if not email or not EMAIL_RE.match(email):
         raise HTTPException(status_code=400, detail="Invalid email address")
+
+    # AI_PROTECTION_v1: reject disposable email domains
+    email_domain = email.split("@")[-1].lower()
+    if email_domain in DISPOSABLE_EMAIL_DOMAINS:
+        log.info(f"Rejected disposable email signup: {email}")
+        raise HTTPException(status_code=400, detail="Please use a permanent email address")
 
     conn = pool.getconn()
     try:
@@ -1055,3 +1114,114 @@ if __name__ == "__main__":
 
     if args.generate_key:
         generate_key(*args.generate_key)
+
+
+# ============================================================
+# RESUME UPLOAD ENDPOINT — added 2026-05-06
+# ============================================================
+
+MAX_RESUME_BYTES = 5 * 1024 * 1024
+ALLOWED_RESUME_EXTS = {".pdf", ".docx", ".txt"}
+
+
+async def verify_api_key_or_preview(request: Request, conn=Depends(get_conn)) -> dict:
+    """Wraps verify_api_key but allows a special preview key for local dev."""
+    raw_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+    if raw_key == "preview":
+        return {
+            "key_id": "preview",
+            "tier": "free",
+            "client_name": "preview-local",
+            "active": True,
+        }
+    return await verify_api_key(request=request, conn=conn)
+
+
+def _skills_payload(skills_dict):
+    out = []
+    for _, item in (skills_dict or {}).items():
+        out.append({
+            "name": item.get("name"),
+            "confidence": item.get("confidence"),
+            "source": item.get("source"),
+        })
+    return out
+
+
+@app.post("/v1/resume/upload", tags=["Resume"])
+async def upload_resume_v1(
+    file: UploadFile = File(...),
+    key: dict = Depends(verify_api_key_or_preview),
+    conn=Depends(get_conn),
+):
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
+
+    if ext not in ALLOWED_RESUME_EXTS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only PDF, DOCX, and TXT files are supported",
+        )
+
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_RESUME_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="File must be under 5MB",
+        )
+
+    try:
+        text = parse_resume(file_bytes, filename)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to parse resume: {str(e)}",
+        )
+
+    if not text or not text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Resume parsing returned empty text",
+        )
+
+    try:
+        skills = extract_skills(text, conn) or {}
+        exp_level = infer_experience_level(text) or "mid"
+        matched_jobs = match_jobs(
+            skills=skills,
+            exp_level=exp_level,
+            salary_floor=0,
+            conn=conn,
+            top_n=50,
+        ) or []
+
+        tier = key.get("tier", "free") if isinstance(key, dict) else "free"
+        is_pro = tier == "pro"
+
+        if is_pro:
+            skill_gaps = find_skill_gaps(
+                skills=skills,
+                exp_level=exp_level,
+                conn=conn,
+                top_n=5,
+            ) or []
+            jobs_out = matched_jobs[:50]
+        else:
+            skill_gaps = []
+            jobs_out = matched_jobs[:3]
+
+        return {
+            "ok": True,
+            "skills_found": _skills_payload(skills),
+            "experience_level_inferred": exp_level,
+            "matched_jobs": jobs_out,
+            "skill_gaps": skill_gaps,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Resume matching failed: {str(e)}",
+        )
