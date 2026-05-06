@@ -1184,14 +1184,16 @@ async def upload_resume_v1(
             detail="Resume parsing returned empty text",
         )
 
+    cur = None
     try:
-        skills = extract_skills(text, conn) or {}
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        skills = extract_skills(text, cur) or {}
         exp_level = infer_experience_level(text) or "mid"
         matched_jobs = match_jobs(
-            skills=skills,
+            resume_skills=skills,
             exp_level=exp_level,
             salary_floor=0,
-            conn=conn,
+            db_cursor=cur,
             top_n=50,
         ) or []
 
@@ -1200,9 +1202,9 @@ async def upload_resume_v1(
 
         if is_pro:
             skill_gaps = find_skill_gaps(
-                skills=skills,
+                resume_skills=skills,
                 exp_level=exp_level,
-                conn=conn,
+                db_cursor=cur,
                 top_n=5,
             ) or []
             jobs_out = matched_jobs[:50]
@@ -1225,3 +1227,6 @@ async def upload_resume_v1(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Resume matching failed: {str(e)}",
         )
+    finally:
+        if cur is not None:
+            cur.close()
