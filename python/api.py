@@ -1187,7 +1187,32 @@ async def upload_resume_v1(
     cur = None
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        skills = extract_skills(text, cur) or {}
+        log.info(
+            "resume_upload_debug: cursor_type=%s filename=%r",
+            type(cur).__name__,
+            filename,
+        )
+        log.info(
+            "resume_upload_debug: text_len=%d text_preview=%r",
+            len(text),
+            text[:1500],
+        )
+        cur.execute("SELECT 1 AS test")
+        probe = cur.fetchone()
+        log.info(
+            "resume_upload_debug: db_cursor_probe=%s probe_repr_type=%s",
+            probe,
+            type(probe).__name__,
+        )
+        try:
+            skills = extract_skills(text, cur) or {}
+        except Exception:
+            log.exception("resume_upload_debug: extract_skills raised")
+            raise
+        log.info(
+            "resume_upload_debug: extract_skills_skill_count=%d",
+            len(skills),
+        )
         exp_level = infer_experience_level(text) or "mid"
         matched_jobs = match_jobs(
             resume_skills=skills,
