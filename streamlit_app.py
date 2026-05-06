@@ -285,6 +285,22 @@ _tier = (client.get("tier") if client else None) or ("pro" if is_preview else No
 is_paid       = (_tier == "pro")
 is_free       = (_tier == "free")
 is_anonymous  = (not is_paid and not is_free)
+
+# INSIGHTS_PAGE_v1: sidebar navigation between Jobs and Insights
+_page = st.sidebar.radio(
+    "Navigation",
+    options=["Jobs", "Insights"],
+    index=0,
+    label_visibility="collapsed"
+)
+st.sidebar.markdown("---")
+if is_paid:
+    st.sidebar.markdown("<div style='font-size:0.7rem;color:#999;text-align:center'>💎 Pro</div>", unsafe_allow_html=True)
+elif is_free:
+    st.sidebar.markdown("<div style='font-size:0.7rem;color:#999;text-align:center'>Free tier</div>", unsafe_allow_html=True)
+else:
+    st.sidebar.markdown("<div style='font-size:0.7rem;color:#999;text-align:center'>Anonymous preview</div>", unsafe_allow_html=True)
+
 # Helpful flags downstream:
 #   is_paid       — full feed, all features unlocked
 #   is_free       — 500-job feed, blurred premium features, sticky upgrade banner
@@ -340,6 +356,134 @@ if is_free:
     </style>
     """, unsafe_allow_html=True)
 
+
+# INSIGHTS_PAGE_v1: route to Insights page if selected
+if _page == "Insights":
+    st.markdown("<h1 style='font-family:Syne,sans-serif;font-weight:800;letter-spacing:-0.02em;color:#e2ff5d;margin-bottom:0'>Insights</h1>", unsafe_allow_html=True)
+    st.markdown("<div style='color:#888;font-size:0.85rem;margin-bottom:24px'>Aggregate data intelligence across the entire job market.</div>", unsafe_allow_html=True)
+
+    if not is_paid:
+        # Free/anonymous teaser
+        st.markdown("""
+        <div style='background:linear-gradient(135deg,#1a1a1a 0%,#0a0a0a 100%);border:1px solid #333;border-radius:8px;padding:40px;text-align:center;margin:40px 0'>
+            <div style='font-size:2rem;margin-bottom:16px'>🔒</div>
+            <div style='font-family:Syne,sans-serif;font-size:1.3rem;font-weight:700;color:#e2ff5d;margin-bottom:12px'>Insights is a Pro feature</div>
+            <div style='color:#bbb;font-size:0.9rem;line-height:1.6;max-width:520px;margin:0 auto 24px'>
+                Pro members get access to aggregate intelligence across the entire job market:
+                top in-demand skills per role type, salary premiums by skill, and ghost job leaderboards by company.
+            </div>
+            <a href='https://buy.stripe.com/3cI4gs9hugN14obehifnO02' target='_blank' style='display:inline-block;background:#e2ff5d;color:#080810;padding:12px 32px;border-radius:6px;text-decoration:none;font-family:IBM Plex Mono,monospace;font-size:0.85rem;font-weight:600;letter-spacing:0.05em'>💎 Upgrade to Pro — $19/mo</a>
+        </div>
+        """, unsafe_allow_html=True)
+        st.stop()
+
+    # ── Pro Insights page begins here ─────────────────────────────────────
+    st.markdown("<div style='border-left:3px solid #e2ff5d;padding-left:16px;margin:32px 0 20px'><div style='font-family:IBM Plex Mono,monospace;font-size:0.7rem;color:#888;letter-spacing:0.15em;text-transform:uppercase'>Section 1</div><div style='font-family:Syne,sans-serif;font-size:1.4rem;font-weight:700;color:#fff'>Top Skills by Role</div></div>", unsafe_allow_html=True)
+
+    role_options = {
+        "data_science": "Data Scientist",
+        "data_engineering": "Data Engineer",
+        "data_analytics": "Data Analyst",
+        "ml_engineering": "ML Engineer",
+        "ai_research": "AI Researcher",
+        "analytics_engineering": "Analytics Engineer",
+    }
+    selected_role = st.selectbox(
+        "Select a role to see the top 10 in-demand skills",
+        options=list(role_options.keys()),
+        format_func=lambda x: role_options[x],
+        key="insights_role"
+    )
+
+    skills_query = f"""
+        SELECT s.skill_name,
+               COUNT(DISTINCT jp.job_id) AS jobs_with_skill,
+               ROUND(AVG(NULLIF(jp.salary_max_annual, 0))::numeric, 0) AS avg_salary
+        FROM job_postings jp
+        JOIN job_skills js ON js.job_id = jp.job_id
+        JOIN skills s ON s.skill_id = js.skill_id
+        WHERE jp.data_tier = 1
+          AND jp.status = 'raw'
+          AND jp.role_category = %s
+        GROUP BY s.skill_name
+        ORDER BY jobs_with_skill DESC
+        LIMIT 10
+    """
+    try:
+        cur.execute(skills_query, (selected_role,))
+        skills_rows = cur.fetchall()
+        if skills_rows:
+            skills_df = pd.DataFrame(skills_rows, columns=["Skill", "Jobs Requiring", "Avg Max Salary"])
+            skills_df["Avg Max Salary"] = skills_df["Avg Max Salary"].apply(
+                lambda x: f"${int(x):,}" if pd.notna(x) and x > 0 else "—"
+            )
+            st.dataframe(skills_df, use_container_width=True, hide_index=True)
+        else:
+            st.info(f"No data available for {role_options[selected_role]} yet.")
+    except Exception as _e:
+        st.error(f"Could not load skills data: {_e}")
+
+    st.markdown("<div style='margin:48px 0 0'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='border-left:3px solid #e2ff5d;padding-left:16px;margin:32px 0 20px'><div style='font-family:IBM Plex Mono,monospace;font-size:0.7rem;color:#888;letter-spacing:0.15em;text-transform:uppercase'>Section 2</div><div style='font-family:Syne,sans-serif;font-size:1.4rem;font-weight:700;color:#fff'>Salary Premium by Skill</div><div style='color:#888;font-size:0.8rem;margin-top:4px'>Skills that command the highest median pay across all data & ML roles.</div></div>", unsafe_allow_html=True)
+
+    salary_query = """
+        SELECT skill_name,
+               SUM(jobs_with_skill) AS total_jobs,
+               ROUND(AVG(median_salary_max_annual)::numeric, 0) AS median_max_salary
+        FROM analytics_analytics.mart_skill_demand
+        WHERE median_salary_max_annual IS NOT NULL
+          AND median_salary_max_annual > 0
+        GROUP BY skill_name
+        HAVING SUM(jobs_with_skill) >= 10
+        ORDER BY median_max_salary DESC
+        LIMIT 15
+    """
+    try:
+        cur.execute(salary_query)
+        salary_rows = cur.fetchall()
+        if salary_rows:
+            salary_df = pd.DataFrame(salary_rows, columns=["Skill", "Jobs Requiring", "Median Max Salary"])
+            salary_df["Median Max Salary"] = salary_df["Median Max Salary"].apply(
+                lambda x: f"${int(x):,}" if pd.notna(x) else "—"
+            )
+            st.dataframe(salary_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("Salary data not available yet.")
+    except Exception as _e:
+        st.error(f"Could not load salary data: {_e}")
+
+    st.markdown("<div style='margin:48px 0 0'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='border-left:3px solid #ef4444;padding-left:16px;margin:32px 0 20px'><div style='font-family:IBM Plex Mono,monospace;font-size:0.7rem;color:#888;letter-spacing:0.15em;text-transform:uppercase'>Section 3</div><div style='font-family:Syne,sans-serif;font-size:1.4rem;font-weight:700;color:#fff'>Ghost Job Leaderboard</div><div style='color:#888;font-size:0.8rem;margin-top:4px'>Companies with the highest share of probable ghost jobs (10+ active postings tracked).</div></div>", unsafe_allow_html=True)
+
+    ghost_query = """
+        SELECT company_name,
+               COUNT(*) AS total_active,
+               COUNT(*) FILTER (WHERE ghost_probability > 0.7) AS likely_ghosts,
+               ROUND(100.0 * COUNT(*) FILTER (WHERE ghost_probability > 0.7) / NULLIF(COUNT(*), 0), 1) AS ghost_pct
+        FROM analytics_analytics.mart_ghost_job_index
+        GROUP BY company_name
+        HAVING COUNT(*) >= 10
+        ORDER BY ghost_pct DESC, total_active DESC
+        LIMIT 20
+    """
+    try:
+        cur.execute(ghost_query)
+        ghost_rows = cur.fetchall()
+        if ghost_rows:
+            ghost_df = pd.DataFrame(ghost_rows, columns=["Company", "Active Postings", "Likely Ghost", "Ghost %"])
+            ghost_df["Ghost %"] = ghost_df["Ghost %"].apply(
+                lambda x: f"{x}%" if pd.notna(x) else "—"
+            )
+            st.dataframe(ghost_df, use_container_width=True, hide_index=True)
+            st.markdown("<div style='font-size:0.7rem;color:#666;margin-top:12px;font-style:italic'>Ghost probability is calculated from time-to-close patterns relative to sector medians. Probability >70% indicates likely ghost listing.</div>", unsafe_allow_html=True)
+        else:
+            st.info("Ghost job data not available yet.")
+    except Exception as _e:
+        st.error(f"Could not load ghost job data: {_e}")
+
+    st.stop()  # Don't render the Jobs page below
+
+# ── Continue with regular Jobs page below ─────────────────────────────────
 
 # FREEMIUM_LANDING_v1: anonymous landing hero + email signup form
 if is_anonymous:
