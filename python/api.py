@@ -36,6 +36,10 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware  # SLOWAPI_MIDDLEWARE_v1
+from email_templates import (
+    FREE_SIGNUP_SUBJECT, free_signup_html, free_signup_plain,
+    PRO_WELCOME_SUBJECT, pro_welcome_html, pro_welcome_plain,
+)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -869,25 +873,15 @@ async def stripe_webhook(request: Request):
                     import requests as _rq
                     _resend_key = os.getenv("RESEND_API_KEY", "")
                     _from = os.getenv("RESEND_FROM", "Lander <onboarding@resend.dev>")
-                    _html = (
-                        '<html><body style="font-family:system-ui,sans-serif;color:#1f1f1f">'
-                        '<h2 style="color:#0f0f1a">Welcome to Lander Pro</h2>'
-                        f'<p>Hey {customer_name}, your 30-day Pro access starts now.</p>'
-                        f'<p><a href="{access_url}" style="background:#e2ff5d;color:#080810;padding:12px 28px;text-decoration:none;border-radius:3px;font-weight:600;display:inline-block">Open Dashboard &rarr;</a></p>'
-                        f'<p style="font-size:0.85rem;color:#666">Or paste this URL: <code style="font-size:0.75rem">{access_url}</code></p>'
-                        '<hr>'
-                        '<p style="font-size:0.8rem;color:#666"><strong>Pro includes:</strong> full 2,000-job feed, hiring manager LinkedIn on every role, full resume match top-50, skill gaps with salary deltas.</p>'
-                        '<p style="font-size:0.75rem;color:#888;margin-top:16px">Bookmark your dashboard URL — it\'s your personal access link.</p>'
-                        '</body></html>'
-                    )
                     _r = _rq.post(
                         "https://api.resend.com/emails",
                         headers={"Authorization": f"Bearer {_resend_key}", "Content-Type": "application/json"},
                         json={
                             "from": _from,
                             "to": [customer_email],
-                            "subject": "Your Lander Pro access — 30 days",
-                            "html": _html,
+                            "subject": PRO_WELCOME_SUBJECT,
+                            "html": pro_welcome_html(access_url),
+                            "text": pro_welcome_plain(access_url),
                         },
                         timeout=10,
                     )
@@ -970,18 +964,6 @@ def _send_free_signup_email(email: str, access_url: str):
     #   RESEND_FROM='Lander <hello@landerjob.com>'
     from_addr = os.getenv("RESEND_FROM", "Lander <onboarding@resend.dev>")
 
-    html_body = f"""
-    <html><body style="font-family:system-ui,sans-serif;color:#1f1f1f">
-    <h2 style="color:#0f0f1a">Welcome to Lander</h2>
-    <p>Click the link below to access your free dashboard. Bookmark it — you'll need it for return visits.</p>
-    <p><a href="{access_url}" style="background:#e2ff5d;color:#080810;padding:12px 28px;text-decoration:none;border-radius:3px;font-weight:600;display:inline-block">Open Dashboard &rarr;</a></p>
-    <p style="font-size:0.85rem;color:#666">Or paste this URL: <code style="font-size:0.75rem">{access_url}</code></p>
-    <hr>
-    <p style="font-size:0.8rem;color:#666"><strong>What you get free:</strong> 500 fresh jobs daily, basic filters, traffic-light job signals.</p>
-    <p style="font-size:0.8rem;color:#666"><strong>Upgrade to Pro ($19/mo)</strong> for full 2000-job feed, hiring manager LinkedIn contacts, and full resume match top-50 with skill-gap insights.</p>
-    </body></html>
-    """
-
     try:
         r = _requests.post(
             "https://api.resend.com/emails",
@@ -992,8 +974,9 @@ def _send_free_signup_email(email: str, access_url: str):
             json={
                 "from": from_addr,
                 "to": [email],
-                "subject": "Your Lander access link",
-                "html": html_body,
+                "subject": FREE_SIGNUP_SUBJECT,
+                "html": free_signup_html(access_url),
+                "text": free_signup_plain(access_url),
             },
             timeout=10,
         )
