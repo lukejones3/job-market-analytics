@@ -57,7 +57,7 @@ DB_CONFIG = dict(
 # ── Stripe config ────────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY    = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_PRICE_ID      = "price_1TP72k5EYUntcUuPzCr6ym84"
+STRIPE_PRICE_ID      = "price_1TS0Qz5EYUntcUuPCtc54NAm"
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -1138,7 +1138,7 @@ async def create_checkout(request: Request):
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             mode="subscription",
-            line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
+            line_items=[{"price": body.get("price_id", STRIPE_PRICE_ID), "quantity": 1}],
             customer_email=email or None,
             success_url=success_url,
             cancel_url=cancel_url,
