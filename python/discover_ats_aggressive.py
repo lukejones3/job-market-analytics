@@ -61,9 +61,19 @@ SERPER_API_KEY = os.getenv("SERPER_API_KEY")
 SERPER_URL     = "https://google.serper.dev/search"
 
 PROBE_WORKERS  = 25
-PROBE_TIMEOUT  = 6
+PROBE_TIMEOUT  = 8     # per-request timeout for Workday CXS probes
 SERPER_DELAY   = 0.4   # between Serper calls
 CT_DELAY       = 3.0   # crt.sh is rate-limited
+
+# Workday CXS probe constants
+# Ordered by frequency in production DB: wd1 > wd5 > wd3 > wd12 > wd103 > wd501 > wd108 > wd503 > wd1480
+WD_SERVERS_PROBE = ["wd1", "wd5", "wd3", "wd12", "wd103", "wd501", "wd108", "wd503", "wd1480"]
+_WD_PROBE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+    "Content-Type": "application/json",
+    "Accept": "application/json",
+}
+_WD_PROBE_PAYLOAD = {"appliedFacets": {}, "limit": 1, "offset": 0, "searchText": ""}
 
 USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -543,36 +553,44 @@ def _name_to_domain(name: str) -> str:
 
 def _probe_workday_slug(args: Tuple[str, str]) -> Optional[Dict]:
     """
-    GET https://{slug}.myworkdayjobs.com/ and follow redirects.
-    Returns a candidate dict if redirect lands on a wd{N} host.
+    Confirm a Workday tenant slug exists using the CXS jobs API.
+
+    Workday tenants live at {slug}.{server}.myworkdayjobs.com — there is no
+    DNS entry at the flat {slug}.myworkdayjobs.com level, so redirect-sniffing
+    is not an option.
+
+    HTTP semantics from the CXS endpoint /wday/cxs/{slug}/{board}/jobs:
+      200  — tenant and board both valid
+      404  — tenant exists on this server, board name is wrong
+      422  — tenant does NOT exist on this server (try next server)
+
+    We probe with board="External" (most common) across all known servers.
+    A 404 is enough to confirm the tenant — board discovery is deferred to
+    validate_ats_candidates.py which tries 15+ board name patterns.
     """
     slug, company_name = args
-    url = f"https://{slug}.myworkdayjobs.com/"
-    try:
-        r = requests.get(
-            url,
-            allow_redirects=True,
-            timeout=PROBE_TIMEOUT,
-            headers={"User-Agent": _ua()},
-            stream=True,  # avoid downloading full page body
-        )
-        # Read only first 512 bytes to check redirect target
-        content = r.raw.read(512)
-        final = r.url
-        m = re.search(
-            r"https?://([a-zA-Z0-9_-]+)\.(wd\d+)\.myworkdayjobs\.com",
-            final, re.IGNORECASE,
-        )
-        if m and m.group(1).lower() == slug.lower():
-            return {
-                "ats": "workday",
-                "tenant": slug.lower(),
-                "server": m.group(2).lower(),
-                "source": "company_probe",
-                "company_name": company_name,
-            }
-    except Exception:
-        pass
+    for server in WD_SERVERS_PROBE:
+        url = (f"https://{slug}.{server}.myworkdayjobs.com"
+               f"/wday/cxs/{slug}/External/jobs")
+        try:
+            r = requests.post(
+                url,
+                json=_WD_PROBE_PAYLOAD,
+                headers=_WD_PROBE_HEADERS,
+                timeout=PROBE_TIMEOUT,
+            )
+            if r.status_code in (200, 404):
+                # 200 = External is the board; 404 = right server, wrong board
+                return {
+                    "ats": "workday",
+                    "tenant": slug.lower(),
+                    "server": server,
+                    "source": "company_probe",
+                    "company_name": company_name,
+                }
+            # 422 = tenant not registered on this server; try next
+        except Exception:
+            pass
     return None
 
 
