@@ -30,7 +30,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
 # Import DB helpers and the new helper from ingest_jobs
 sys.path.insert(0, str(Path(__file__).parent))
-from ingest_jobs import get_db_connection, _parse_remote_type
+from ingest_jobs import get_conn, _parse_remote_type
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
@@ -70,7 +70,7 @@ def fetch_remote_type(job_url: str) -> str | None:
 
 
 def main(apply: bool):
-    conn = get_db_connection()
+    conn = get_conn()
     cur = conn.cursor()
 
     cur.execute("""
