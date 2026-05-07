@@ -2122,6 +2122,16 @@ def _parse_remote_type(remote_type: str):
     return None
 
 
+def _parse_workday_start_date(s: str):
+    """Parse Workday's startDate ISO string to a date. Returns None if invalid."""
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s.strip(), "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return None
+
+
 def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) -> List[RawJob]:
     base = f"https://{tenant}.{wd_server}.myworkdayjobs.com"
     list_url = f"{base}/wday/cxs/{tenant}/{board}/jobs"
@@ -2168,8 +2178,9 @@ def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) ->
                 # Step 1: read remoteType from list API (available on ~50% of tenants)
                 workplace_type = _parse_remote_type(p.get("remoteType", ""))
 
-                # Step 2: fetch detail for description, and remoteType if list API missed it
+                # Step 2: fetch detail for description, remoteType, and startDate
                 desc = ""
+                posted_date = None
                 if ext_path:
                     # externalPath already contains /job/... so don't add /job/ prefix
                     clean_path = ext_path.lstrip('/')
@@ -2195,6 +2206,10 @@ def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) ->
                             # Read remoteType from detail only if list API didn't have it
                             if workplace_type is None:
                                 workplace_type = _parse_remote_type(info.get("remoteType", ""))
+                            # Read exact posting date from startDate
+                            sd = _parse_workday_start_date(info.get("startDate", ""))
+                            if sd:
+                                posted_date = str(sd)
                     except Exception:
                         pass
                     time.sleep(0.3)
@@ -2223,24 +2238,6 @@ def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) ->
                         workplace_type = "remote"
                     elif "hybrid" in loc_lower:
                         workplace_type = "hybrid"
-
-                # Parse postedOn into a date
-                posted_date = None
-                posted_on = p.get("postedOn", "")
-                if posted_on:
-                    posted_on_lower = posted_on.lower()
-                    from datetime import date, timedelta
-                    today = date.today()
-                    if "today" in posted_on_lower:
-                        posted_date = str(today)
-                    elif "yesterday" in posted_on_lower:
-                        posted_date = str(today - timedelta(days=1))
-                    else:
-                        import re as _re
-                        m = _re.search(r"(\d+)\+?\s*days?\s+ago", posted_on_lower)
-                        if m:
-                            days_ago = int(m.group(1))
-                            posted_date = str(today - timedelta(days=days_ago))
 
                 jobs.append(RawJob(
                     source="workday",
