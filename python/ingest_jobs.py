@@ -2108,6 +2108,20 @@ WORKDAY_COMPANIES = [
     ("Cdw", "cdw", "careers", "wd5"),
 ]
 
+def _parse_remote_type(remote_type: str):
+    """Normalize Workday's remoteType field to our workplace_type enum."""
+    if not remote_type:
+        return None
+    rt = remote_type.lower().strip()
+    if "remote" in rt or "virtual" in rt:   # "100% Remote", "Remote", "Fully Remote"
+        return "remote"
+    if "hybrid" in rt:
+        return "hybrid"
+    if "on" in rt and "site" in rt:         # "On-Site" / "Onsite"
+        return "onsite"
+    return None
+
+
 def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) -> List[RawJob]:
     base = f"https://{tenant}.{wd_server}.myworkdayjobs.com"
     list_url = f"{base}/wday/cxs/{tenant}/{board}/jobs"
@@ -2143,9 +2157,19 @@ def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) ->
                 ext_path = p.get("externalPath", "")
                 job_id = "WD" + hashlib.md5(f"{tenant}|{ext_path}".encode()).hexdigest()[:10]
 
-                # Fetch full description
+                # Extract location from list API first (needed before detail fetch)
+                location = ""
+                locs = p.get("locationsText", "") or p.get("locations", "")
+                if isinstance(locs, list) and locs:
+                    location = locs[0]
+                elif isinstance(locs, str):
+                    location = locs
+
+                # Step 1: read remoteType from list API (available on ~50% of tenants)
+                workplace_type = _parse_remote_type(p.get("remoteType", ""))
+
+                # Step 2: fetch detail for description, and remoteType if list API missed it
                 desc = ""
-                workplace_type = None
                 if ext_path:
                     # externalPath already contains /job/... so don't add /job/ prefix
                     clean_path = ext_path.lstrip('/')
@@ -2165,25 +2189,15 @@ def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) ->
                             # Strip HTML tags
                             desc = re.sub(r"<[^>]+>", " ", desc)
                             desc = re.sub(r"\s+", " ", desc).strip()
-                            # Also extract location and remote type from detail
-                            if not location and info.get("location"):
+                            # Upgrade location if list API gave us "N Locations" summary
+                            if info.get("location") and (not location or "location" in location.lower()):
                                 location = info["location"]
-                            remote_type = info.get("remoteType", "")
-                            if remote_type and remote_type.lower() in ("remote", "fully remote"):
-                                workplace_type = "remote"
-                            elif remote_type and "hybrid" in remote_type.lower():
-                                workplace_type = "hybrid"
-                    except:
+                            # Read remoteType from detail only if list API didn't have it
+                            if workplace_type is None:
+                                workplace_type = _parse_remote_type(info.get("remoteType", ""))
+                    except Exception:
                         pass
                     time.sleep(0.3)
-
-                # Extract location
-                location = ""
-                locs = p.get("locationsText", "") or p.get("locations", "")
-                if isinstance(locs, list) and locs:
-                    location = locs[0]
-                elif isinstance(locs, str):
-                    location = locs
 
                 # US-only filter — skip international roles
                 us_signals = ["remote", "usa", "united states", "ca", "ny", "tx", "wa", "il",
@@ -2202,10 +2216,10 @@ def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) ->
                     if len(last) == 3 and last not in ["USA", "CAN"] and last.isalpha():
                         continue  # 3-letter country code like SGP, IND, CHN
 
-                # Infer workplace type from location string if not already set
+                # Step 3: fall back to location string if remoteType wasn't in either API response
                 if workplace_type is None:
                     loc_lower = location.lower()
-                    if "remote" in loc_lower:
+                    if "remote" in loc_lower or "virtual" in loc_lower:
                         workplace_type = "remote"
                     elif "hybrid" in loc_lower:
                         workplace_type = "hybrid"
