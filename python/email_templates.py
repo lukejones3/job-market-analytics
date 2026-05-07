@@ -50,7 +50,7 @@ def _logo_row(badge: str = "") -> str:
     return f"""\
           <tr>
             <td style="padding:40px 48px 0;">
-              <span style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Lander</span>{badge_html}
+              <span style="font-size:30px;font-weight:800;letter-spacing:-0.5px;line-height:1;"><span style="color:#d4ff3a;">L</span><span style="color:#ffffff;">ander</span></span>{badge_html}
             </td>
           </tr>
           <tr>
