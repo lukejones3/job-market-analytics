@@ -234,13 +234,33 @@ def _ua() -> str:
 
 # ATSs that use tenant-as-subdomain (CT logs are useful for these)
 CT_LOG_TARGETS = [
-    ("workday",        "%.myworkdayjobs.com",   r'^([a-z0-9][a-z0-9_-]+)\.(wd\d+)\.myworkdayjobs\.com$'),
+    # Workday: tenant.{wd<N>|wd<N>-dr|wd-impl<N>}.myworkdayjobs.com
+    # NOTE: Workday uses wildcard server certs (*.wd5.myworkdayjobs.com), not per-tenant certs.
+    # CT logs yield is structurally low (~2-3 tenants). Use company_probe for bulk Workday discovery.
+    ("workday",        "%.myworkdayjobs.com",   r'^([a-z0-9][a-z0-9_-]+)\.(wd[\w-]+)\.myworkdayjobs\.com$'),
     ("icims",          "%.icims.com",            r'^([a-z0-9][a-z0-9_-]+)\.icims\.com$'),
     ("taleo",          "%.taleo.net",            r'^([a-z0-9][a-z0-9_-]+)\.taleo\.net$'),
     ("eightfold",      "%.eightfold.ai",         r'^([a-z0-9][a-z0-9_-]+)\.eightfold\.ai$'),
     ("jobvite",        "%.jobvite.com",           r'^([a-z0-9][a-z0-9_-]+)\.jobvite\.com$'),
     ("successfactors", "%.successfactors.com",   r'^([a-z0-9][a-z0-9_-]+)\.successfactors\.com$'),
 ]
+
+# iCIMS infrastructure subdomains — not customer tenants
+ICIMS_INFRA_RE = re.compile(
+    r'^(?:api(?:-[\w-]+)?|login(?:-[\w-]+)?|analytics(?:-[\w-]+)?|'
+    r'statuspage|trust|teams|talent|agents|marketplace|engage|developers|'
+    r'design-system|mta-sts|notacustomer[\w-]*|'
+    r'us\d+|eu\d+|ca\d+)$',
+    re.I,
+)
+
+# Workday internal server/env subdomains — not customer tenants
+WORKDAY_SERVER_RE = re.compile(
+    r'^(?:wd\d|impl[-_]?wd|dr[-_]?wd|perf[-_]?wd|impltest\d*[-_]?wd|'
+    r'wcpdev[-_]?|stgimpl[-_]?wd|stgprod[-_]?wd|odpimpl[-_]?wd|'
+    r'cp2[-_]?wd|turbo[-_]|oms[-_]perf|wcpimpl[-_]?wd|aade[-_]?wd)',
+    re.I,
+)
 
 
 def _parse_ct_entry(name: str, ats: str, pattern: re.Pattern) -> Optional[Dict]:
@@ -255,6 +275,12 @@ def _parse_ct_entry(name: str, ats: str, pattern: re.Pattern) -> Optional[Dict]:
 
     tenant = m.group(1)
     if tenant in DOMAIN_NOISE or len(tenant) < 2:
+        return None
+
+    # Filter ATS-specific infrastructure subdomains
+    if ats == "icims" and ICIMS_INFRA_RE.match(tenant):
+        return None
+    if ats == "workday" and WORKDAY_SERVER_RE.match(tenant):
         return None
 
     server = m.group(2) if m.lastindex >= 2 else None
@@ -281,11 +307,12 @@ def fetch_ct_logs(known: Dict[str, Set[str]], limit: Optional[int] = None) -> Li
         url = f"https://crt.sh/?q={requests.utils.quote(ct_pattern)}&output=json"
         log.info(f"CT logs: querying {ats} ({ct_pattern}) ...")
 
+        entries = []
         for attempt in range(3):
             try:
                 r = requests.get(
                     url,
-                    timeout=90,
+                    timeout=180,
                     headers={"User-Agent": _ua(), "Accept": "application/json"},
                 )
                 if r.status_code == 429:
@@ -302,9 +329,6 @@ def fetch_ct_logs(known: Dict[str, Set[str]], limit: Optional[int] = None) -> Li
                 log.warning(f"  crt.sh attempt {attempt+1} failed for {ats}: {e}")
                 if attempt < 2:
                     time.sleep(10)
-                entries = []
-        else:
-            entries = []
 
         new_this_ats = 0
         for entry in entries:
