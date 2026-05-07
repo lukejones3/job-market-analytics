@@ -1094,14 +1094,17 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
 async def create_checkout(request: Request):
     body = await request.json()
     email = body.get("email", "")
+    lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
+    success_url = body.get("success_url", f"{lander_base}/upgrade-success?session_id={{CHECKOUT_SESSION_ID}}")
+    cancel_url = body.get("cancel_url", f"{lander_base}/pricing")
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             mode="subscription",
             line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
             customer_email=email or None,
-            success_url="https://job-market-analytics-nyz8zrrujh8bafgniqhjyw.streamlit.app/?payment=success",
-            cancel_url="https://job-market-analytics-nyz8zrrujh8bafgniqhjyw.streamlit.app/",
+            success_url=success_url,
+            cancel_url=cancel_url,
         )
         return {"checkout_url": session.url}
     except Exception as e:
