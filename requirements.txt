@@ -3,3 +3,7 @@ psycopg2-binary>=2.9.9
 pandas>=2.0.0
 plotly>=5.18.0
 slowapi
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+requests>=2.31.0
+python-dotenv>=1.0.0

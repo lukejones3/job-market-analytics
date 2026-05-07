@@ -41,6 +41,22 @@ import psycopg2
 # LOC_PATCH_v1
 from location_normalizer import normalize_location
 
+# New ATS harvesters — imported here so `--source all` includes them
+try:
+    from workable_harvest import fetch_all_workable as _fetch_all_workable
+except ImportError:
+    _fetch_all_workable = None
+
+try:
+    from icims_harvest import fetch_all_icims as _fetch_all_icims
+except ImportError:
+    _fetch_all_icims = None
+
+try:
+    from taleo_harvest import fetch_all_taleo as _fetch_all_taleo
+except ImportError:
+    _fetch_all_taleo = None
+
 from psycopg2.extras import DictCursor
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
@@ -2768,6 +2784,27 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
         log.info("Fetching from Adzuna...")
         all_jobs.extend(fetch_all_adzuna(discover_mode=discover_mode))
 
+    if source in ("workable", "all"):
+        if _fetch_all_workable:
+            log.info("Fetching from Workable...")
+            all_jobs.extend(_fetch_all_workable())
+        else:
+            log.warning("Workable harvester not available (workable_harvest.py missing)")
+
+    if source in ("icims", "all"):
+        if _fetch_all_icims:
+            log.info("Fetching from iCIMS...")
+            all_jobs.extend(_fetch_all_icims())
+        else:
+            log.warning("iCIMS harvester not available (icims_harvest.py missing)")
+
+    if source in ("taleo", "all"):
+        if _fetch_all_taleo:
+            log.info("Fetching from Taleo...")
+            all_jobs.extend(_fetch_all_taleo())
+        else:
+            log.warning("Taleo harvester not available (taleo_harvest.py missing)")
+
     log.info(f"Total fetched across all sources: {len(all_jobs)}")
 
     if not all_jobs:
@@ -2994,7 +3031,7 @@ def main():
     ap = argparse.ArgumentParser(description="Multi-source job ingestion pipeline.")
     ap.add_argument(
         "--source",
-        choices=["greenhouse", "lever", "adzuna", "ashby", "workday", "amazon", "eightfold", "smartrecruiters", "all"],
+        choices=["greenhouse", "lever", "adzuna", "ashby", "workday", "amazon", "eightfold", "smartrecruiters", "workable", "icims", "taleo", "all"],
         default="all",
         help="Which source to pull from (default: all)"
     )
