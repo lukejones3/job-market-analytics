@@ -863,14 +863,15 @@ async def stripe_webhook(request: Request):
                 log.info(f"New subscriber: {customer_email} — token prefix: {key_prefix}")
 
                 # WEBHOOK_EMAIL_LINESWAP_v1: send Pro welcome email via Resend
-                access_url = f"https://job-market-analytics-nyz8zrrujh8bafgniqhjyw.streamlit.app/?token={raw_key}"
+                lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
+                access_url = f"{lander_base}/auth/verify?token={raw_key}"
                 try:
                     import requests as _rq
                     _resend_key = os.getenv("RESEND_API_KEY", "")
-                    _from = os.getenv("RESEND_FROM", "DataHiringIQ <onboarding@resend.dev>")
+                    _from = os.getenv("RESEND_FROM", "Lander <onboarding@resend.dev>")
                     _html = (
                         '<html><body style="font-family:system-ui,sans-serif;color:#1f1f1f">'
-                        '<h2 style="color:#0f0f1a">Welcome to DataHiringIQ Pro</h2>'
+                        '<h2 style="color:#0f0f1a">Welcome to Lander Pro</h2>'
                         f'<p>Hey {customer_name}, your 30-day Pro access starts now.</p>'
                         f'<p><a href="{access_url}" style="background:#e2ff5d;color:#080810;padding:12px 28px;text-decoration:none;border-radius:3px;font-weight:600;display:inline-block">Open Dashboard &rarr;</a></p>'
                         f'<p style="font-size:0.85rem;color:#666">Or paste this URL: <code style="font-size:0.75rem">{access_url}</code></p>'
@@ -885,7 +886,7 @@ async def stripe_webhook(request: Request):
                         json={
                             "from": _from,
                             "to": [customer_email],
-                            "subject": "Your DataHiringIQ Pro Access — 30 Days",
+                            "subject": "Your Lander Pro access — 30 days",
                             "html": _html,
                         },
                         timeout=10,
@@ -965,13 +966,13 @@ def _send_free_signup_email(email: str, access_url: str):
         return
 
     # Use onboarding@resend.dev until a sending domain is verified.
-    # Once datahiringiq.com is verified at resend.com/domains, change to:
-    #   RESEND_FROM='DataHiringIQ <hello@datahiringiq.com>'
-    from_addr = os.getenv("RESEND_FROM", "DataHiringIQ <onboarding@resend.dev>")
+    # Once landerjob.com is verified at resend.com/domains, change to:
+    #   RESEND_FROM='Lander <hello@landerjob.com>'
+    from_addr = os.getenv("RESEND_FROM", "Lander <onboarding@resend.dev>")
 
     html_body = f"""
     <html><body style="font-family:system-ui,sans-serif;color:#1f1f1f">
-    <h2 style="color:#0f0f1a">Welcome to DataHiringIQ</h2>
+    <h2 style="color:#0f0f1a">Welcome to Lander</h2>
     <p>Click the link below to access your free dashboard. Bookmark it — you'll need it for return visits.</p>
     <p><a href="{access_url}" style="background:#e2ff5d;color:#080810;padding:12px 28px;text-decoration:none;border-radius:3px;font-weight:600;display:inline-block">Open Dashboard &rarr;</a></p>
     <p style="font-size:0.85rem;color:#666">Or paste this URL: <code style="font-size:0.75rem">{access_url}</code></p>
@@ -991,7 +992,7 @@ def _send_free_signup_email(email: str, access_url: str):
             json={
                 "from": from_addr,
                 "to": [email],
-                "subject": "Your DataHiringIQ Free Access",
+                "subject": "Your Lander access link",
                 "html": html_body,
             },
             timeout=10,
@@ -1073,7 +1074,8 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
             conn.commit()
 
         # Send welcome email asynchronously (don't block the response)
-        access_url = f"https://job-market-analytics-nyz8zrrujh8bafgniqhjyw.streamlit.app/?token={raw_key}"
+        lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
+        access_url = f"{lander_base}/auth/verify?token={raw_key}"
         background_tasks.add_task(_send_free_signup_email, email, access_url)
 
         return {"status": "ok", "message": "Check your email for access link"}
