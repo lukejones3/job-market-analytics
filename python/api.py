@@ -36,7 +36,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware  # SLOWAPI_MIDDLEWARE_v1
-from email_templates import (
+from python.email_templates import (
     FREE_SIGNUP_SUBJECT, free_signup_html, free_signup_plain,
     PRO_WELCOME_SUBJECT, pro_welcome_html, pro_welcome_plain,
 )
