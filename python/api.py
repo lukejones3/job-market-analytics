@@ -1072,6 +1072,60 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
         pool.putconn(conn)
 
 
+@app.get("/auth/verify")
+async def verify_token(token: str):
+    if not token or len(token) < 20:
+        raise HTTPException(status_code=400, detail="Invalid token")
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+
+    conn = pool.getconn()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""
+                SELECT
+                    ak.key_id,
+                    ak.client_email AS email,
+                    ak.tier,
+                    ak.active,
+                    ak.expires_at
+                FROM api_keys ak
+                WHERE ak.api_key_hash = %s
+                LIMIT 1
+            """, (token_hash,))
+            row = cur.fetchone()
+
+            if not row:
+                raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+            if not row["active"]:
+                raise HTTPException(status_code=401, detail="Token deactivated")
+
+            if row["expires_at"] and row["expires_at"] < datetime.now(timezone.utc):
+                raise HTTPException(status_code=401, detail="Token expired")
+
+            cur.execute("""
+                UPDATE free_signups
+                SET last_seen_at = NOW()
+                WHERE api_key_id = %s
+            """, (row["key_id"],))
+            conn.commit()
+
+            return {
+                "api_key": token,
+                "email": row["email"],
+                "tier": row["tier"],
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        log.warning(f"Token verify error: {e}")
+        raise HTTPException(status_code=500, detail="Verification failed")
+    finally:
+        pool.putconn(conn)
+
+
 # ── Stripe Checkout Session ───────────────────────────────────────────────────
 @app.post("/stripe/create-checkout")
 async def create_checkout(request: Request):
