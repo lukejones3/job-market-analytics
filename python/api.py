@@ -1010,50 +1010,43 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
     conn = pool.getconn()
     try:
         with conn.cursor() as cur:
-            # Check if already signed up — return existing access (idempotent)
             cur.execute(
                 "SELECT api_key_id FROM free_signups WHERE email = %s",
                 (email,),
             )
             existing = cur.fetchone()
-            if existing and existing[0]:
-                # Re-send the email but don't issue a new token
-                cur.execute(
-                    """
-                    SELECT api_key_prefix FROM api_keys
-                    WHERE key_id = %s AND active = true
-                    """,
-                    (existing[0],),
-                )
-                row = cur.fetchone()
-                if row:
-                    # We can't recover the raw key. Issue NEW one to email.
-                    pass  # fallthrough to create-new logic below
 
-            # Generate new free-tier token
-            raw_key   = secrets.token_urlsafe(32)
-            key_hash  = hashlib.sha256(raw_key.encode()).hexdigest()
+            raw_key    = secrets.token_urlsafe(32)
+            key_hash   = hashlib.sha256(raw_key.encode()).hexdigest()
             key_prefix = raw_key[:8]
-            key_id    = "K" + secrets.token_hex(8)
 
-            cur.execute("""
-                INSERT INTO api_keys
-                    (key_id, client_name, client_email, api_key_hash, api_key_prefix,
-                     tier, active, created_at, expires_at)
-                VALUES (%s, %s, %s, %s, %s, 'free', true, NOW(), NOW() + INTERVAL '30 days')
-            """, (key_id, email.split("@")[0], email, key_hash, key_prefix))
+            if existing and existing[0]:
+                # Returning user: refresh the key hash on the EXISTING row (preserves tier)
+                cur.execute("""
+                    UPDATE api_keys
+                    SET api_key_hash = %s, api_key_prefix = %s,
+                        active = true, expires_at = NOW() + INTERVAL '30 days'
+                    WHERE key_id = %s
+                """, (key_hash, key_prefix, existing[0]))
+                cur.execute("""
+                    UPDATE free_signups SET last_seen_at = NOW(), user_agent = %s
+                    WHERE email = %s
+                """, (user_agent, email))
+            else:
+                # New user: create api_keys row and free_signups row
+                key_id = "K" + secrets.token_hex(8)
+                cur.execute("""
+                    INSERT INTO api_keys
+                        (key_id, client_name, client_email, api_key_hash, api_key_prefix,
+                         tier, active, created_at, expires_at)
+                    VALUES (%s, %s, %s, %s, %s, 'free', true, NOW(), NOW() + INTERVAL '30 days')
+                """, (key_id, email.split("@")[0], email, key_hash, key_prefix))
+                cur.execute("""
+                    INSERT INTO free_signups
+                        (email, api_key_id, referral_source, user_agent)
+                    VALUES (%s, %s, %s, %s)
+                """, (email, key_id, referral, user_agent))
 
-            # Insert or update free_signups
-            cur.execute("""
-                INSERT INTO free_signups
-                    (email, api_key_id, referral_source, user_agent)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (email) DO UPDATE SET
-                    api_key_id = EXCLUDED.api_key_id,
-                    last_seen_at = NOW(),
-                    referral_source = COALESCE(free_signups.referral_source, EXCLUDED.referral_source),
-                    user_agent = EXCLUDED.user_agent
-            """, (email, key_id, referral, user_agent))
             conn.commit()
 
         # Send welcome email asynchronously (don't block the response)
