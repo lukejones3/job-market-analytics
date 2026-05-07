@@ -857,12 +857,14 @@ async def stripe_webhook(request: Request):
                              tier, active, created_at, expires_at)
                         VALUES (%s, %s, %s, %s, %s, 'pro', true, NOW(), NOW() + INTERVAL '30 days')
                     """, (key_id, customer_name, customer_email, key_hash, key_prefix))
-                    # FREEMIUM_BACKEND_v1: mark free_signups as upgraded
+                    # FREEMIUM_BACKEND_v1: mark free_signups as upgraded and point
+                    # api_key_id at the new Pro key so future free-signup magic
+                    # links refresh the Pro key, not a stale free key.
                     cur.execute("""
                         UPDATE free_signups
-                        SET upgraded_to_paid_at = NOW()
+                        SET upgraded_to_paid_at = NOW(), api_key_id = %s
                         WHERE email = %s
-                    """, (customer_email,))
+                    """, (key_id, customer_email,))
                     conn.commit()
                 log.info(f"New subscriber: {customer_email} — token prefix: {key_prefix}")
 
@@ -1010,6 +1012,16 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
     conn = pool.getconn()
     try:
         with conn.cursor() as cur:
+            # Always prefer an active Pro key if one exists — free_signups.api_key_id
+            # can lag behind if the Stripe webhook fired before the user's free_signups
+            # row existed, or if a prior free-signup ran before this check was in place.
+            cur.execute("""
+                SELECT key_id FROM api_keys
+                WHERE client_email = %s AND tier = 'pro' AND active = true
+                ORDER BY created_at DESC LIMIT 1
+            """, (email,))
+            pro_row = cur.fetchone()
+
             cur.execute(
                 "SELECT api_key_id FROM free_signups WHERE email = %s",
                 (email,),
@@ -1020,8 +1032,31 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
             key_hash   = hashlib.sha256(raw_key.encode()).hexdigest()
             key_prefix = raw_key[:8]
 
-            if existing and existing[0]:
-                # Returning user: refresh the key hash on the EXISTING row (preserves tier)
+            if pro_row:
+                # Pro subscriber — refresh hash on the Pro key so the magic link
+                # returns tier='pro'. Also pin free_signups to that key so future
+                # calls don't drift back to a stale free key.
+                target_key_id = pro_row[0]
+                cur.execute("""
+                    UPDATE api_keys
+                    SET api_key_hash = %s, api_key_prefix = %s,
+                        active = true, expires_at = NOW() + INTERVAL '30 days'
+                    WHERE key_id = %s
+                """, (key_hash, key_prefix, target_key_id))
+                if existing:
+                    cur.execute("""
+                        UPDATE free_signups
+                        SET api_key_id = %s, last_seen_at = NOW(), user_agent = %s
+                        WHERE email = %s
+                    """, (target_key_id, user_agent, email))
+                else:
+                    cur.execute("""
+                        INSERT INTO free_signups
+                            (email, api_key_id, referral_source, user_agent)
+                        VALUES (%s, %s, %s, %s)
+                    """, (email, target_key_id, referral, user_agent))
+            elif existing and existing[0]:
+                # Returning free user: refresh hash on their existing free key
                 cur.execute("""
                     UPDATE api_keys
                     SET api_key_hash = %s, api_key_prefix = %s,
