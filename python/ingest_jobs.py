@@ -2036,6 +2036,7 @@ _WD_UA_CYCLE = itertools.cycle(_WD_USER_AGENTS)
 _WD_GLOBAL_CONCURRENCY  = 50    # max in-flight requests across all tenants
 _WD_PER_HOST            = 3     # max concurrent requests per {tenant}.wdN.myworkdayjobs.com
 _WD_TIMEOUT             = aiohttp.ClientTimeout(total=30)
+_WD_MAX_PAGES           = 10    # max pages per tenant (200 jobs) — prevents runaway on large boards
 _WD_MAX_CONSEC_429      = 3     # skip tenant after this many consecutive 429s
 _WD_GLOBAL_429_THRESH   = 5     # pause entire harvester after this many global 429s
 _WD_GLOBAL_PAUSE_SECS   = 300   # 5 minutes
@@ -2110,6 +2111,7 @@ async def _fetch_workday_tenant_async(
     offset = 0
     limit = 20
     consec_429 = 0
+    page_num = 0
 
     while True:
         await _wd_check_pause()
@@ -2156,9 +2158,17 @@ async def _fetch_workday_tenant_async(
             continue
 
         consec_429 = 0
+        page_num += 1
 
         if not postings:
             break
+
+        if page_num == 1 and total > limit:
+            capped = total > _WD_MAX_PAGES * limit
+            log.info(
+                f"  [{name}] {total} total jobs — "
+                f"{'capped at ' + str(_WD_MAX_PAGES * limit) if capped else 'fetching all'}"
+            )
 
         # ── build detail-fetch tasks for this page ────────────────────────────
         posting_meta = []   # (title, ext_path, job_id, location, workplace_type)
@@ -2240,7 +2250,7 @@ async def _fetch_workday_tenant_async(
             ))
 
         offset += limit
-        if offset >= total:
+        if offset >= total or page_num >= _WD_MAX_PAGES:
             break
 
     return jobs
