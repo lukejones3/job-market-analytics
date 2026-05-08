@@ -353,7 +353,7 @@ def validate_workday(row: Dict) -> Tuple[Optional[str], int, int, str]:
         return server, 0, 0, "unreachable"
 
     us_jobs, data_ml_jobs = _wd_count_jobs(tenant, server, board)
-    if data_ml_jobs > 0:
+    if us_jobs >= 5:
         return server, us_jobs, data_ml_jobs, "active"
     elif us_jobs > 0:
         return server, us_jobs, data_ml_jobs, "no_data_jobs"
@@ -387,7 +387,7 @@ def validate_greenhouse(row: Dict) -> Tuple[Optional[str], int, int, str]:
                 us_jobs += 1
                 if _is_target_role(title):
                     data_ml_jobs += 1
-        if data_ml_jobs > 0:
+        if us_jobs >= 5:
             return None, us_jobs, data_ml_jobs, "active"
         elif us_jobs > 0:
             return None, us_jobs, data_ml_jobs, "no_data_jobs"
@@ -421,7 +421,7 @@ def validate_lever(row: Dict) -> Tuple[Optional[str], int, int, str]:
                 us_jobs += 1
                 if _is_target_role(title):
                     data_ml_jobs += 1
-        if data_ml_jobs > 0:
+        if us_jobs >= 5:
             return None, us_jobs, data_ml_jobs, "active"
         elif us_jobs > 0:
             return None, us_jobs, data_ml_jobs, "no_data_jobs"
@@ -456,7 +456,7 @@ def validate_ashby(row: Dict) -> Tuple[Optional[str], int, int, str]:
                 us_jobs += 1
                 if _is_target_role(title):
                     data_ml_jobs += 1
-        if data_ml_jobs > 0:
+        if us_jobs >= 5:
             return None, us_jobs, data_ml_jobs, "active"
         elif us_jobs > 0:
             return None, us_jobs, data_ml_jobs, "no_data_jobs"
@@ -492,7 +492,7 @@ def validate_workable(row: Dict) -> Tuple[Optional[str], int, int, str]:
                 us_jobs += 1
                 if _is_target_role(title):
                     data_ml_jobs += 1
-        if data_ml_jobs > 0:
+        if us_jobs >= 5:
             return None, us_jobs, data_ml_jobs, "active"
         elif us_jobs > 0:
             return None, us_jobs, data_ml_jobs, "no_data_jobs"
@@ -633,7 +633,7 @@ def validate_smartrecruiters(row: Dict) -> Tuple[Optional[str], int, int, str]:
                     us_jobs += 1
                     if _is_target_role(title):
                         data_ml_jobs += 1
-            if data_ml_jobs > 0:
+            if us_jobs >= 5:
                 return None, us_jobs, data_ml_jobs, "active"
             elif us_jobs > 0:
                 return None, us_jobs, data_ml_jobs, "no_data_jobs"

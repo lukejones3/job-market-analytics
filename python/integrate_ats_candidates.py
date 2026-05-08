@@ -2,9 +2,9 @@
 """
 integrate_ats_candidates.py
 
-Writes validated tenants from ats_tenants_candidates (status='active',
-data_ml_jobs_count > 0) into discovered_companies so the nightly harvest
-picks them up.
+Writes validated tenants from ats_tenants_candidates (status='active')
+into discovered_companies so the nightly harvest picks them up.
+All active tenants are integrated regardless of data/ML job count.
 
 Marks integrated rows with status='integrated'.
 
@@ -12,7 +12,6 @@ Usage:
     python python/integrate_ats_candidates.py --dry-run
     python python/integrate_ats_candidates.py --apply
     python python/integrate_ats_candidates.py --apply --ats greenhouse
-    python python/integrate_ats_candidates.py --apply --min-data-jobs 2
 """
 
 import argparse
@@ -66,15 +65,11 @@ def _board_token(ats: str, tenant: str, server: Optional[str]) -> str:
 def integrate_active(
     apply: bool,
     ats_filter: Optional[str] = None,
-    min_data_jobs: int = 1,
 ) -> None:
     conn = get_conn()
     cur = conn.cursor(cursor_factory=DictCursor)
 
-    where_parts = [
-        "status = 'active'",
-        f"data_ml_jobs_count >= {min_data_jobs}",
-    ]
+    where_parts = ["status = 'active'"]
     if ats_filter:
         where_parts.append(f"ats = '{ats_filter}'")
 
@@ -82,19 +77,19 @@ def integrate_active(
         SELECT ats, tenant, server, company_name, data_ml_jobs_count, us_jobs_count
         FROM ats_tenants_candidates
         WHERE {" AND ".join(where_parts)}
-        ORDER BY ats, data_ml_jobs_count DESC
+        ORDER BY ats, us_jobs_count DESC
     """)
     candidates = cur.fetchall()
 
     if not candidates:
-        log.info("No active candidates with data/ML jobs to integrate.")
+        log.info("No active candidates to integrate.")
         cur.close()
         conn.close()
         return
 
     log.info(f"{'[DRY RUN] ' if not apply else ''}Integrating {len(candidates)} candidates into discovered_companies...")
-    log.info(f"  {'ATS':<15} {'Tenant':<30} {'D/ML':>5}  Company")
-    log.info("  " + "-" * 70)
+    log.info(f"  {'ATS':<15} {'Tenant':<30} {'US':>5} {'D/ML':>5}  Company")
+    log.info("  " + "-" * 75)
 
     integrated = 0
     skipped_existing = 0
@@ -110,7 +105,7 @@ def integrate_active(
         board_token = _board_token(ats, tenant, server)
         company_id  = "AT" + hashlib.md5(f"{ats}|{board_token}".encode()).hexdigest()[:10]
 
-        log.info(f"  {ats:<15} {tenant:<30} {dml:>5}  {name}")
+        log.info(f"  {ats:<15} {tenant:<30} {us_jobs:>5} {dml:>5}  {name}")
 
         if not apply:
             continue
@@ -124,7 +119,7 @@ def integrate_active(
                 VALUES (%s, %s, %s, %s, 'ats_aggressive', %s, %s, true)
                 ON CONFLICT (ats_source, board_token) DO NOTHING
                 """,
-                (company_id, name, ats, board_token, dml, us_jobs),
+                (company_id, name, ats, board_token, us_jobs, us_jobs),
             )
             if cur.rowcount > 0:
                 cur.execute(
@@ -159,19 +154,17 @@ def main():
     ap = argparse.ArgumentParser(
         description="Integrate validated ATS candidates into discovered_companies."
     )
-    ap.add_argument("--apply",        action="store_true", help="Write to discovered_companies")
-    ap.add_argument("--dry-run",      action="store_true", help="Show what would be integrated")
-    ap.add_argument("--ats",          type=str, default=None,
+    ap.add_argument("--apply",   action="store_true", help="Write to discovered_companies")
+    ap.add_argument("--dry-run", action="store_true", help="Show what would be integrated")
+    ap.add_argument("--ats",     type=str, default=None,
                     help="Only integrate this ATS (e.g. greenhouse, lever)")
-    ap.add_argument("--min-data-jobs", type=int, default=1, dest="min_data_jobs",
-                    help="Minimum data/ML job count to qualify (default: 1)")
     args = ap.parse_args()
 
     apply = args.apply and not args.dry_run
     if not apply:
         log.info("DRY RUN — use --apply to write to DB")
 
-    integrate_active(apply=apply, ats_filter=args.ats, min_data_jobs=args.min_data_jobs)
+    integrate_active(apply=apply, ats_filter=args.ats)
 
 
 if __name__ == "__main__":
