@@ -20,7 +20,9 @@ Nightly cron (add to crontab with: crontab -e):
 Drop this file in: python/ingest_jobs.py
 """
 
+import asyncio
 import hashlib
+import itertools
 import json
 import logging
 import os
@@ -33,6 +35,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Tuple
 from dataclasses import dataclass, field
 
+import aiohttp
 import requests
 from urllib.parse import urlparse
 from dotenv import load_dotenv
@@ -2016,187 +2019,306 @@ def _parse_workday_start_date(s: str):
         return None
 
 
-def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) -> List[RawJob]:
+# ── Workday async config ──────────────────────────────────────────────────────
+
+_WD_USER_AGENTS = [
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 Edg/122.0.0.0",
+    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:123.0) Gecko/20100101 Firefox/123.0",
+]
+_WD_UA_CYCLE = itertools.cycle(_WD_USER_AGENTS)
+
+_WD_GLOBAL_CONCURRENCY  = 50    # max in-flight requests across all tenants
+_WD_PER_HOST            = 3     # max concurrent requests per {tenant}.wdN.myworkdayjobs.com
+_WD_TIMEOUT             = aiohttp.ClientTimeout(total=30)
+_WD_MAX_CONSEC_429      = 3     # skip tenant after this many consecutive 429s
+_WD_GLOBAL_429_THRESH   = 5     # pause entire harvester after this many global 429s
+_WD_GLOBAL_PAUSE_SECS   = 300   # 5 minutes
+
+_wd_state: Dict = {"global_429": 0, "pause_until": 0.0}
+
+_WD_NON_US = frozenset([
+    "singapore", "sgp", "india", "ind", "bangalore", "warsaw", "poland",
+    "uk", "london", "germany", "france", "canada", "toronto", "amsterdam",
+    "dublin", "australia", "sydney", "tokyo", "japan", "china", "chn",
+    "brazil", "mexico", "netherlands", "sweden",
+])
+
+
+async def _wd_check_pause() -> None:
+    wait = _wd_state["pause_until"] - time.monotonic()
+    if wait > 0:
+        log.info(f"Workday: global 429 pause — sleeping {wait:.0f}s")
+        await asyncio.sleep(wait)
+
+
+async def _wd_detail(
+    session: aiohttp.ClientSession,
+    global_sem: asyncio.Semaphore,
+    detail_url: str,
+    detail_headers: dict,
+) -> Tuple[str, str, Optional[str], Optional[str]]:
+    """Fetch job detail page. Returns (desc, location, posted_date, remote_type)."""
+    if not detail_url:
+        return "", "", None, None
+    async with global_sem:
+        await _wd_check_pause()
+        try:
+            async with session.get(detail_url, headers=detail_headers) as r:
+                if r.status != 200:
+                    return "", "", None, None
+                detail = await r.json(content_type=None)
+                info = detail.get("jobPostingInfo", {})
+                desc = (info.get("jobDescription", "")
+                        or detail.get("jobDescription", "")
+                        or detail.get("description", "") or "")
+                desc = re.sub(r"<[^>]+>", " ", desc)
+                desc = re.sub(r"\s+", " ", desc).strip()
+                location = info.get("location", "")
+                remote_type = _parse_remote_type(info.get("remoteType", ""))
+                sd = _parse_workday_start_date(info.get("startDate", ""))
+                posted_date = str(sd) if sd else None
+                return desc, location, posted_date, remote_type
+        except Exception:
+            return "", "", None, None
+
+
+async def _fetch_workday_tenant_async(
+    session: aiohttp.ClientSession,
+    global_sem: asyncio.Semaphore,
+    name: str,
+    tenant: str,
+    board: str,
+    wd_server: str,
+) -> List[RawJob]:
     base = f"https://{tenant}.{wd_server}.myworkdayjobs.com"
     list_url = f"{base}/wday/cxs/{tenant}/{board}/jobs"
+    ua = next(_WD_UA_CYCLE)
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "User-Agent": ua,
         "Content-Type": "application/json",
         "Accept": "application/json",
         "Referer": f"{base}/en-US/{board}",
     }
 
-    jobs = []
+    jobs: List[RawJob] = []
     offset = 0
     limit = 20
+    consec_429 = 0
 
     while True:
-        try:
-            r = requests.post(list_url,
-                json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": ""},
-                headers=headers, timeout=12)
-            if r.status_code != 200:
+        await _wd_check_pause()
+
+        # ── fetch one page of listings ───────────────────────────────────────
+        postings = None
+        total = 0
+        status = 0
+        async with global_sem:
+            try:
+                async with session.post(
+                    list_url,
+                    json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": ""},
+                    headers=headers,
+                ) as r:
+                    status = r.status
+                    if r.status == 200:
+                        data = await r.json(content_type=None)
+                        postings = data.get("jobPostings", [])
+                        total = data.get("total", 0)
+            except asyncio.TimeoutError:
+                log.debug(f"  Workday [{name}] timeout on page offset={offset}")
                 break
-            data = r.json()
-            postings = data.get("jobPostings", [])
-            total = data.get("total", 0)
-            if not postings:
+            except Exception as e:
+                log.debug(f"  Workday [{name}] error: {e}")
                 break
 
-            for p in postings:
-                title = p.get("title", "")
-                if not _is_target_role(title):
+        if status == 429:
+            consec_429 += 1
+            _wd_state["global_429"] += 1
+            if _wd_state["global_429"] >= _WD_GLOBAL_429_THRESH:
+                log.warning(
+                    f"Workday: {_wd_state['global_429']} global 429s — "
+                    f"pausing harvester {_WD_GLOBAL_PAUSE_SECS}s"
+                )
+                _wd_state["pause_until"] = time.monotonic() + _WD_GLOBAL_PAUSE_SECS
+                _wd_state["global_429"] = 0
+            if consec_429 >= _WD_MAX_CONSEC_429:
+                log.warning(f"  Workday [{name}] skipped — {consec_429} consecutive 429s")
+                return jobs
+            delay = (5, 10, 30)[min(consec_429 - 1, 2)]
+            log.warning(f"  Workday [{name}] 429 #{consec_429} — retry in {delay}s")
+            await asyncio.sleep(delay)
+            continue
+
+        consec_429 = 0
+
+        if not postings:
+            break
+
+        # ── build detail-fetch tasks for this page ────────────────────────────
+        posting_meta = []   # (title, ext_path, job_id, location, workplace_type)
+        detail_coros = []
+
+        for p in postings:
+            title = p.get("title", "")
+            if not _is_target_role(title):
+                continue
+
+            ext_path = p.get("externalPath", "")
+            job_id = "WD" + hashlib.md5(f"{tenant}|{ext_path}".encode()).hexdigest()[:10]
+
+            location = ""
+            locs = p.get("locationsText", "") or p.get("locations", "")
+            if isinstance(locs, list) and locs:
+                location = locs[0]
+            elif isinstance(locs, str):
+                location = locs
+
+            workplace_type = _parse_remote_type(p.get("remoteType", ""))
+            posting_meta.append((title, ext_path, job_id, location, workplace_type))
+
+            if ext_path:
+                clean_path = ext_path.lstrip("/")
+                detail_url = f"{base}/wday/cxs/{tenant}/{board}/{clean_path}"
+                detail_headers = {
+                    **headers,
+                    "Accept": "application/json, text/javascript, */*; q=0.01",
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Referer": f"{base}/en-US/{board}{ext_path}",
+                }
+                detail_coros.append(_wd_detail(session, global_sem, detail_url, detail_headers))
+            else:
+                async def _noop():
+                    return ("", "", None, None)
+                detail_coros.append(_noop())
+
+        # ── fire all detail fetches for this page concurrently ────────────────
+        detail_results = await asyncio.gather(*detail_coros, return_exceptions=True)
+
+        for (title, ext_path, job_id, location, workplace_type), dr in zip(posting_meta, detail_results):
+            if isinstance(dr, Exception):
+                dr = ("", "", None, None)
+            desc, detail_loc, posted_date, detail_remote = dr
+
+            if detail_loc and (not location or "location" in location.lower()):
+                location = detail_loc
+            if workplace_type is None:
+                workplace_type = detail_remote
+
+            loc_lower = location.lower()
+            if any(s in loc_lower for s in _WD_NON_US):
+                continue
+            if location and len(location) > 3 and "," in location:
+                last = location.split(",")[-1].strip().upper()
+                if len(last) == 3 and last not in ("USA", "CAN") and last.isalpha():
                     continue
 
-                ext_path = p.get("externalPath", "")
-                job_id = "WD" + hashlib.md5(f"{tenant}|{ext_path}".encode()).hexdigest()[:10]
+            if workplace_type is None:
+                if "remote" in loc_lower or "virtual" in loc_lower:
+                    workplace_type = "remote"
+                elif "hybrid" in loc_lower:
+                    workplace_type = "hybrid"
 
-                # Extract location from list API first (needed before detail fetch)
-                location = ""
-                locs = p.get("locationsText", "") or p.get("locations", "")
-                if isinstance(locs, list) and locs:
-                    location = locs[0]
-                elif isinstance(locs, str):
-                    location = locs
+            jobs.append(RawJob(
+                source="workday",
+                source_id=job_id,
+                company=name,
+                title=title,
+                location=location,
+                description=desc,
+                job_url=f"{base}/en-US/{board}/{ext_path.lstrip('/')}",
+                salary_min=None,
+                salary_max=None,
+                salary_period=None,
+                workplace_type=workplace_type,
+                posted_date=posted_date,
+            ))
 
-                # Step 1: read remoteType from list API (available on ~50% of tenants)
-                workplace_type = _parse_remote_type(p.get("remoteType", ""))
-
-                # Step 2: fetch detail for description, remoteType, and startDate
-                desc = ""
-                posted_date = None
-                if ext_path:
-                    # externalPath already contains /job/... so don't add /job/ prefix
-                    clean_path = ext_path.lstrip('/')
-                    detail_url = f"{base}/wday/cxs/{tenant}/{board}/{clean_path}"
-                    detail_headers = {
-                        **headers,
-                        "Accept": "application/json, text/javascript, */*; q=0.01",
-                        "X-Requested-With": "XMLHttpRequest",
-                        "Referer": f"{base}/en-US/{board}{ext_path}",
-                    }
-                    try:
-                        dr = requests.get(detail_url, headers=detail_headers, timeout=12)
-                        if dr.status_code == 200:
-                            detail = dr.json()
-                            info = detail.get("jobPostingInfo", {})
-                            desc = info.get("jobDescription", "") or detail.get("jobDescription", "") or detail.get("description", "") or ""
-                            # Strip HTML tags
-                            desc = re.sub(r"<[^>]+>", " ", desc)
-                            desc = re.sub(r"\s+", " ", desc).strip()
-                            # Upgrade location if list API gave us "N Locations" summary
-                            if info.get("location") and (not location or "location" in location.lower()):
-                                location = info["location"]
-                            # Read remoteType from detail only if list API didn't have it
-                            if workplace_type is None:
-                                workplace_type = _parse_remote_type(info.get("remoteType", ""))
-                            # Read exact posting date from startDate
-                            sd = _parse_workday_start_date(info.get("startDate", ""))
-                            if sd:
-                                posted_date = str(sd)
-                    except Exception:
-                        pass
-                    time.sleep(0.3)
-
-                # US-only filter — skip international roles
-                us_signals = ["remote", "usa", "united states", "ca", "ny", "tx", "wa", "il",
-                              "ma", "co", "ga", "or", "az", "nc", "fl", "oh", "mi", "mn"]
-                non_us_signals = ["singapore", "sgp", "india", "ind", "bangalore", "warsaw",
-                                  "poland", "uk", "london", "germany", "france", "canada", "toronto",
-                                  "amsterdam", "dublin", "australia", "sydney", "tokyo", "japan",
-                                  "china", "chn", "brazil", "mexico", "netherlands", "sweden"]
-                loc_lower = location.lower()
-                if any(s in loc_lower for s in non_us_signals):
-                    continue
-                # If location has no US signal and has country code, skip
-                if location and len(location) > 3 and "," in location:
-                    parts = location.split(",")
-                    last = parts[-1].strip().upper()
-                    if len(last) == 3 and last not in ["USA", "CAN"] and last.isalpha():
-                        continue  # 3-letter country code like SGP, IND, CHN
-
-                # Step 3: fall back to location string if remoteType wasn't in either API response
-                if workplace_type is None:
-                    loc_lower = location.lower()
-                    if "remote" in loc_lower or "virtual" in loc_lower:
-                        workplace_type = "remote"
-                    elif "hybrid" in loc_lower:
-                        workplace_type = "hybrid"
-
-                jobs.append(RawJob(
-                    source="workday",
-                    source_id=job_id,
-                    company=name,
-                    title=title,
-                    location=location,
-                    description=desc,
-                    job_url=f"{base}/en-US/{board}/{ext_path.lstrip('/')}",
-                    salary_min=None,
-                    salary_max=None,
-                    salary_period=None,
-                    workplace_type=workplace_type,
-                    posted_date=posted_date,
-                ))
-
-            offset += limit
-            if offset >= total:
-                break
-            time.sleep(0.4)
-
-        except Exception as e:
-            log.warning(f"Workday [{name}] error: {e}")
+        offset += limit
+        if offset >= total:
             break
 
     return jobs
 
 
-def fetch_all_workday() -> List[RawJob]:
-    all_jobs = []
-
-    # Build company list — start with hardcoded, then add discovered_companies
+def _load_workday_list() -> List[Tuple[str, str, str, str]]:
+    """Return [(name, tenant, board, wd_server), ...] — hardcoded + discovered_companies."""
     workday_list = list(WORKDAY_COMPANIES)
-
-    # Load dynamic Workday companies from discovered_companies
-    # board_token format: "tenant/wdN/board" (from serper_dork discovery)
     try:
-        conn = get_db_connection()
+        conn = get_conn()
         cur = conn.cursor()
         cur.execute("""
             SELECT company_name, board_token FROM discovered_companies
             WHERE ats_source = 'workday'
-            AND enabled = true
-            AND discovery_source IN ('serper_dork', 'workday_probe', 'workday_dork', 'manual')
-            AND board_token LIKE '%wd%'
+              AND enabled = true
+              AND discovery_source IN ('serper_dork', 'workday_probe', 'workday_dork', 'manual')
+              AND board_token LIKE '%wd%'
         """)
         rows = cur.fetchall()
         cur.close()
         conn.close()
-
-        # Parse board_token: "tenant/wdN/board"
         hardcoded_tenants = {t for _, t, _, _ in WORKDAY_COMPANIES}
+        added = 0
         for company_name, board_token in rows:
-            parts = board_token.split('/')
+            parts = board_token.split("/")
             if len(parts) == 3:
                 tenant, wd_server, board = parts
-                # Skip locale-format tokens like "adobe/wd5/en-US" — not a real board name
-                if board.lower() in ('en-us', 'fr-ca', 'en-gb', 'ja-jp', 'de-de'):
-                    log.debug(f"  Skipping locale-format token: {board_token}")
+                if board.lower() in ("en-us", "fr-ca", "en-gb", "ja-jp", "de-de"):
                     continue
                 if tenant not in hardcoded_tenants:
                     workday_list.append((company_name, tenant, board, wd_server))
-                    log.debug(f"  Added dynamic Workday company: {company_name} ({tenant}/{wd_server})")
+                    added += 1
+        log.info(
+            f"Workday: {len(WORKDAY_COMPANIES)} hardcoded + {added} dynamic "
+            f"= {len(workday_list)} total tenants"
+        )
     except Exception as e:
         log.warning(f"Could not load dynamic Workday companies: {e}")
+    return workday_list
 
-    for name, tenant, board, wd_server in workday_list:
-        try:
-            jobs = fetch_workday_company(name, tenant, board, wd_server)
-            log.info(f"  Workday [{name}]: {len(jobs)} target roles found")
-            all_jobs.extend(jobs)
-            time.sleep(0.5)
-        except Exception as e:
-            log.warning(f"  Workday [{name}] failed: {e}")
-    log.info(f"Workday total: {len(all_jobs)} jobs")
+
+async def _run_all_workday_async(workday_list: List[Tuple]) -> List[RawJob]:
+    global _wd_state
+    _wd_state = {"global_429": 0, "pause_until": 0.0}
+    connector = aiohttp.TCPConnector(
+        limit=_WD_GLOBAL_CONCURRENCY, limit_per_host=_WD_PER_HOST
+    )
+    async with aiohttp.ClientSession(connector=connector, timeout=_WD_TIMEOUT) as session:
+        global_sem = asyncio.Semaphore(_WD_GLOBAL_CONCURRENCY)
+        tasks = [
+            _fetch_workday_tenant_async(session, global_sem, name, tenant, board, wd_server)
+            for name, tenant, board, wd_server in workday_list
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    all_jobs: List[RawJob] = []
+    errors = 0
+    for (name, *_), r in zip(workday_list, results):
+        if isinstance(r, Exception):
+            log.warning(f"  Workday [{name}] unhandled exception: {r}")
+            errors += 1
+        elif isinstance(r, list):
+            if r:
+                log.info(f"  Workday [{name}]: {len(r)} jobs")
+            all_jobs.extend(r)
+    log.info(
+        f"Workday async: {len(all_jobs)} jobs from {len(workday_list)} tenants "
+        f"({errors} errors)"
+    )
+    return all_jobs
+
+
+def fetch_all_workday() -> List[RawJob]:
+    workday_list = _load_workday_list()
+    t0 = time.monotonic()
+    all_jobs = asyncio.run(_run_all_workday_async(workday_list))
+    elapsed = time.monotonic() - t0
+    log.info(f"Workday total: {len(all_jobs)} jobs in {elapsed:.0f}s ({elapsed / 60:.1f} min)")
     return all_jobs
 
 
