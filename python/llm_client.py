@@ -3,14 +3,19 @@ Shared LLM client for enrichment tasks.
 Provides caching, cost logging, and retry logic for all LLM-powered features.
 """
 import os
+import sys
 import json
 import time
 import hashlib
 import logging
+from pathlib import Path
 from decimal import Decimal
 from typing import Optional, Tuple
 from collections import deque
 from anthropic import Anthropic, APIError
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from vertical_taxonomy import VERTICALS
 
 log = logging.getLogger(__name__)
 
@@ -366,77 +371,183 @@ def is_blocked_aggregator(company_name):
     return False
 
 
-def classify_role(role_title: str, description: str, company_name: str = None) -> Optional[dict]:
+# === DOMAIN_AWARE_CLASSIFY_v1 ===
+# Hand-written prompts for the three domains that need explicit disambiguation rules.
+# All other domains use the generic template generated from vertical_taxonomy subcategories.
+
+_PROMPT_DATA_ML = """\
+You are classifying a data/analytics/ML job posting into its precise subcategory.
+
+SUBCATEGORIES — return exactly one:
+- "data_analytics":        data analyst, BI analyst, business analyst doing SQL/dashboards,
+                           marketing analyst, product analyst, financial analyst (modeling focus),
+                           risk analyst, fraud analyst, pricing analyst (uses Python/SQL)
+- "data_engineering":      data engineer, ETL developer, data architect, data platform engineer,
+                           data quality engineer (automated pipelines), data ops
+- "analytics_engineering": analytics engineer (dbt-style), data modeler, semantic layer engineer
+- "data_science":          data scientist, statistician, quant researcher, actuarial (ML-heavy)
+- "ml_engineering":        ML engineer, MLOps, applied ML, AI engineer building production systems,
+                           LLM engineer, AI platform engineer
+- "ai_research":           research scientist, applied scientist (ML/AI focus), NLP/CV researcher
+
+RULES:
+- TITLE-FIRST: trust a clear title. "Data Engineer" → data_engineering regardless of description.
+- "Analytics Engineer" → analytics_engineering (not data_analytics).
+- "Business Analyst" is ambiguous — use description:
+    SQL/Python/dashboards/statistical work → data_analytics
+    Requirements/SAP/process documentation → data_analytics only if real analytics work is evident.
+- Risk/Fraud/Pricing analysts using Python or statistical modeling → data_analytics.
+- Federal contracting signals (GS grades, labor category, IDIQ, "contract contingent",
+  explicit agency contract codes like [USDA001016]) → classify normally but set confidence "low".
+- Defense product companies (Anduril, Palantir, Scale AI, Shield AI, Lockheed AI Labs,
+  Northrop ML) → classify normally, confidence "high".
+- THIN DESCRIPTIONS: if title is unambiguous, trust it and set confidence "high".
+
+Return JSON only — no other text:
+{{"category": "<subcategory>", "confidence": "high"|"low", "reason": "one sentence"}}
+
+TITLE: {role_title}
+DESCRIPTION: {snippet}"""
+
+_PROMPT_ENGINEERING = """\
+You are classifying a software/systems engineering job posting into its precise subcategory.
+
+SUBCATEGORIES — return exactly one:
+- "backend":              backend engineer, server-side developer, API engineer, systems programmer
+- "frontend":             frontend engineer, UI engineer, web developer (client-side focus)
+- "fullstack":            fullstack / full-stack engineer or developer
+- "devops":               DevOps engineer, CI/CD engineer, release engineering, build systems
+- "sre":                  site reliability engineer, SRE, platform reliability, on-call infra
+- "platform":             platform engineer, infrastructure engineer, cloud infra, internal tooling
+- "mobile":               iOS engineer, Android engineer, React Native, mobile developer
+- "security":             security engineer, AppSec, application security, penetration tester
+- "embedded":             embedded engineer, firmware engineer, RTOS, hardware/software interface
+- "qa":                   QA engineer, SDET, test engineer, automation engineer (test focus)
+- "engineering_manager":  engineering manager, director of engineering, VP Engineering
+- "general":              staff / principal / distinguished engineer, or genuinely ambiguous subtype
+
+RULES:
+- TITLE-FIRST: "Backend Engineer" → backend. "iOS Developer" → mobile. "QA Engineer" → qa.
+- "Software Engineer" with no qualifying context → general.
+- "Growth Engineer" → fullstack (builds product features, not marketing campaigns).
+- ML Engineers and Data Engineers are domain=data_ml — they will never reach this prompt.
+- Solutions Engineers / Sales Engineers are domain=sales — they will never reach this prompt.
+
+Return JSON only — no other text:
+{{"category": "<subcategory>", "confidence": "high"|"low", "reason": "one sentence"}}
+
+TITLE: {role_title}
+DESCRIPTION: {snippet}"""
+
+_PROMPT_SALES = """\
+You are classifying a sales/revenue job posting into its precise subcategory.
+
+SUBCATEGORIES — return exactly one:
+- "account_executive":   AE, closing role, quota-carrying individual contributor
+- "bdr_sdr":             SDR, BDR, outbound prospecting, business development representative
+- "customer_success":    CSM, customer success manager, implementation manager, onboarding
+- "sales_engineering":   sales engineer, solutions engineer, solutions architect (pre-sales technical)
+- "sales_ops":           sales operations, revenue operations, RevOps, sales enablement
+- "account_management":  account manager, renewals manager, client success (post-sales expansion focus)
+- "sales_leadership":    VP Sales, CRO, head of sales, sales director, sales manager (team lead)
+
+RULES:
+- TITLE-FIRST: "Account Executive" → account_executive. "SDR" or "BDR" → bdr_sdr.
+- Customer Success vs Account Management:
+    CS  = adoption / health score / outcomes / onboarding
+    AM  = renewal / upsell / expansion / quota on existing book
+- "Solutions Architect" in sales context → sales_engineering.
+- "Sales Manager" managing a team → sales_leadership (not account_executive).
+
+Return JSON only — no other text:
+{{"category": "<subcategory>", "confidence": "high"|"low", "reason": "one sentence"}}
+
+TITLE: {role_title}
+DESCRIPTION: {snippet}"""
+
+# Generic template used for finance, marketing, product, design, ops.
+# Subcategory list is built at call time from vertical_taxonomy so it stays in sync.
+_PROMPT_GENERIC_TMPL = """\
+You are classifying a {display_name} job posting into its precise subcategory.
+
+SUBCATEGORIES — return exactly one:
+{subcat_lines}
+
+RULES:
+- TITLE-FIRST: trust a clear title if it unambiguously maps to one subcategory.
+- Set confidence "low" only when the title is ambiguous AND the description is unclear.
+
+Return JSON only — no other text:
+{{"category": "<subcategory>", "confidence": "high"|"low", "reason": "one sentence"}}
+
+TITLE: {role_title}
+DESCRIPTION: {snippet}"""
+
+_HAND_WRITTEN = {"data_ml", "engineering", "sales"}
+
+
+def _build_domain_prompt(domain: str, role_title: str, snippet: str) -> str:
+    if domain == "data_ml":
+        return _PROMPT_DATA_ML.format(role_title=role_title, snippet=snippet)
+    if domain == "engineering":
+        return _PROMPT_ENGINEERING.format(role_title=role_title, snippet=snippet)
+    if domain == "sales":
+        return _PROMPT_SALES.format(role_title=role_title, snippet=snippet)
+    # Generic template for finance, marketing, product, design, ops
+    vdata = VERTICALS.get(domain, {})
+    display_name = vdata.get("display_name", domain)
+    subcats = vdata.get("subcategories", [])
+    subcat_lines = "\n".join(f'- "{s}"' for s in subcats)
+    return _PROMPT_GENERIC_TMPL.format(
+        display_name=display_name,
+        subcat_lines=subcat_lines,
+        role_title=role_title,
+        snippet=snippet,
+    )
+
+
+def classify_role(
+    role_title: str,
+    description: str,
+    domain: str,
+    company_name: str = None,
+) -> Optional[dict]:
     """
-    Classify whether a job is genuinely data/ML/analytics and what subcategory.
-    Returns dict: {is_data_ml: bool, category: str, confidence: str, reason: str}
-    or None on API failure.
+    Classify a job posting into its domain subcategory.
+
+    Args:
+        role_title:   job title
+        description:  job description text
+        domain:       vertical key from vertical_taxonomy (data_ml, engineering, sales, ...)
+                      Must not be None — callers skip this function for NULL-domain jobs.
+        company_name: optional, used for federal-staffing pre-check on data_ml only
+
+    Returns:
+        {"category": str, "confidence": "high"|"low", "reason": str}
+        or None on API failure / circuit-breaker tripped.
+
+    Note: is_data_ml is no longer in the return dict. Domain already encodes that.
+    ec.py and other eval tools that read is_data_ml will get False from .get("is_data_ml", False).
     """
-    if not role_title:
+    if not role_title or not domain:
         return None
-    # CIRCUIT_BREAKER_v1: short-circuit if previous call hit fatal error this run
     if _is_breaker_tripped():
         return None
 
-    # Federal staffing precheck — short-circuit before LLM
-    if _is_federal_staffing(company_name):
-        return _federal_staffing_verdict()
+    # Blocked aggregators — all domains
+    if is_blocked_aggregator(company_name):
+        return None
 
-    # Data-title precheck — short-circuit before LLM
-    _subcat = _data_title_subcategory(role_title)
-    if _subcat:
-        return _data_title_verdict(_subcat, role_title)
+    # data_ml-only pre-checks
+    if domain == "data_ml":
+        if _is_federal_staffing(company_name):
+            return _federal_staffing_verdict()
+        _subcat = _data_title_subcategory(role_title)
+        if _subcat:
+            return _data_title_verdict(_subcat, role_title)
 
     snippet = (description or "")[:600]
-
-    prompt = f"""Classify this job posting. Is it genuinely a data, analytics, ML, or AI role?
-
-CATEGORIES:
-- "data_analytics": data analyst, business analyst working with SQL/dashboards, BI analyst, marketing analyst doing real data work
-- "data_engineering": data engineer, ETL developer, analytics engineer, data platform engineer
-- "ml_engineering": ML engineer, MLOps, applied ML, AI engineer building production systems
-- "ai_research": research scientist, applied scientist on ML/AI specifically
-- "data_science": data scientist, statistician, quant researcher
-- "analytics_engineering": analytics engineer (dbt-style), data modeler
-- "non_data": NOT a data/ML role — examples: software engineer, product manager (without analytics focus), sales ops, customer success, marketing manager, HR, finance/accounting, generic IT, non-analytics business analyst (e.g. requirements gathering for SAP/AMISYS/healthcare claims systems), data entry, GIS/mapping (unless ML), clinical data coordinator, master data management, data steward (if pure governance)
-
-RULES:
-- TITLE-FIRST: If the title clearly says "Data Engineer", "Data Scientist", "Data Analyst", "ML Engineer", "AI Engineer", "Analytics Engineer", "Quantitative Analyst/Researcher", "Applied Scientist", "Research Scientist (ML/AI)" → classify as data/ML by title regardless of description quality. Only use description to pick the subcategory.
-- DESCRIPTION-DEPENDENT for ambiguous titles only:
-  - "Business Analyst" alone is ambiguous. If description shows SQL/Python/dashboards/analytics → data_analytics. If it shows requirements gathering, SAP/Workday implementation, process documentation, healthcare claims systems (AMISYS, Facets) → non_data.
-  - "Operations Analyst" / "Sales Operations" / "Revenue Operations" / "Marketing Operations" / "Sales Business Analyst" / "Business Operations Analyst" → default non_data UNLESS description shows heavy SQL/Python/analytics work → data_analytics.
-  - ANALYTICS-AS-BUZZWORD WARNING: Words like "analytics", "data-driven", "insights", "reporting", "data strategy", "actionable insight" appear in nearly every modern JD as marketing language — they DO NOT make a role data_analytics on their own. For ambiguous titles (Sales Business Analyst, Operations Analyst, Customer Success Analyst, Marketing Manager), only classify as data_analytics if the description shows the actual day-to-day work IS writing SQL queries, building dashboards in Tableau/Looker/Power BI, doing statistical analysis in Python/R, or building data models. If "analytics" appears only as a goal/outcome ("provide analytics to the sales team") or in a skills-list bullet ("familiarity with SQL preferred"), the role is non_data.
-  - "Data Quality Analyst" doing manual review → non_data. Automated quality with SQL/Python → data_analytics.
-- KEEP these as data/ML even if borderline:
-  - "Risk Analyst" / "Credit Risk Analyst" / "Market Risk Analyst" / "Quantitative Risk Analyst" (these use modeling, Python, R)
-  - "Fraud Analyst" / "Fraud Strategy Analyst" (uses SQL, Python, ML models)
-  - "Pricing Analyst" / "Pricing Strategy" (uses analytics)
-  - "Actuarial Analyst" (statistics-heavy)
-  - "Financial Analyst" with FP&A or modeling focus → data_analytics
-- EXCLUDE these:
-  - "Sales Coordinator", "Customer Success", "Account Executive" → non_data
-  - "Project Manager", "Program Manager" without explicit data focus → non_data
-  - "Technical Writer", "Solutions Architect" without data focus → non_data
-  - "GIS Analyst" / "Geospatial Analyst" without ML → non_data
-  - "Master Data Steward", "Data Coordinator" (governance only) → non_data
-- EXCLUDE federal contracting / government staffing roles → non_data:
-  - CLEARANCE ALONE IS NOT DISQUALIFYING. Many commercial defense/aerospace product companies (Anduril, Palantir, Maxar, Scale AI, Shield AI, Lockheed AI Labs, Northrop ML, Raytheon ML, Boeing data, RTX) require TS/SCI, Top Secret, Secret, or Public Trust clearance for ML/data engineering roles — these are KEPT as data_ml. Only flag as non_data when clearance is paired with body-shop signals: explicit "labor category" / "contract contingent" / "GS-XX pay grade" / named federal contract codes / "supporting [agency] mission" framing typical of staffing firms (ProSidian, Booz Allen, ManTech, SAIC, CACI, Leidos, Engility, MITRE, GDIT, Accenture Federal). The test: would this person work on a product the company sells (KEEP) or be billed as a labor unit on a federal contract (KILL)?
-  - Job IDs containing federal contract codes like [USDA001016], [DOE0062061], [NSF0113113], [GMRC007], [AMR9]
-  - Roles describing themselves as "contract contingent", "GS-XX pay grade", "GS-09 / GS-12 / GS-14", "labor category", "BPA", "IDIQ"
-  - Government job titles like "Budget Execution Data Analyst", "FSM Budget Analyst", "Federal Acquisition Data Analyst", "Mortgage Backed Securities Risk Analyst" at contractor firms
-  - Direct municipal/state/federal employer job postings (City of New York, State of California DMV, USDA, Department of Energy, Department of Defense, Federal Reserve internships, county/city government data analyst roles)
-  - Note: Distinguish carefully — DEFENSE/AEROSPACE PRODUCT COMPANIES are kept as data_ml: Anduril, Palantir, Scale AI, Shield AI, Helsing, Lockheed Martin AI Labs, Northrop Grumman AI/ML roles, Raytheon ML engineering, Boeing data science, RTX data engineering. The line is: building a commercial product that DoD buys = data_ml. Staffing a federal contract via labor categories = non_data.
-  - Note: Bank holding companies and Federal Reserve regional bank ML/quant roles ARE data_ml (e.g., Federal Reserve Bank of NY quantitative researcher = data_science). Direct civil service / government agency staffing is non_data.
-- THIN DESCRIPTIONS: If description is too short or generic to judge but title is clearly data/ML, trust the title and set confidence "high".
-- Set confidence to "low" only when title is ambiguous AND description is unclear.
-
-Return JSON only:
-{{"is_data_ml": true|false, "category": "...", "confidence": "high"|"low", "reason": "1 sentence"}}
-
-TITLE: {role_title}
-
-DESCRIPTION:
-{snippet}"""
+    prompt = _build_domain_prompt(domain, role_title, snippet)
 
     text = None
     for attempt in range(3):
@@ -455,11 +566,11 @@ DESCRIPTION:
             if "rate_limit" in str(e).lower() or "429" in str(e):
                 time.sleep(20 + attempt * 10)
                 continue
-            log.warning(f"classify_role API error: {e}")
-            # CIRCUIT_BREAKER_v1: trip on billing/auth errors
+            log.warning(f"classify_role API error (domain={domain}): {e}")
             if _is_fatal_api_error(e):
                 _trip_breaker(f"classify_role: {e}")
             return None
+
     if text is None:
         return None
 
@@ -470,9 +581,10 @@ DESCRIPTION:
         if text.startswith("json"):
             text = text[4:].strip()
         data = json.loads(text)
-        if "is_data_ml" not in data or "category" not in data:
+        if "category" not in data:
             return None
         return data
     except (json.JSONDecodeError, KeyError) as e:
-        log.warning(f"classify_role parse error: {e}")
+        log.warning(f"classify_role parse error (domain={domain}): {e}")
         return None
+# === END_DOMAIN_AWARE_CLASSIFY_v1 ===

@@ -13,6 +13,10 @@ from dotenv import load_dotenv
 import psycopg2
 from psycopg2.extras import DictCursor
 
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parent))
+from vertical_taxonomy import VERTICALS
+
 # Always load .env from repo root (safe in heredocs / python -c)
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -1400,7 +1404,8 @@ def load_skill_aliases_from_db(cur) -> Dict[str, List[str]]:
     """
     aliases: Dict[str, List[str]] = {k: list(v) for k, v in FALLBACK_ALIASES.items()}
 
-    # If skill_aliases exists, load and merge (still restricted to ALLOWED_CANON_SKILLS)
+    # Load all skill aliases from DB — domain filtering happens downstream
+    # in build_skill_patterns_for_domain(), not here.
     try:
         cur.execute("""
             SELECT s.skill_name, sa.alias_text as alias
@@ -1414,8 +1419,6 @@ def load_skill_aliases_from_db(cur) -> Dict[str, List[str]]:
             alias = clean_text(r["alias"])
             if not canon or not alias:
                 continue
-            if canon not in ALLOWED_CANON_SKILLS:
-                continue
             aliases.setdefault(canon, [])
             # de-dupe alias list (case-insensitive)
             if _canon_norm(alias) not in {_canon_norm(a) for a in aliases[canon]}:
@@ -1427,9 +1430,8 @@ def load_skill_aliases_from_db(cur) -> Dict[str, List[str]]:
         # table missing or schema mismatch; ignore safely
         pass
 
-    # ensure every allowed canon has at least itself as alias
-    for canon in ALLOWED_CANON_SKILLS:
-        aliases.setdefault(canon, [])
+    # ensure every skill loaded from DB has at least itself as an alias
+    for canon in list(aliases.keys()):
         if _canon_norm(canon) not in {_canon_norm(a) for a in aliases[canon]}:
             aliases[canon].append(canon)
 
@@ -1509,6 +1511,56 @@ def build_skill_patterns_anywhere(canon_to_skill_id: Dict[str, str],
             dedup[key] = (p, canon, a)
 
     return list(dedup.values())
+
+
+# === DOMAIN_SKILL_FILTER_v1 ===
+
+def _relevant_skill_names_for_domain(domain: str) -> set:
+    """
+    Returns canonical skill names from vertical_taxonomy relevant to this domain.
+
+    Two sources:
+      1. Skills defined directly in VERTICALS[domain]['skills']
+      2. Skills in other verticals whose 'also_in' list includes this domain
+
+    Computed from the taxonomy at call time — no DB query needed.
+    """
+    relevant: set = set()
+    if domain in VERTICALS:
+        relevant.update(VERTICALS[domain]["skills"].keys())
+    for vkey, vdata in VERTICALS.items():
+        if vkey == domain:
+            continue
+        for skill_name, meta in vdata["skills"].items():
+            if domain in meta.get("also_in", []):
+                relevant.add(skill_name)
+    return relevant
+
+
+def build_skill_patterns_for_domain(
+    domain: Optional[str],
+    canon_to_skill_id: Dict[str, str],
+    skill_aliases: Dict[str, List[str]],
+) -> List[Tuple[re.Pattern, str, str]]:
+    """
+    Domain-filtered variant of build_skill_patterns_anywhere().
+
+    If domain is None: returns empty list — skip skill extraction for
+    unclassified jobs. They are re-enriched after classify_domain assigns domain.
+
+    Otherwise: filters to skills relevant to this domain (direct + also_in),
+    then delegates to build_skill_patterns_anywhere() for regex compilation.
+    All existing SKILL_DENYLIST, AI special-case, and dedup logic is preserved.
+    """
+    if domain is None:
+        return []
+    relevant = _relevant_skill_names_for_domain(domain)
+    filtered_ids = {k: v for k, v in canon_to_skill_id.items() if k in relevant}
+    filtered_aliases = {k: v for k, v in skill_aliases.items() if k in relevant}
+    return build_skill_patterns_anywhere(filtered_ids, filtered_aliases)
+
+# === END_DOMAIN_SKILL_FILTER_v1 ===
+
 
 def infer_priority_from_context(line: str, current_section: Optional[str]) -> str:
     """
@@ -1895,10 +1947,10 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=DictCursor)
 
-    # Load existing skills + aliases and build anywhere-scan patterns
+    # Load existing skills + aliases (full set — domain filtering happens per-job)
     canon_to_skill_id = load_existing_skill_ids(cur)
     skill_aliases = load_skill_aliases_from_db(cur)
-    patterns = build_skill_patterns_anywhere(canon_to_skill_id, skill_aliases)
+    # Note: no pre-loop pattern build — build_skill_patterns_for_domain() called per-job
 
     # Select jobs
     if rescan_salary:
@@ -1908,6 +1960,7 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                    jp.company_id, jp.role_id, jp.location_id,
                    jp.workplace_type, jp.employment_type, jp.experience_level,
                    jp.salary_min, jp.salary_max, jp.salary_period,
+                   jp.domain,
                    COALESCE(jp.data_tier, 1) AS data_tier,
                    EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id) AS has_skills
             FROM job_postings jp
@@ -1937,10 +1990,11 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                    jp.company_id, jp.role_id, jp.location_id,
                    jp.workplace_type, jp.employment_type, jp.experience_level,
                    jp.salary_min, jp.salary_max, jp.salary_period,
+                   jp.domain,
                    COALESCE(jp.data_tier, 1) AS data_tier,
                    jp.role_category,
                    r.role_name,
-                   c.company_name,  -- ENRICH_PATCH_v1: company_name added
+                   c.company_name,
                    EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id) AS has_skills
             FROM job_postings jp
             LEFT JOIN roles r ON r.role_id = jp.role_id
@@ -1973,6 +2027,7 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                    jp.company_id, jp.role_id, jp.location_id,
                    jp.workplace_type, jp.employment_type, jp.experience_level,
                    jp.salary_min, jp.salary_max, jp.salary_period,
+                   jp.domain,
                    EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id) AS has_skills
             FROM job_postings jp
             WHERE jp.description_text IS NOT NULL AND length(jp.description_text) > 0
@@ -2037,9 +2092,13 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
         if pj.salary_period is not None and job["salary_period"] is None:
             fields.append("salary_period=%s"); params.append(pj.salary_period)
 
-        # Role category classifier — only on jobs missing role_category
+        # === DOMAIN_AWARE_ENRICH_v1 ===
+        # Read domain — may be None for jobs not yet classified by classify_domain
+        job_domain = job["domain"] if "domain" in job.keys() else None
+
+        # Role category classifier — skip entirely if domain is NULL
         # ROLE_CATEGORY_CACHE_v1: check cache before LLM call (saves ~80% of LLM calls)
-        if _LLM_AVAILABLE and only_missing:
+        if _LLM_AVAILABLE and only_missing and job_domain is not None:
             existing_cat = job["role_category"] if "role_category" in job.keys() else None
             if existing_cat is None:
                 role_name_for_cls = job["role_name"] if "role_name" in job.keys() else (pj.title or "")
@@ -2064,19 +2123,21 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                             log.warning(f"role_category_cache lookup failed: {_e}")
 
                     if cached_category:
-                        # Cache hit — skip LLM
                         fields.append("role_category=%s")
                         params.append(cached_category)
                         fields.append("role_classified_at=NOW()")
                     else:
-                        # Cache miss — call LLM, write back on success
-                        cls_result = classify_role(role_name_for_cls, desc, company_name=company_for_cls)
+                        # Cache miss — call domain-aware LLM
+                        cls_result = classify_role(
+                            role_name_for_cls, desc,
+                            domain=job_domain,
+                            company_name=company_for_cls,
+                        )
                         if cls_result and cls_result.get("category"):
                             cat_value = cls_result["category"]
                             fields.append("role_category=%s")
                             params.append(cat_value)
                             fields.append("role_classified_at=NOW()")
-                            # Write to cache
                             if company_lower and role_lower:
                                 try:
                                     cur.execute("""
@@ -2088,17 +2149,15 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                                 except Exception as _e:
                                     log.warning(f"role_category_cache write failed: {_e}")
 
-        # Skills — skip for short descriptions (Adzuna partial records)
+        # Skills — domain-filtered; NULL domain skips extraction entirely
         ins = 0
         should_scan_skills = (rescan_skills or not job["has_skills"]) and len(desc) > 500
         if should_scan_skills:
-            canon_to_priority = extract_skills_allowlist(desc, patterns)
-            ins = insert_job_skills(
-                cur,
-                job_id,
-                canon_to_priority,
-                canon_to_skill_id,
-            )
+            patterns = build_skill_patterns_for_domain(job_domain, canon_to_skill_id, skill_aliases)
+            if patterns:
+                canon_to_priority = extract_skills_allowlist(desc, patterns)
+                ins = insert_job_skills(cur, job_id, canon_to_priority, canon_to_skill_id)
+        # === END_DOMAIN_AWARE_ENRICH_v1 ===
 
         if fields or ins:
             touched += 1
