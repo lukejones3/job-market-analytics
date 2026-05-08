@@ -19,7 +19,6 @@ Three-tier company discovery pipeline:
 Usage:
     python python/discover_companies.py --apply --limit 20   # test run
     python python/discover_companies.py --apply              # full run
-    python python/discover_companies.py --apply --source adzuna
     python python/discover_companies.py --apply --source lever
     python python/discover_companies.py --apply --source seed
     python python/discover_companies.py --apply --source refresh
@@ -54,8 +53,6 @@ log = logging.getLogger(__name__)
 
 REQUEST_DELAY   = 0.3
 REQUEST_TIMEOUT = 8
-ADZUNA_COUNTRY  = "us"
-ADZUNA_MAX_PAGES = 3
 
 # ============================================================
 # TARGET ROLE PHRASES (single source of truth)
@@ -274,10 +271,6 @@ def probe_lever(slug: str) -> int:
         )
     )
 
-# ============================================================
-# TIER 1: ADZUNA REDIRECT URL PARSING
-# ============================================================
-
 def _parse_ats_from_url(url: str) -> Optional[Tuple[str, str, str]]:
     """Extract (ats_source, token, name_guess) from a job redirect URL."""
     if not url:
@@ -300,60 +293,6 @@ def _parse_ats_from_url(url: str) -> Optional[Tuple[str, str, str]]:
         return ("lever", slug, slug.replace("-", " ").title())
     return None
 
-def discover_via_adzuna(cur, apply: bool, limit: int) -> Dict[str, int]:
-    app_id  = os.getenv("ADZUNA_APP_ID", "")
-    app_key = os.getenv("ADZUNA_APP_KEY", "")
-    if not app_id or not app_key:
-        log.warning("No Adzuna credentials — skipping Adzuna discovery")
-        return {}
-
-    known = load_known_tokens(cur)
-    found: Dict[str, int] = {"greenhouse": 0, "lever": 0}
-    candidates: Dict[str, Tuple[str, str, str]] = {}
-
-    search_terms = [
-        "data analyst", "analytics engineer", "data engineer",
-        "data scientist", "business intelligence", "machine learning engineer",
-        "revenue operations", "marketing analyst", "product analyst",
-        "fp&a analyst", "reporting analyst", "data specialist",
-    ]
-
-    for term in search_terms:
-        log.info(f"  Adzuna scanning: '{term}'")
-        for page in range(1, ADZUNA_MAX_PAGES + 1):
-            data = _get(
-                f"https://api.adzuna.com/v1/api/jobs/{ADZUNA_COUNTRY}/search/{page}",
-                params={
-                    "app_id": app_id, "app_key": app_key,
-                    "what": term, "results_per_page": 50,
-                    "content-type": "application/json",
-                }
-            )
-            _throttle()
-            if not data or not data.get("results"):
-                break
-            for job in data["results"]:
-                parsed = _parse_ats_from_url(job.get("redirect_url", ""))
-                if parsed:
-                    ats, token, name = parsed
-                    if token not in known and token not in candidates:
-                        candidates[token] = (ats, token, name)
-        if limit and len(candidates) >= limit:
-            break
-
-    log.info(f"  {len(candidates)} new ATS companies found via Adzuna redirect_urls")
-
-    for token, (ats, tok, name) in candidates.items():
-        if limit and sum(found.values()) >= limit:
-            break
-        active = probe_greenhouse(tok) if ats == "greenhouse" else probe_lever(tok)
-        if active > 0:
-            log.info(f"  ✅ [{ats}] {name} ({tok}): {active} roles")
-            found[ats] += 1
-        if apply:
-            upsert_company(cur, name, ats, tok, active, "adzuna")
-
-    return found
 
 # ============================================================
 # TIER 2: LEVER SITEMAP
@@ -456,7 +395,6 @@ def print_summary(cur):
                    COUNT(*) as total,
                    COUNT(*) FILTER (WHERE active_roles > 0) as with_roles,
                    SUM(active_roles) as open_roles,
-                   COUNT(*) FILTER (WHERE discovery_source='adzuna') as from_adzuna,
                    COUNT(*) FILTER (WHERE discovery_source='lever_sitemap') as from_sitemap,
                    COUNT(*) FILTER (WHERE discovery_source='manual') as from_manual
             FROM discovered_companies WHERE enabled=true
@@ -467,7 +405,7 @@ def print_summary(cur):
             log.info(
                 f"  [{r['ats_source']}] {r['total']} companies | "
                 f"{r['with_roles']} with roles | {r['open_roles']} open | "
-                f"adzuna={r['from_adzuna']} sitemap={r['from_sitemap']} manual={r['from_manual']}"
+                f"sitemap={r['from_sitemap']} manual={r['from_manual']}"
             )
     except Exception as e:
         log.warning(f"Summary error: {e}")
@@ -491,7 +429,7 @@ def get_conn():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--source", choices=["adzuna","lever","greenhouse","seed","refresh","all"], default="all")
+    ap.add_argument("--source", choices=["lever","greenhouse","seed","refresh","all"], default="all")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--limit", type=int, default=0, help="Max new companies to probe per tier (0=all)")
     args = ap.parse_args()
@@ -506,12 +444,6 @@ def main():
         log.info("=== Tier 3: Seeding from ingest_jobs.py ===")
         n = seed_from_ingest_lists(cur, args.apply)
         log.info(f"  Seeded {n} companies")
-        if args.apply: conn.commit()
-
-    if args.source in ("adzuna", "all"):
-        log.info("=== Tier 1: Adzuna redirect_url discovery ===")
-        found = discover_via_adzuna(cur, args.apply, args.limit)
-        log.info(f"  New: greenhouse={found.get('greenhouse',0)} lever={found.get('lever',0)}")
         if args.apply: conn.commit()
 
     if args.source in ("lever", "all"):

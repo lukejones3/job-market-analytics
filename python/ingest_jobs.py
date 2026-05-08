@@ -12,7 +12,6 @@ Usage:
     python python/ingest_jobs.py --apply
     python python/ingest_jobs.py --apply --source greenhouse
     python python/ingest_jobs.py --apply --source lever
-    python python/ingest_jobs.py --apply --source adzuna
     python python/ingest_jobs.py --dry-run        (default, no DB writes)
 
 Nightly cron (add to crontab with: crontab -e):
@@ -89,51 +88,6 @@ log = logging.getLogger(__name__)
 # Request throttle — be a good citizen, don't hammer APIs
 REQUEST_DELAY_SECONDS = 0.4
 
-# How many Adzuna pages to pull per search term (each page = 50 results)
-ADZUNA_MAX_PAGES = 4
-
-# Adzuna country code
-ADZUNA_COUNTRY = "us"
-
-# ---- Target role search terms ----
-# These drive what gets pulled from every source.
-# Tune this list to your target market.
-TARGET_ROLES = [
-    "data analyst",
-    "business intelligence analyst",
-    "analytics engineer",
-    "data engineer",
-    "marketing analyst",
-    "product analyst",
-    "FP&A analyst",
-    "revenue operations analyst",
-    "reporting analyst",
-    "BI developer",
-    "junior data analyst",
-    "associate data analyst",
-    "associate data engineer",
-    "data scientist",
-    "machine learning engineer",
-    "ml engineer",
-    "quantitative analyst",
-    "research scientist",
-    "applied scientist",
-    "data architect",
-    "analytics manager",
-    "data science manager",
-    "staff data engineer",
-    "staff data scientist",
-    "people analyst",
-    "pricing analyst",
-    "fraud analyst",
-    "risk analyst",
-    "supply chain analyst",
-    "revenue analyst",
-    "clinical data analyst",
-    "ai engineer",
-    "mlops engineer",
-    "data governance analyst",
-]
 
 # ---- Greenhouse companies to pull from ----
 # These are companies known to use Greenhouse AND hire data/analytics roles.
@@ -815,28 +769,7 @@ def _is_us_location(location: str, is_remote: bool = False) -> bool:
 
 
 def _is_target_role(title: str) -> bool:
-    """
-    Returns True if title matches a target role phrase AND does not
-    match any blocklist pattern.
-
-    Two-step logic:
-      1. Must NOT match any ROLE_TITLE_BLOCKLIST pattern (fast reject)
-      2. Must match at least one ROLE_TITLE_PHRASES pattern (whole-word)
-
-    Prevents false positives like:
-      "Android Engineer"     -> blocked
-      "AV Builds Operations" -> blocked
-      "Account Executive"    -> blocked
-    """
-    if not title:
-        return False
-    for pat in _BLOCK_PATTERNS:
-        if pat.search(title):
-            return False
-    for pat in _PHRASE_PATTERNS:
-        if pat.search(title):
-            return True
-    return False
+    return bool(title)
 
 def _throttle():
     time.sleep(REQUEST_DELAY_SECONDS)
@@ -1227,102 +1160,6 @@ def fetch_all_lever() -> List[RawJob]:
     log.info(f"Lever total: {len(all_jobs)} jobs")
     return all_jobs
 
-# ============================================================
-# SOURCE: ADZUNA
-# ============================================================
-
-def fetch_adzuna(search_term: str, page: int = 1, discover_mode: bool = False) -> List[RawJob]:
-    """
-    Pull jobs from Adzuna API.
-    Returns partial descriptions — used as discovery layer for salary/location signals.
-    Requires ADZUNA_APP_ID and ADZUNA_APP_KEY in .env
-    """
-    app_id  = os.getenv("ADZUNA_APP_ID", "")
-    app_key = os.getenv("ADZUNA_APP_KEY", "")
-
-    if not app_id or not app_key:
-        log.warning("Adzuna credentials not set (ADZUNA_APP_ID / ADZUNA_APP_KEY). Skipping.")
-        return []
-
-    url = f"https://api.adzuna.com/v1/api/jobs/{ADZUNA_COUNTRY}/search/{page}"
-    params = {
-        "app_id":         app_id,
-        "app_key":        app_key,
-        "what":           search_term,
-        "results_per_page": 50,
-        "content-type":   "application/json",
-    }
-
-    data = _get(url, params=params)
-    _throttle()
-
-    if not data or "results" not in data:
-        return []
-
-    jobs = []
-    for j in data.get("results", []):
-        title = _clean(j.get("title", ""))
-        if not title or not _is_target_role(title):
-            continue
-
-        company = _clean((j.get("company") or {}).get("display_name", "") or "")
-        location_data = j.get("location", {})
-        location = _clean(location_data.get("display_name", "") or "")
-
-        description = _clean(j.get("description", "") or "")
-
-        # US filter (Adzuna already scopes to US country but location
-        # display_name can still show international results)
-        # LOC_PATCH_v1: drop foreign via normalize_location
-        if normalize_location(location, None).should_drop:
-            continue
-
-        # Discovery — follow redirect_url to find ATS source
-        # Only runs during nightly cron (--discover flag), not manual runs
-        if discover_mode:
-            redirect_url = j.get("redirect_url", "")
-            if redirect_url:
-                discover_from_redirect_url(redirect_url)
-
-        # Salary
-        salary_min    = j.get("salary_min")
-        salary_max    = j.get("salary_max")
-        salary_period = None
-        if salary_min or salary_max:
-            # Adzuna returns annual by default for US
-            salary_period = "year"
-
-        jobs.append(RawJob(
-            source="adzuna",
-            source_id=str(j.get("id", "")),
-            title=title,
-            company=company,
-            location=location,
-            description=description,
-            job_url=j.get("redirect_url", ""),
-            salary_min=float(salary_min) if salary_min else None,
-            salary_max=float(salary_max) if salary_max else None,
-            salary_period=salary_period,
-            posted_date=j.get("created", "")[:10] if j.get("created") else None,
-            metadata={"search_term": search_term, "page": page, "description_quality": "partial"},
-        ))
-
-    return jobs
-
-
-def fetch_all_adzuna(discover_mode: bool = False) -> List[RawJob]:
-    all_jobs = []
-    for role in TARGET_ROLES:
-        log.info(f"  Adzuna searching: '{role}'")
-        for page in range(1, ADZUNA_MAX_PAGES + 1):
-            jobs = fetch_adzuna(role, page=page, discover_mode=discover_mode)
-            if not jobs:
-                break
-            all_jobs.extend(jobs)
-            log.info(f"    page {page}: {len(jobs)} results")
-
-    log.info(f"Adzuna total: {len(all_jobs)} jobs (before dedup)")
-    return all_jobs
 
 # ============================================================
 # DB: CONNECTION + EXISTENCE CHECKS
@@ -2196,7 +2033,7 @@ def fetch_workday_company(name: str, tenant: str, board: str, wd_server: str) ->
     while True:
         try:
             r = requests.post(list_url,
-                json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": "data"},
+                json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": ""},
                 headers=headers, timeout=12)
             if r.status_code != 200:
                 break
@@ -2369,10 +2206,19 @@ def fetch_all_workday() -> List[RawJob]:
 # ============================================================
 
 AMAZON_SEARCH_TERMS = [
+    # data_ml
     "data analyst", "data scientist", "data engineer",
     "analytics engineer", "machine learning engineer",
-    "business intelligence", "research scientist",
-    "applied scientist", "quantitative researcher",
+    "business intelligence", "research scientist", "applied scientist",
+    # engineering
+    "software engineer", "backend engineer", "frontend engineer",
+    "devops engineer", "platform engineer", "security engineer",
+    # product / design
+    "product manager", "product designer", "ux designer",
+    # sales / marketing
+    "account executive", "solutions engineer", "marketing manager",
+    # finance / ops
+    "financial analyst", "operations manager", "program manager",
 ]
 
 
@@ -2658,8 +2504,7 @@ def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJ
         "Referer": f"{base}/careers",
     }
 
-    search_terms = ["data analyst", "data scientist", "data engineer",
-                    "analytics engineer", "machine learning", "business intelligence"]
+    search_terms = [""]
 
     jobs = []
     seen_ids = set()
@@ -2776,7 +2621,7 @@ def fetch_all_eightfold() -> List[RawJob]:
     log.info(f"Eightfold total: {len(all_jobs)} jobs")
     return all_jobs
 
-def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None:
+def run_ingestion(source: str, apply: bool) -> None:
     run_id = f"ingest_{source}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     log.info(f"Starting ingestion run: {run_id} | apply={apply}")
 
@@ -2810,10 +2655,6 @@ def run_ingestion(source: str, apply: bool, discover_mode: bool = False) -> None
     if source in ("amazon", "all"):
         log.info("Fetching from Amazon...")
         all_jobs.extend(fetch_amazon())
-
-    if source in ("adzuna", "all"):
-        log.info("Fetching from Adzuna...")
-        all_jobs.extend(fetch_all_adzuna(discover_mode=discover_mode))
 
     if source in ("workable", "all"):
         if _fetch_all_workable:
@@ -3062,7 +2903,7 @@ def main():
     ap = argparse.ArgumentParser(description="Multi-source job ingestion pipeline.")
     ap.add_argument(
         "--source",
-        choices=["greenhouse", "lever", "adzuna", "ashby", "workday", "amazon", "eightfold", "smartrecruiters", "workable", "icims", "taleo", "all"],
+        choices=["greenhouse", "lever", "ashby", "workday", "amazon", "eightfold", "smartrecruiters", "workable", "icims", "taleo", "all"],
         default="all",
         help="Which source to pull from (default: all)"
     )
@@ -3071,10 +2912,9 @@ def main():
         action="store_true",
         help="Write to DB. Without this flag, runs as dry-run."
     )
-    ap.add_argument("--discover", action="store_true", help="Follow Adzuna redirects to discover new companies (slow)")
     args = ap.parse_args()
 
-    run_ingestion(source=args.source, apply=args.apply, discover_mode=args.discover)
+    run_ingestion(source=args.source, apply=args.apply)
 
 
 if __name__ == "__main__":
