@@ -59,6 +59,20 @@ except ImportError:
 
 from psycopg2.extras import DictCursor
 
+try:
+    from classify_domain import build_alias_map as _build_alias_map, classify_domain as _classify_domain
+    _DOMAIN_CLASSIFIER_AVAILABLE = True
+except ImportError:
+    _DOMAIN_CLASSIFIER_AVAILABLE = False
+
+_ALIAS_MAP: Optional[Dict] = None
+
+def _get_alias_map(connection):
+    global _ALIAS_MAP
+    if _ALIAS_MAP is None and _DOMAIN_CLASSIFIER_AVAILABLE:
+        _ALIAS_MAP = _build_alias_map(connection)
+    return _ALIAS_MAP
+
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
 logging.basicConfig(
@@ -1491,6 +1505,23 @@ def ingest_job(cur, job: RawJob) -> bool:
             "UPDATE job_postings SET location_id = %s WHERE job_id = %s AND location_id IS NULL",
             (location_id, job_id)
         )
+
+    if inserted and _DOMAIN_CLASSIFIER_AVAILABLE:
+        alias_map = _get_alias_map(cur.connection)
+        if alias_map:
+            domain, secondary, _ = _classify_domain(
+                job.title or "", job.description or "", alias_map
+            )
+            cur.execute(
+                """
+                UPDATE job_postings
+                SET domain               = %s,
+                    domain_secondary     = %s,
+                    domain_classified_at = now()
+                WHERE job_id = %s AND domain IS NULL
+                """,
+                (domain, secondary if secondary else None, job_id),
+            )
 
     return inserted
 
