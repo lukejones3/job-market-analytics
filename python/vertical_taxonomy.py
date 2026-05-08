@@ -766,6 +766,11 @@ VERTICALS = {
                 "category": "fpa_tool",
                 "weight": 3,
             },
+            "TM1": {
+                "aliases": ["tm1", "ibm planning analytics", "ibm tm1"],
+                "category": "fpa_tool",
+                "weight": 2,
+            },
             "Workday Financials": {
                 "aliases": ["workday financials", "workday finance", "workday adaptive"],
                 "category": "fpa_tool",
@@ -960,6 +965,11 @@ VERTICALS = {
             },
             "Mailchimp": {
                 "aliases": ["mailchimp", "mail chimp"],
+                "category": "lifecycle_tool",
+                "weight": 2,
+            },
+            "Attentive": {
+                "aliases": ["attentive", "attentive mobile"],
                 "category": "lifecycle_tool",
                 "weight": 2,
             },
@@ -1197,6 +1207,12 @@ VERTICALS = {
                 "category": "pm_methodology",
                 "weight": 4,
                 "also_in": ["design"],
+            },
+            "Optimizely": {
+                "aliases": ["optimizely"],
+                "category": "experimentation",
+                "weight": 3,
+                "also_in": ["marketing", "data_ml"],
             },
             "A/B Testing": {
                 "aliases": ["a/b testing", "ab testing", "experimentation"],
@@ -1693,6 +1709,18 @@ VERTICALS = {
                 "aliases": ["procurify"],
                 "category": "procurement_tool",
                 "weight": 1,
+            },
+            "ERP Systems": {
+                "aliases": ["erp systems", "erp"],
+                "category": "erp",
+                "weight": 2,
+                "also_in": ["finance"],
+            },
+            "Power Automate": {
+                "aliases": ["power automate", "microsoft power automate", "ms power automate"],
+                "category": "automation_tool",
+                "weight": 2,
+                "also_in": ["engineering"],
             },
             "Project Management": {
                 "aliases": ["project management", "program management", "pmp", "prince2"],
