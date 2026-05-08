@@ -45,7 +45,7 @@ def get_conn():
     )
 
 
-def _board_token(ats: str, tenant: str, server: Optional[str]) -> str:
+def _board_token(ats: str, tenant: str, server: Optional[str]) -> Optional[str]:
     """
     Build the board_token value used in discovered_companies.
       Workday:    tenant/server/External  (server is needed for harvest)
@@ -56,8 +56,13 @@ def _board_token(ats: str, tenant: str, server: Optional[str]) -> str:
       iCIMS:      tenant
       Taleo:      tenant
       others:     tenant
+
+    Returns None for Workday rows where server is unknown — caller must skip
+    these rather than insert a bare slug that the harvester cannot parse.
     """
-    if ats == "workday" and server:
+    if ats == "workday":
+        if not server:
+            return None   # no server → cannot build a valid harvester URL
         return f"{tenant}/{server}/External"
     return tenant
 
@@ -103,6 +108,10 @@ def integrate_active(
         us_jobs  = r["us_jobs_count"]
 
         board_token = _board_token(ats, tenant, server)
+        if board_token is None:
+            log.warning(f"  SKIP {ats}/{tenant}: no server resolved — cannot build valid board_token")
+            continue
+
         company_id  = "AT" + hashlib.md5(f"{ats}|{board_token}".encode()).hexdigest()[:10]
 
         log.info(f"  {ats:<15} {tenant:<30} {us_jobs:>5} {dml:>5}  {name}")

@@ -165,7 +165,15 @@ def load_known_candidates() -> Dict[str, Set[str]]:
         cur.execute("SELECT ats, tenant FROM ats_tenants_candidates")
         for ats, tenant in cur.fetchall():
             known.setdefault(ats, set()).add(tenant.lower())
-        cur.execute("SELECT ats_source, board_token FROM discovered_companies WHERE ats_source IS NOT NULL")
+        cur.execute("""
+            SELECT ats_source, board_token FROM discovered_companies
+            WHERE ats_source IS NOT NULL
+              AND NOT (
+                active_roles = 0
+                AND last_had_roles IS NULL
+                AND first_seen_at < NOW() - INTERVAL '14 days'
+              )
+        """)
         for ats, board_token in cur.fetchall():
             if not board_token:
                 continue
