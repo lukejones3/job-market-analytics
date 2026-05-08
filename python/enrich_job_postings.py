@@ -801,13 +801,27 @@ except ImportError:
     def classify_role(*args, **kwargs):
         return None
 
+_LLM_CAP: int | None = int(os.environ["ENRICH_MAX_LLM_CALLS"]) if os.environ.get("ENRICH_MAX_LLM_CALLS") else None
+_llm_state = {"calls": 0, "cap_warned": False}
+
+
+def _llm_allowed() -> bool:
+    if _LLM_CAP is None:
+        return True
+    if _llm_state["calls"] >= _LLM_CAP:
+        if not _llm_state["cap_warned"]:
+            log.warning(f"ENRICH_MAX_LLM_CALLS={_LLM_CAP} reached — skipping LLM for remaining jobs")
+            _llm_state["cap_warned"] = True
+        return False
+    return True
+
 
 def _try_llm_fallback(text: str):
     """
     Last-resort: send a snippet to Haiku for salary extraction.
     Only triggered after all regex parsers fail.
     """
-    if not _LLM_AVAILABLE:
+    if not _LLM_AVAILABLE or not _llm_allowed():
         return None
 
     # Find window around salary keyword
@@ -824,6 +838,7 @@ def _try_llm_fallback(text: str):
     end = min(len(text), m.end() + 400)
     snippet = text[start:end]
 
+    _llm_state["calls"] += 1
     result = extract_salary_llm(snippet)
     if result:
         lo, hi, period = result
@@ -2126,8 +2141,9 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                         fields.append("role_category=%s")
                         params.append(cached_category)
                         fields.append("role_classified_at=NOW()")
-                    else:
+                    elif _llm_allowed():
                         # Cache miss — call domain-aware LLM
+                        _llm_state["calls"] += 1
                         cls_result = classify_role(
                             role_name_for_cls, desc,
                             domain=job_domain,
