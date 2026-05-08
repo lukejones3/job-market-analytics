@@ -2036,8 +2036,6 @@ _WD_UA_CYCLE = itertools.cycle(_WD_USER_AGENTS)
 _WD_GLOBAL_CONCURRENCY  = 50    # max in-flight requests across all tenants
 _WD_PER_HOST            = 3     # max concurrent requests per {tenant}.wdN.myworkdayjobs.com
 _WD_TIMEOUT             = aiohttp.ClientTimeout(total=30)
-_WD_MAX_PAGES           = 10    # max pages per tenant (200 jobs) — prevents runaway on large boards
-_WD_MAX_CONSEC_429      = 3     # skip tenant after this many consecutive 429s
 _WD_GLOBAL_429_THRESH   = 5     # pause entire harvester after this many global 429s
 _WD_GLOBAL_PAUSE_SECS   = 300   # 5 minutes
 
@@ -2058,40 +2056,61 @@ async def _wd_check_pause() -> None:
         await asyncio.sleep(wait)
 
 
+async def _wd_fetch_page(
+    session: aiohttp.ClientSession,
+    list_url: str,
+    headers: dict,
+    offset: int,
+    limit: int,
+) -> Tuple[List[dict], int, int]:
+    """Fetch one list page. Returns (postings, total, http_status)."""
+    try:
+        async with session.post(
+            list_url,
+            json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": ""},
+            headers=headers,
+        ) as r:
+            if r.status == 200:
+                data = await r.json(content_type=None)
+                return data.get("jobPostings", []), data.get("total", 0), 200
+            return [], 0, r.status
+    except asyncio.TimeoutError:
+        return [], 0, 408
+    except Exception:
+        return [], 0, 0
+
+
 async def _wd_detail(
     session: aiohttp.ClientSession,
-    global_sem: asyncio.Semaphore,
     detail_url: str,
     detail_headers: dict,
 ) -> Tuple[str, str, Optional[str], Optional[str]]:
     """Fetch job detail page. Returns (desc, location, posted_date, remote_type)."""
     if not detail_url:
         return "", "", None, None
-    async with global_sem:
-        await _wd_check_pause()
-        try:
-            async with session.get(detail_url, headers=detail_headers) as r:
-                if r.status != 200:
-                    return "", "", None, None
-                detail = await r.json(content_type=None)
-                info = detail.get("jobPostingInfo", {})
-                desc = (info.get("jobDescription", "")
-                        or detail.get("jobDescription", "")
-                        or detail.get("description", "") or "")
-                desc = re.sub(r"<[^>]+>", " ", desc)
-                desc = re.sub(r"\s+", " ", desc).strip()
-                location = info.get("location", "")
-                remote_type = _parse_remote_type(info.get("remoteType", ""))
-                sd = _parse_workday_start_date(info.get("startDate", ""))
-                posted_date = str(sd) if sd else None
-                return desc, location, posted_date, remote_type
-        except Exception:
-            return "", "", None, None
+    await _wd_check_pause()
+    try:
+        async with session.get(detail_url, headers=detail_headers) as r:
+            if r.status != 200:
+                return "", "", None, None
+            detail = await r.json(content_type=None)
+            info = detail.get("jobPostingInfo", {})
+            desc = (info.get("jobDescription", "")
+                    or detail.get("jobDescription", "")
+                    or detail.get("description", "") or "")
+            desc = re.sub(r"<[^>]+>", " ", desc)
+            desc = re.sub(r"\s+", " ", desc).strip()
+            location = info.get("location", "")
+            remote_type = _parse_remote_type(info.get("remoteType", ""))
+            sd = _parse_workday_start_date(info.get("startDate", ""))
+            posted_date = str(sd) if sd else None
+            return desc, location, posted_date, remote_type
+    except Exception:
+        return "", "", None, None
 
 
 async def _fetch_workday_tenant_async(
     session: aiohttp.ClientSession,
-    global_sem: asyncio.Semaphore,
     name: str,
     tenant: str,
     board: str,
@@ -2106,152 +2125,125 @@ async def _fetch_workday_tenant_async(
         "Accept": "application/json",
         "Referer": f"{base}/en-US/{board}",
     }
-
-    jobs: List[RawJob] = []
-    offset = 0
     limit = 20
-    consec_429 = 0
-    page_num = 0
 
-    while True:
-        await _wd_check_pause()
+    # Phase 1: fetch page 0 to learn total job count
+    await _wd_check_pause()
+    page0_postings, total, status = await _wd_fetch_page(session, list_url, headers, 0, limit)
 
-        # ── fetch one page of listings ───────────────────────────────────────
-        postings = None
-        total = 0
-        status = 0
-        async with global_sem:
-            try:
-                async with session.post(
-                    list_url,
-                    json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": ""},
-                    headers=headers,
-                ) as r:
-                    status = r.status
-                    if r.status == 200:
-                        data = await r.json(content_type=None)
-                        postings = data.get("jobPostings", [])
-                        total = data.get("total", 0)
-            except asyncio.TimeoutError:
-                log.debug(f"  Workday [{name}] timeout on page offset={offset}")
-                break
-            except Exception as e:
-                log.debug(f"  Workday [{name}] error: {e}")
-                break
+    if status == 429:
+        _wd_state["global_429"] += 1
+        if _wd_state["global_429"] >= _WD_GLOBAL_429_THRESH:
+            log.warning(
+                f"Workday: {_wd_state['global_429']} global 429s — "
+                f"pausing harvester {_WD_GLOBAL_PAUSE_SECS}s"
+            )
+            _wd_state["pause_until"] = time.monotonic() + _WD_GLOBAL_PAUSE_SECS
+            _wd_state["global_429"] = 0
+        log.warning(f"  Workday [{name}] 429 on page 0 — skipping tenant")
+        return []
 
-        if status == 429:
-            consec_429 += 1
-            _wd_state["global_429"] += 1
-            if _wd_state["global_429"] >= _WD_GLOBAL_429_THRESH:
-                log.warning(
-                    f"Workday: {_wd_state['global_429']} global 429s — "
-                    f"pausing harvester {_WD_GLOBAL_PAUSE_SECS}s"
-                )
-                _wd_state["pause_until"] = time.monotonic() + _WD_GLOBAL_PAUSE_SECS
-                _wd_state["global_429"] = 0
-            if consec_429 >= _WD_MAX_CONSEC_429:
-                log.warning(f"  Workday [{name}] skipped — {consec_429} consecutive 429s")
-                return jobs
-            delay = (5, 10, 30)[min(consec_429 - 1, 2)]
-            log.warning(f"  Workday [{name}] 429 #{consec_429} — retry in {delay}s")
-            await asyncio.sleep(delay)
+    if not page0_postings:
+        return []
+
+    all_postings = list(page0_postings)
+
+    # Phase 2: fire all remaining pages concurrently
+    if total > limit:
+        remaining_offsets = list(range(limit, total, limit))
+        log.info(f"  [{name}] {total} total jobs — fetching {len(remaining_offsets) + 1} pages concurrently")
+        page_tasks = [
+            _wd_fetch_page(session, list_url, headers, off, limit)
+            for off in remaining_offsets
+        ]
+        page_results = await asyncio.gather(*page_tasks, return_exceptions=True)
+        for pr in page_results:
+            if isinstance(pr, Exception):
+                continue
+            postings, _, pg_status = pr
+            if pg_status == 429:
+                _wd_state["global_429"] += 1
+            if postings:
+                all_postings.extend(postings)
+
+    # Phase 3: parse postings, fire all detail requests concurrently
+    posting_meta = []
+    detail_coros = []
+
+    for p in all_postings:
+        title = p.get("title", "")
+        if not _is_target_role(title):
             continue
 
-        consec_429 = 0
-        page_num += 1
+        ext_path = p.get("externalPath", "")
+        job_id = "WD" + hashlib.md5(f"{tenant}|{ext_path}".encode()).hexdigest()[:10]
 
-        if not postings:
-            break
+        location = ""
+        locs = p.get("locationsText", "") or p.get("locations", "")
+        if isinstance(locs, list) and locs:
+            location = locs[0]
+        elif isinstance(locs, str):
+            location = locs
 
-        if page_num == 1 and total > limit:
-            capped = total > _WD_MAX_PAGES * limit
-            log.info(
-                f"  [{name}] {total} total jobs — "
-                f"{'capped at ' + str(_WD_MAX_PAGES * limit) if capped else 'fetching all'}"
-            )
+        workplace_type = _parse_remote_type(p.get("remoteType", ""))
+        posting_meta.append((title, ext_path, job_id, location, workplace_type))
 
-        # ── build detail-fetch tasks for this page ────────────────────────────
-        posting_meta = []   # (title, ext_path, job_id, location, workplace_type)
-        detail_coros = []
+        if ext_path:
+            clean_path = ext_path.lstrip("/")
+            detail_url = f"{base}/wday/cxs/{tenant}/{board}/{clean_path}"
+            detail_headers = {
+                **headers,
+                "Accept": "application/json, text/javascript, */*; q=0.01",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": f"{base}/en-US/{board}{ext_path}",
+            }
+            detail_coros.append(_wd_detail(session, detail_url, detail_headers))
+        else:
+            async def _noop():
+                return ("", "", None, None)
+            detail_coros.append(_noop())
 
-        for p in postings:
-            title = p.get("title", "")
-            if not _is_target_role(title):
+    detail_results = await asyncio.gather(*detail_coros, return_exceptions=True)
+
+    jobs: List[RawJob] = []
+    for (title, ext_path, job_id, location, workplace_type), dr in zip(posting_meta, detail_results):
+        if isinstance(dr, Exception):
+            dr = ("", "", None, None)
+        desc, detail_loc, posted_date, detail_remote = dr
+
+        if detail_loc and (not location or "location" in location.lower()):
+            location = detail_loc
+        if workplace_type is None:
+            workplace_type = detail_remote
+
+        loc_lower = location.lower()
+        if any(s in loc_lower for s in _WD_NON_US):
+            continue
+        if location and len(location) > 3 and "," in location:
+            last = location.split(",")[-1].strip().upper()
+            if len(last) == 3 and last not in ("USA", "CAN") and last.isalpha():
                 continue
 
-            ext_path = p.get("externalPath", "")
-            job_id = "WD" + hashlib.md5(f"{tenant}|{ext_path}".encode()).hexdigest()[:10]
+        if workplace_type is None:
+            if "remote" in loc_lower or "virtual" in loc_lower:
+                workplace_type = "remote"
+            elif "hybrid" in loc_lower:
+                workplace_type = "hybrid"
 
-            location = ""
-            locs = p.get("locationsText", "") or p.get("locations", "")
-            if isinstance(locs, list) and locs:
-                location = locs[0]
-            elif isinstance(locs, str):
-                location = locs
-
-            workplace_type = _parse_remote_type(p.get("remoteType", ""))
-            posting_meta.append((title, ext_path, job_id, location, workplace_type))
-
-            if ext_path:
-                clean_path = ext_path.lstrip("/")
-                detail_url = f"{base}/wday/cxs/{tenant}/{board}/{clean_path}"
-                detail_headers = {
-                    **headers,
-                    "Accept": "application/json, text/javascript, */*; q=0.01",
-                    "X-Requested-With": "XMLHttpRequest",
-                    "Referer": f"{base}/en-US/{board}{ext_path}",
-                }
-                detail_coros.append(_wd_detail(session, global_sem, detail_url, detail_headers))
-            else:
-                async def _noop():
-                    return ("", "", None, None)
-                detail_coros.append(_noop())
-
-        # ── fire all detail fetches for this page concurrently ────────────────
-        detail_results = await asyncio.gather(*detail_coros, return_exceptions=True)
-
-        for (title, ext_path, job_id, location, workplace_type), dr in zip(posting_meta, detail_results):
-            if isinstance(dr, Exception):
-                dr = ("", "", None, None)
-            desc, detail_loc, posted_date, detail_remote = dr
-
-            if detail_loc and (not location or "location" in location.lower()):
-                location = detail_loc
-            if workplace_type is None:
-                workplace_type = detail_remote
-
-            loc_lower = location.lower()
-            if any(s in loc_lower for s in _WD_NON_US):
-                continue
-            if location and len(location) > 3 and "," in location:
-                last = location.split(",")[-1].strip().upper()
-                if len(last) == 3 and last not in ("USA", "CAN") and last.isalpha():
-                    continue
-
-            if workplace_type is None:
-                if "remote" in loc_lower or "virtual" in loc_lower:
-                    workplace_type = "remote"
-                elif "hybrid" in loc_lower:
-                    workplace_type = "hybrid"
-
-            jobs.append(RawJob(
-                source="workday",
-                source_id=job_id,
-                company=name,
-                title=title,
-                location=location,
-                description=desc,
-                job_url=f"{base}/en-US/{board}/{ext_path.lstrip('/')}",
-                salary_min=None,
-                salary_max=None,
-                salary_period=None,
-                workplace_type=workplace_type,
-                posted_date=posted_date,
-            ))
-
-        offset += limit
-        if offset >= total or page_num >= _WD_MAX_PAGES:
-            break
+        jobs.append(RawJob(
+            source="workday",
+            source_id=job_id,
+            company=name,
+            title=title,
+            location=location,
+            description=desc,
+            job_url=f"{base}/en-US/{board}/{ext_path.lstrip('/')}",
+            salary_min=None,
+            salary_max=None,
+            salary_period=None,
+            workplace_type=workplace_type,
+            posted_date=posted_date,
+        ))
 
     return jobs
 
@@ -2299,9 +2291,8 @@ async def _run_all_workday_async(workday_list: List[Tuple]) -> List[RawJob]:
         limit=_WD_GLOBAL_CONCURRENCY, limit_per_host=_WD_PER_HOST
     )
     async with aiohttp.ClientSession(connector=connector, timeout=_WD_TIMEOUT) as session:
-        global_sem = asyncio.Semaphore(_WD_GLOBAL_CONCURRENCY)
         tasks = [
-            _fetch_workday_tenant_async(session, global_sem, name, tenant, board, wd_server)
+            _fetch_workday_tenant_async(session, name, tenant, board, wd_server)
             for name, tenant, board, wd_server in workday_list
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
