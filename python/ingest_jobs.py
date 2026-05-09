@@ -771,8 +771,206 @@ def _is_us_location(location: str, is_remote: bool = False) -> bool:
     return True
 
 
+# ── Knowledge-worker title filter (whitelist approach) ─────────────────────────
+# A title must match at least one INCLUDE pattern AND no EXCLUDE pattern.
+# INCLUDE: any of the 8 target verticals
+# EXCLUDE: hard-block patterns that override even if inclusion matched
+
+_KW_INCLUDE_RE = re.compile("|".join([
+    # DATA / ML
+    r"\bdata\s+scienc",          # data science, data scientist
+    r"\bdata\s+engineer",
+    r"\bdata\s+analyst",
+    r"\bdata\s+architect",
+    r"\bdata\s+steward",
+    r"\bdataops\b|\bdata\s+ops\b",
+    r"\bdata\s+platform\b",
+    r"\bml\s+engineer",
+    r"\bml\s+researcher",
+    r"\bmachine\s+learning\b",
+    r"\bapplied\s+scientist",
+    r"\bresearch\s+scientist",
+    r"\bai\s+engineer",
+    r"\bai\s+researcher",
+    r"\bai/ml\b",
+    r"\banalytics\s+engineer",
+    r"\bbi\s+(?:analyst|engineer|developer)\b",
+    r"\bbusiness\s+intelligence\b",
+    r"\bmlops\b|\bml\s+ops\b",
+    r"\bdecision\s+scientist",
+    r"\bquantitative\s+analyst\b|\bquant\s+analyst\b|\bquant\b",
+    r"\bactuar",                  # actuary, actuarial
+    r"\bmarketing\s+analyst\b",
+    r"\bproduct\s+analyst\b",
+    r"\bfinancial\s+analyst\b",
+    # ENGINEERING
+    r"\bsoftware\s+engin",        # software engineer / engineering
+    r"\bsoftware\s+develop",      # software developer / development
+    r"\bsde\b|\bswe\b",
+    r"\bbackend\b|\bback[\s-]end\b",
+    r"\bfrontend\b|\bfront[\s-]end\b",
+    r"\bfull[\s-]?stack\b",
+    r"\bdeveloper\b",
+    r"\bdevops\b",
+    r"\bsite\s+reliability\b",
+    r"\bsre\b",
+    r"\bplatform\s+engineer",
+    r"\binfrastructure\s+engineer",
+    r"\bcloud\s+engineer",
+    r"\bsystems\s+engineer",
+    r"\bios\b|\bandroid\b",
+    r"\bmobile\s+(?:engineer|developer)",
+    r"\bsecurity\s+engineer",
+    r"\bappsec\b|\bapplication\s+security\b",
+    r"\bqa\s+engineer\b|\bsdet\b|\btest\s+engineer\b|\bautomation\s+engineer\b",
+    r"\bembedded\s+(?:engineer|software)\b|\bfirmware\s+(?:engineer|developer)\b",
+    r"\bprincipal\s+engineer\b|\bstaff\s+engineer\b|\bdistinguished\s+engineer\b",
+    r"\bengineering\s+manager\b|\bdirector\s+of\s+engineering\b",
+    r"\brobotic",
+    r"\bcontrols\s+engineer\b",
+    # SALES
+    r"\baccount\s+executive\b",
+    r"\bsdr\b|\bbdr\b",
+    r"\bsales\s+development\s+rep",
+    r"\bbusiness\s+development\s+rep",
+    r"\bcustomer\s+success\b",
+    r"\bcsm\b",
+    r"\bsales\s+engineer\b",
+    r"\bsolutions\s+engineer\b",
+    r"\bsolutions\s+architect\b",
+    r"\baccount\s+manager\b",
+    r"\brenewals\s+manager\b",
+    r"\brevenue\s+ops\b|\brevops\b|\bsales\s+ops\b",
+    r"\bvp\s+(?:of\s+)?sales\b|\bhead\s+of\s+sales\b|\bchief\s+revenue\b|\bcro\b",
+    r"\bsales\s+director\b|\bregional\s+sales\s+manager\b",
+    # FINANCE
+    r"\bfp&a\b|\bfinancial\s+planning\b",
+    r"\bfinancial\s+(?:analyst|reporting|controller|manager)\b",
+    r"\baccountant\b|\baccounting\b|\bbookkeeper\b|\bcontroller\b",
+    r"\btreasury\b|\btreasurer\b",
+    r"\bauditor\b|\baudit\b",
+    r"\btax\s+(?:analyst|manager|associate|director|counsel)\b",
+    r"\binvestment\b",
+    r"\bequity\s+research\b|\bcredit\s+analyst\b",
+    r"\bunderwriter\b",
+    r"\bcfo\b|\bvp\s+(?:of\s+)?finance\b|\bfinance\s+director\b",
+    # MARKETING
+    r"\bmarketing\s+(?:manager|engineer|ops|director|coordinator|specialist|lead)\b",
+    r"\bgrowth\s+(?:manager|lead|hacker|marketing|analyst|engineer|ops)\b|\bhead\s+of\s+growth\b",
+    r"\blifecycle\b",
+    r"\bperformance\s+marketing\b",
+    r"\bdemand\s+gen(?:eration)?\b",
+    r"\bcontent\s+(?:marketing|strategist|manager|creator|writer|producer|director)\b",
+    r"\bcopywriter\b",
+    r"\bcreative\s+director\b|\bart\s+director\b",
+    r"\bpublic\s+relations\b",
+    r"\bcommunications?\s+(?:manager|director|specialist|strategist)\b",
+    r"\bsocial\s+media\s+(?:manager|strategist|analyst)\b",
+    r"\bseo\b|\bsem\b",
+    r"\bpaid\s+(?:acquisition|media|search|social)\b",
+    r"\bproduct\s+marketing\b|\bpmm\b",
+    r"\bmarketing\s+ops\b|\bmarops\b",
+    r"\bvp\s+(?:of\s+)?marketing\b|\bcmo\b|\bhead\s+of\s+marketing\b",
+    r"\bbrand\b",
+    # PRODUCT
+    r"\bproduct\s+manager\b|\bproduct\s+owner\b",
+    r"\btpm\b|\btechnical\s+product\s+manager\b",
+    r"\bproduct\s+ops\b",
+    r"\bprincipal\s+pm\b|\bgroup\s+pm\b|\bhead\s+of\s+product\b",
+    r"\bvp\s+(?:of\s+)?product\b|\bcpo\b",
+    # DESIGN
+    r"\bdesigner\b",
+    r"\bux\b",
+    r"\bui/ux\b|\bux/ui\b",
+    r"\buser\s+(?:experience|interface)\b",
+    r"\bdesign\b",
+    # OPS
+    r"\bbusiness\s+operations\b|\bbizops\b|\bbiz\s+ops\b",
+    r"\bstrategic\s+(?:operations|ops)\b",
+    r"\bpeople\s+ops\b|\bhr\s+ops\b|\bpeople\s+operations\b",
+    r"\btalent\s+acquisition\b",
+    r"\brecruiter\b|\brecruiting\b",
+    r"\bchief\s+of\s+staff\b",
+    r"\bprogram\s+manager\b",
+    r"\boperations\s+analyst\b",
+    r"\bexecutive\s+assistant\b",
+    # BROAD CROSS-FUNCTIONAL (title-level knowledge-worker signals)
+    r"\banalyst\b",
+    r"\barchitect\b",
+    r"\bscientist\b",
+    r"\bresearcher\b",
+    r"\bdirector\b",
+    r"\bvp\b",
+    r"\bhead\s+of\b",
+    r"\bconsultant\b",
+    r"\bstrateg",                 # strategy, strategist, strategic
+    r"\bcompliance\b",
+    r"\blegal\b",
+    r"\bcounsel\b",
+    # ADDITIONAL (gap-fill from dry-run review)
+    r"\bai\b",                    # AI Engineer, AI Ops, AI Deployment (word boundary prevents inside-word matches)
+    r"\bllm\b",                   # LLM Engineer, LLM Researcher
+    r"\bdba\b|\bdatabase\s+admin",
+    r"\bfounding\b",              # Founding Engineer, Founding Designer, Founding PM
+    r"\bsales\s+manager\b",
+    r"\bsales\s+(?:representative|rep)\b",
+    r"\bproject\s+manager\b",
+    r"\bgtm\b",                   # go-to-market
+    r"\btools\s+engineer\b|\btooling\s+engineer\b",
+    r"\bcompiler\s+engineer\b",
+    r"\bagile\b",                 # Agile Coach, Agile practitioner
+    r"\bscrum\b",                 # Scrum Master
+    r"\bsales\s+operat",          # Sales Operations (full word)
+    r"\bsecurity\s+manager\b",
+    r"\bproduct\s+lead\b",
+    r"\bresearch\b",              # Research Intern, Research Associate, Research Analyst
+]), re.IGNORECASE)
+
+# Hard-block overrides: always drop even if an inclusion matched
+_KW_EXCLUDE_RE = re.compile("|".join([
+    r"\bdriver\b",
+    r"\bcourier\b",
+    r"\bpizza\b",
+    r"\bbarista\b",
+    r"\bcashier\b",
+    r"\bstocker\b",
+    r"\bhostess\b",
+    r"\bline\s+cook\b|\bprep\s+cook\b|\bdishwasher\b",
+    r"\bfood\s+service\b",
+    r"\bwarehouse\s+(?:associate|worker|team\s+member|operator)\b",
+    r"\bretail\s+associate\b|\bstore\s+associate\b|\bsales\s+associate\b",
+    r"\bshift\s+(?:leader|manager)\b",
+    r"\bphysical\s+therapist\b|\boccupational\s+therapist\b|\bspeech\s+therapist\b",
+    r"\blicensed\s+therapist\b|\bmental\s+health\s+therapist\b",
+    r"\bregistered\s+nurse\b|\bnurse\s+practitioner\b|\bnurse\s+anesthetist\b",
+    r"\brn\b|\blpn\b|\bcna\b|\blvn\b",
+    r"\bmedical\s+assistant\b|\bpatient\s+services\b",
+    r"\bpharmacy\s+technician\b",
+    r"\bautomotive\s+painter\b|\bauto\s+body\b|\bwheel\s+repair\b",
+    r"\bdiesel\s+technician\b|\bmechanic\b",
+    r"\bfacilities\s+technician\b|\bmaintenance\s+technician\b|\bhvac\b",
+    r"\belectrician\b|\bplumber\b|\bwelder\b|\bcarpenter\b",
+    r"\btest\s+driver\b|\bvehicle\s+operator\b",
+    r"\bdata\s+collection\s+driver\b|\bmapping\s+data\s+collection\b",
+    r"\bfield\s+(?:technician|service\s+technician)\b",
+    r"\bconstruction\b|\blaborer\b",
+    r"\bclinical\s+research\s+coordinator\b",
+]), re.IGNORECASE)
+
+
+def _is_knowledge_worker_title(title: str) -> bool:
+    """True if title belongs to one of the 8 target knowledge-worker verticals."""
+    if not title:
+        return False
+    if not _KW_INCLUDE_RE.search(title):
+        return False
+    if _KW_EXCLUDE_RE.search(title):
+        return False
+    return True
+
+
 def _is_target_role(title: str) -> bool:
-    return bool(title)
+    return _is_knowledge_worker_title(title)
 
 def _throttle():
     time.sleep(REQUEST_DELAY_SECONDS)
@@ -1215,9 +1413,12 @@ def ensure_schema_columns(cur):
 def ingest_job(cur, job: RawJob) -> bool:
     """
     Insert a single RawJob into job_postings.
-    Returns True if inserted, False if skipped (duplicate).
+    Returns True if inserted, False if skipped (duplicate or non-KW title).
     Schema-matched to actual job_postings table definition.
     """
+    if not _is_knowledge_worker_title(job.title):
+        return False
+
     job_id = _md5_id("J", f"{job.source}|{job.source_id}")
 
     # description quality tag

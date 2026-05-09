@@ -2101,7 +2101,9 @@ def _run_llm_batch(classify_jobs, salary_jobs):
     id_map = {}  # custom_id -> ("classify"|"salary", job_id)
 
     # Classify: apply pre-checks, queue residual
+    # custom_ids must match ^[a-zA-Z0-9_-]{1,64}$ — use short index-based ids
     precheck_hits = 0
+    classify_idx = 0
     for job_id, role_name, desc, domain, company in classify_jobs:
         if is_blocked_aggregator(company):
             precheck_hits += 1
@@ -2120,7 +2122,8 @@ def _run_llm_batch(classify_jobs, salary_jobs):
                 continue
         snippet = (desc or "")[:600]
         prompt = _build_domain_prompt(domain, role_name, snippet)
-        cid = f"classify::{job_id}"
+        cid = f"c{classify_idx:06d}"
+        classify_idx += 1
         batch_requests.append({
             "custom_id": cid,
             "params": {
@@ -2133,9 +2136,11 @@ def _run_llm_batch(classify_jobs, salary_jobs):
         id_map[cid] = ("classify", job_id)
 
     # Salary: no additional pre-checks needed (already gated in Phase 1)
+    salary_idx = 0
     for job_id, snippet in salary_jobs:
         prompt = build_salary_prompt(snippet)
-        cid = f"salary::{job_id}"
+        cid = f"s{salary_idx:06d}"
+        salary_idx += 1
         batch_requests.append({
             "custom_id": cid,
             "params": {
