@@ -295,7 +295,7 @@ VERTICALS = {
             },
             # ── Cloud / Infra (data-relevant) ──
             "AWS": {
-                "aliases": ["aws", "amazon web services", "s3", "ec2", "emr", "kinesis"],
+                "aliases": ["aws", "amazon web services", "s3", "ec2", "amazon emr", "kinesis"],
                 "category": "cloud",
                 "weight": 4,
                 "also_in": ["engineering"],
@@ -398,6 +398,7 @@ VERTICALS = {
             r"head of engineering",
             r"vp.*engineering",
             r"chief.*engineer",
+            r"productivity engineer",
         ],
         "subcategories": [
             "backend",
@@ -466,7 +467,7 @@ VERTICALS = {
                 "weight": 2,
             },
             "Swift": {
-                "aliases": ["swift", "swiftui", "objective-c", "objc"],
+                "aliases": ["swift programming", "swift ios", "swift language", "swiftui", "objective-c", "objc"],
                 "category": "language",
                 "weight": 3,
             },
@@ -523,7 +524,7 @@ VERTICALS = {
                 "weight": 3,
             },
             "Spring": {
-                "aliases": ["spring", "spring boot", "spring framework", "spring mvc"],
+                "aliases": ["spring boot", "spring framework", "spring mvc"],
                 "category": "backend_framework",
                 "weight": 3,
             },
@@ -614,7 +615,7 @@ VERTICALS = {
                 "weight": 3,
             },
             "REST": {
-                "aliases": ["rest", "restful", "rest api", "restful api"],
+                "aliases": ["restful", "rest api", "restful api"],
                 "category": "api",
                 "weight": 4,
             },
@@ -696,6 +697,7 @@ VERTICALS = {
             r"finance director",
             r"\bcpa\b",
             r"\bcfa\b",
+            r"wealth management",
         ],
         "subcategories": [
             "fpa",
@@ -708,7 +710,7 @@ VERTICALS = {
         ],
         "skills": {
             "Excel": {
-                "aliases": ["excel", "microsoft excel", "excel modeling", "vba", "pivot tables"],
+                "aliases": ["microsoft excel", "excel modeling", "advanced excel", "vba", "pivot tables"],
                 "category": "tool",
                 "weight": 5,
                 "also_in": ["ops", "marketing"],
@@ -740,7 +742,7 @@ VERTICALS = {
                 "also_in": ["ops"],
             },
             "SAP": {
-                "aliases": ["sap", "sap erp", "sap s/4hana", "sap fi", "sap co"],
+                "aliases": ["sap s/4hana", "sap fi", "sap co", "sap hana", "sap ariba", "sap concur", "sap erp"],
                 "category": "erp",
                 "weight": 3,
                 "also_in": ["ops"],
@@ -1277,7 +1279,12 @@ VERTICALS = {
             r"chief revenue",
             r"\bcro\b",
             r"head of sales",
+            r"head of.*\bsales\b",
+            r"\bad sales\b",
+            r"sales.*monetization",
+            r"monetization.*sales",
             r"partnership manager",
+            r"partner management",
             r"alliances manager",
             r"sales development",
         ],
@@ -1303,7 +1310,7 @@ VERTICALS = {
                 "also_in": ["marketing"],
             },
             "Outreach": {
-                "aliases": ["outreach", "outreach.io"],
+                "aliases": ["outreach.io", "outreach platform"],
                 "category": "sales_engagement",
                 "weight": 4,
             },
@@ -1476,7 +1483,7 @@ VERTICALS = {
                 "weight": 3,
             },
             "Premiere Pro": {
-                "aliases": ["premiere", "adobe premiere", "premiere pro"],
+                "aliases": ["adobe premiere", "premiere pro", "adobe premiere pro"],
                 "category": "motion_tool",
                 "weight": 2,
             },
@@ -1491,7 +1498,7 @@ VERTICALS = {
                 "weight": 2,
             },
             "Principle": {
-                "aliases": ["principle", "principle app"],
+                "aliases": ["principle app", "principle prototyping"],
                 "category": "prototyping_tool",
                 "weight": 2,
             },
@@ -1612,6 +1619,7 @@ VERTICALS = {
             r"coo",
             r"director of operations",
             r"program manager",     # can overlap with product; ops is primary without "product" in title
+            r"corporate development",
         ],
         "subcategories": [
             "business_ops",
@@ -1623,7 +1631,7 @@ VERTICALS = {
         ],
         "skills": {
             "Excel": {
-                "aliases": ["excel", "microsoft excel"],
+                "aliases": ["microsoft excel"],
                 "category": "tool",
                 "weight": 4,
                 "also_in": ["finance"],
@@ -1673,7 +1681,7 @@ VERTICALS = {
                 "also_in": ["product"],
             },
             "Monday.com": {
-                "aliases": ["monday.com", "monday", "monday work os"],
+                "aliases": ["monday.com", "monday work os"],
                 "category": "pm_tool",
                 "weight": 3,
             },
@@ -1695,7 +1703,7 @@ VERTICALS = {
                 "also_in": ["finance"],
             },
             "SAP": {
-                "aliases": ["sap", "sap erp"],
+                "aliases": ["sap s/4hana", "sap hana", "sap ariba", "sap concur", "sap erp"],
                 "category": "erp",
                 "weight": 3,
                 "also_in": ["finance"],
@@ -1723,12 +1731,12 @@ VERTICALS = {
                 "also_in": ["engineering"],
             },
             "Project Management": {
-                "aliases": ["project management", "program management", "pmp", "prince2"],
+                "aliases": ["project management professional", "agile project management", "pmp", "prince2"],
                 "category": "methodology",
                 "weight": 4,
             },
             "Lean": {
-                "aliases": ["lean", "lean methodology", "lean six sigma"],
+                "aliases": ["lean methodology", "lean six sigma", "lean manufacturing principles"],
                 "category": "methodology",
                 "weight": 2,
             },
@@ -1738,7 +1746,7 @@ VERTICALS = {
                 "weight": 2,
             },
             "Change Management": {
-                "aliases": ["change management", "organizational change"],
+                "aliases": ["itil change management", "organizational change management"],
                 "category": "methodology",
                 "weight": 3,
             },

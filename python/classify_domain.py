@@ -25,7 +25,7 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from vertical_taxonomy import VERTICALS
@@ -48,13 +48,27 @@ _PATTERN_MAP: dict[str, re.Pattern] = _compile_patterns()
 MIN_SKILL_MATCHES = 2   # skills pass: minimum matches to trust a winner
 SECONDARY_RATIO   = 0.4  # skills pass: secondary if score >= this fraction of winner
 
+# ── NULL blocklist: titles that are definitively non-tech verticals ─────────────
+# When a title matches here we return domain=NULL immediately — no skill scoring.
+# These roles appear in tech-company job feeds but belong to domains we don't cover.
+_NULL_BLOCKLIST: re.Pattern = re.compile(
+    r"\bclinical\b"          # clinical strategy, clinical lead, clinical director
+    r"|\bphysician\b"
+    r"|\bnurse\b"
+    r"|\bsurgeon\b"
+    r"|\bpharmacist\b"
+    r"|\bveterinari",        # veterinary, veterinarian
+    re.IGNORECASE,
+)
 
-# ── Build alias map ────────────────────────────────────────────────────────────
+
+# ── Build alias maps ───────────────────────────────────────────────────────────
 
 def build_alias_map(conn) -> Dict[str, str]:
     """
     Load {alias_text_lower: primary_vertical} from DB.
-    Only includes skills that have a non-null vertical.
+    Kept for backwards compatibility with ingest_jobs.py.
+    For domain classification prefer build_alias_map_multi().
     """
     with conn.cursor() as cur:
         cur.execute("""
@@ -64,6 +78,35 @@ def build_alias_map(conn) -> Dict[str, str]:
             WHERE s.vertical IS NOT NULL
         """)
         return {row[0].lower(): row[1] for row in cur.fetchall()}
+
+
+def build_alias_map_multi(conn) -> Dict[str, List[str]]:
+    """
+    Load {alias_text_lower: [primary_vertical, *also_in_verticals]} from DB.
+
+    Each alias credits ALL verticals the skill belongs to with equal weight.
+    This prevents data_ml from dominating the skill scorer: SQL, Python, and
+    Tableau are primary data_ml skills but also live in finance, marketing, etc.
+    Using multi-vertical scoring lets those cross-vertical signals break ties
+    correctly (e.g. a Finance JD with SQL+Excel+GAAP now scores finance first).
+    """
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT sa.alias_text, s.vertical, s.also_in
+            FROM skill_aliases sa
+            JOIN skills s ON s.skill_id = sa.skill_id
+            WHERE s.vertical IS NOT NULL
+        """)
+        result: Dict[str, List[str]] = {}
+        for alias_text, primary, also_in in cur.fetchall():
+            key = alias_text.lower()
+            verticals: List[str] = [primary]
+            if also_in:
+                for v in also_in:
+                    if v not in verticals:
+                        verticals.append(v)
+            result[key] = verticals
+        return result
 
 
 # ── Stage 1: title patterns ────────────────────────────────────────────────────
@@ -92,17 +135,33 @@ def _classify_by_title(title: str) -> Tuple[Optional[str], List[str]]:
 # ── Stage 2: description skill aliases ────────────────────────────────────────
 
 def _classify_by_skills(
-    description: str, alias_map: Dict[str, str]
+    description: str, alias_map: Dict[str, Any]
 ) -> Tuple[Optional[str], List[str]]:
+    """
+    Score verticals by counting alias matches in description.
+
+    alias_map may be either:
+      - Dict[str, str]        — {alias: primary_vertical}  (legacy, single-vertical)
+      - Dict[str, List[str]]  — {alias: [primary, *also_in]}  (multi-vertical, preferred)
+
+    Multi-vertical maps give each matched alias equal credit to every vertical
+    it belongs to, preventing data_ml from dominating via its larger alias set.
+    """
     if not description or not alias_map:
         return None, []
 
     desc_lower = description.lower()
     scores: dict[str, int] = {}
 
-    for alias, vertical in alias_map.items():
+    for alias, vertical_or_list in alias_map.items():
         if alias in desc_lower:
-            scores[vertical] = scores.get(vertical, 0) + 1
+            verticals = (
+                vertical_or_list
+                if isinstance(vertical_or_list, list)
+                else [vertical_or_list]
+            )
+            for v in verticals:
+                scores[v] = scores.get(v, 0) + 1
 
     if not scores or max(scores.values()) < MIN_SKILL_MATCHES:
         return None, []
@@ -244,6 +303,10 @@ def classify_domain(
 
 
 def _run_classify(title, description, alias_map, use_llm, llm_cache):
+    # Stage 0: NULL blocklist — explicitly non-tech roles we never cover
+    if title and _NULL_BLOCKLIST.search(title):
+        return None, [], "null_blocked"
+
     # Stage 1: title
     domain, secondary = _classify_by_title(title)
     if domain:
