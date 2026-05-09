@@ -211,6 +211,7 @@ Snippet:
 BLOCKED_AGGREGATORS = frozenset({
     "jobgether",
     "tsmg",
+    "jobs for humanity",
 })
 
 
@@ -355,6 +356,7 @@ def _data_title_verdict(category, title):
 BLOCKED_AGGREGATORS = frozenset({
     "jobgether",
     "tsmg",
+    "jobs for humanity",
 })
 
 
