@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
+import asyncio
 import hashlib
+import logging
 import os
 import re
 import argparse
+import time
 from pathlib import Path
 from decimal import Decimal
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional, Dict, List, Tuple
 
+log = logging.getLogger(__name__)
+
 from dotenv import load_dotenv
 import psycopg2
-from psycopg2.extras import DictCursor
+from psycopg2.extras import DictCursor, execute_batch
 
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -801,7 +806,7 @@ except ImportError:
     def classify_role(*args, **kwargs):
         return None
 
-_LLM_CAP: int | None = int(os.environ["ENRICH_MAX_LLM_CALLS"]) if os.environ.get("ENRICH_MAX_LLM_CALLS") else None
+_LLM_CAP = int(os.environ["ENRICH_MAX_LLM_CALLS"]) if os.environ.get("ENRICH_MAX_LLM_CALLS") else None
 _llm_state = {"calls": 0, "cap_warned": False}
 
 
@@ -816,6 +821,23 @@ def _llm_allowed() -> bool:
     return True
 
 
+_SALARY_KW = re.compile(
+    r"(salary|compensation|pay range|base pay|pay rate|hourly rate|"
+    r"total comp|annual pay|wage|remuneration)",
+    re.IGNORECASE,
+)
+
+
+def _salary_llm_snippet(text: str) -> Optional[str]:
+    """Return the salary-relevant text window for LLM extraction, or None if no keyword."""
+    m = _SALARY_KW.search(text or "")
+    if not m:
+        return None
+    start = max(0, m.start() - 200)
+    end = min(len(text), m.end() + 400)
+    return text[start:end]
+
+
 def _try_llm_fallback(text: str):
     """
     Last-resort: send a snippet to Haiku for salary extraction.
@@ -824,19 +846,9 @@ def _try_llm_fallback(text: str):
     if not _LLM_AVAILABLE or not _llm_allowed():
         return None
 
-    # Find window around salary keyword
-    SALARY_KW = re.compile(
-        r"(salary|compensation|pay range|base pay|pay rate|hourly rate|"
-        r"total comp|annual pay|wage|remuneration)",
-        re.IGNORECASE
-    )
-    m = SALARY_KW.search(text or "")
-    if not m:
+    snippet = _salary_llm_snippet(text)
+    if snippet is None:
         return None
-
-    start = max(0, m.start() - 200)
-    end = min(len(text), m.end() + 400)
-    snippet = text[start:end]
 
     _llm_state["calls"] += 1
     result = extract_salary_llm(snippet)
@@ -1039,7 +1051,7 @@ def _try_single_value(tline: str, low: str):
     return None
 
 
-def parse_salary_range(text: str) -> tuple:
+def parse_salary_range(text: str, *, skip_llm: bool = False) -> tuple:
     """
     Clean architecture salary parser.
     Tries extractors in priority order per line, returns first valid result.
@@ -1096,9 +1108,10 @@ def parse_salary_range(text: str) -> tuple:
             return lo, hi, result[2]
 
     # All regex patterns exhausted — try LLM fallback on the full text
-    llm_result = _try_llm_fallback(raw)
-    if llm_result:
-        return llm_result
+    if not skip_llm:
+        llm_result = _try_llm_fallback(raw)
+        if llm_result:
+            return llm_result
 
     return None, None, None
 
@@ -1929,7 +1942,7 @@ def insert_job_skills(cur, job_id: str,
         inserted += 1
 
     return inserted
-def parse_dimensions(desc: str) -> ParsedJob:
+def parse_dimensions(desc: str, *, skip_salary_llm: bool = False) -> ParsedJob:
     dims = extract_title_company_location_from_description(desc or "")
 
     pj = ParsedJob()
@@ -1941,7 +1954,7 @@ def parse_dimensions(desc: str) -> ParsedJob:
     pj.workplace_type = parse_workplace_type(desc or "")
     pj.employment_type = parse_employment_type(desc or "")
 
-    smin, smax, sper = parse_salary_range(desc or "")
+    smin, smax, sper = parse_salary_range(desc or "", skip_llm=skip_salary_llm)
     pj.salary_min, pj.salary_max, pj.salary_period = smin, smax, sper
 
     pj.experience_level = infer_experience_level(desc or "", pj.title)
@@ -1954,10 +1967,257 @@ def parse_dimensions(desc: str) -> ParsedJob:
 
 
 # ============================================================
+# ASYNC LLM HELPERS
+# ============================================================
+
+def _load_cat_cache(cur) -> dict:
+    """Pre-load role_category_cache into memory: {(company_lower, role_lower): category}."""
+    try:
+        cur.execute("""
+            SELECT company_lower, role_lower, role_category
+            FROM role_category_cache
+            WHERE cached_at > NOW() - INTERVAL '30 days'
+        """)
+        return {(r[0], r[1]): r[2] for r in cur.fetchall()}
+    except Exception as e:
+        log.warning(f"Failed to load role_category_cache: {e}")
+        return {}
+
+
+async def _one_classify(job_id, role_name, desc, domain, company, client, sem):
+    from llm_client import classify_role_async
+    result = await classify_role_async(role_name, desc, domain, company, client, sem)
+    return job_id, result
+
+
+async def _one_salary(job_id, snippet, client, sem):
+    from llm_client import extract_salary_llm_async
+    result = await extract_salary_llm_async(snippet, client, sem)
+    return job_id, result
+
+
+class _AsyncRateLimiter:
+    """Token bucket: space out calls so we never exceed rpm requests/minute."""
+
+    def __init__(self, rpm: int):
+        self._delay = 60.0 / rpm   # seconds between token grants
+        self._lock = asyncio.Lock()
+        self._next_token: float = 0.0
+
+    async def acquire(self):
+        async with self._lock:
+            now = asyncio.get_event_loop().time()
+            wait = max(0.0, self._next_token - now)
+            self._next_token = max(now, self._next_token) + self._delay
+        if wait > 0:
+            await asyncio.sleep(wait)
+
+
+async def _one_classify(job_id, role_name, desc, domain, company, client, sem, rl):
+    await rl.acquire()
+    async with sem:
+        from llm_client import classify_role_async
+        result = await classify_role_async(role_name, desc, domain, company, client, sem)
+    return job_id, result
+
+
+async def _one_salary(job_id, snippet, client, sem, rl):
+    await rl.acquire()
+    async with sem:
+        from llm_client import extract_salary_llm_async
+        result = await extract_salary_llm_async(snippet, client, sem)
+    return job_id, result
+
+
+async def _run_llm_concurrent(classify_jobs, salary_jobs, semaphore_size=50, rpm=45):
+    """Run classify_role + salary LLM calls concurrently, rate-limited to rpm/min."""
+    from anthropic import AsyncAnthropic
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    sem = asyncio.Semaphore(semaphore_size)
+    rl = _AsyncRateLimiter(rpm=rpm)
+
+    async with AsyncAnthropic(api_key=api_key, max_retries=2) as client:
+        classify_coros = [
+            _one_classify(job_id, rn, desc, dom, co, client, sem, rl)
+            for job_id, rn, desc, dom, co in classify_jobs
+        ]
+        salary_coros = [
+            _one_salary(job_id, snippet, client, sem, rl)
+            for job_id, snippet in salary_jobs
+        ]
+        classify_raw = await asyncio.gather(*classify_coros, return_exceptions=True)
+        salary_raw = await asyncio.gather(*salary_coros, return_exceptions=True)
+
+    classify_results = {
+        job_id: (r.get("category") if isinstance(r, dict) and r else None)
+        for job_id, r in (
+            item if not isinstance(item, BaseException) else (None, None)
+            for item in classify_raw
+        )
+        if job_id is not None
+    }
+    salary_results = {
+        job_id: r
+        for job_id, r in (
+            item if not isinstance(item, BaseException) else (None, None)
+            for item in salary_raw
+        )
+        if job_id is not None
+    }
+    return classify_results, salary_results
+
+
+def _run_llm_batch(classify_jobs, salary_jobs):
+    """Submit classify + salary jobs as Anthropic Message Batch API requests.
+
+    Applies Phase-2 pre-checks before batching so fast-path verdicts are returned
+    immediately without consuming batch quota.
+
+    Polls every 5 minutes until all batches end, then streams results.
+
+    Returns the same (classify_results, salary_results) dict format as
+    _run_llm_concurrent.
+    """
+    import time as _time
+    from anthropic import Anthropic
+    from llm_client import (
+        _data_title_subcategory, _is_federal_staffing, is_blocked_aggregator,
+        _federal_staffing_verdict, _data_title_verdict, _build_domain_prompt,
+        build_salary_prompt, _parse_classify_json, _parse_salary_json,
+        _is_breaker_tripped,
+    )
+    from llm_client import MODEL as LLM_MODEL
+
+    classify_results = {}
+    salary_results = {}
+
+    if _is_breaker_tripped():
+        return classify_results, salary_results
+
+    api_key = os.getenv("ANTHROPIC_API_KEY")
+    client = Anthropic(api_key=api_key)
+
+    batch_requests = []
+    id_map = {}  # custom_id -> ("classify"|"salary", job_id)
+
+    # Classify: apply pre-checks, queue residual
+    precheck_hits = 0
+    for job_id, role_name, desc, domain, company in classify_jobs:
+        if is_blocked_aggregator(company):
+            precheck_hits += 1
+            continue
+        if domain == "data_ml":
+            if _is_federal_staffing(company):
+                v = _federal_staffing_verdict()
+                classify_results[job_id] = v.get("category")
+                precheck_hits += 1
+                continue
+            subcat = _data_title_subcategory(role_name)
+            if subcat:
+                v = _data_title_verdict(subcat, role_name)
+                classify_results[job_id] = v.get("category")
+                precheck_hits += 1
+                continue
+        snippet = (desc or "")[:600]
+        prompt = _build_domain_prompt(domain, role_name, snippet)
+        cid = f"classify::{job_id}"
+        batch_requests.append({
+            "custom_id": cid,
+            "params": {
+                "model": LLM_MODEL,
+                "max_tokens": 200,
+                "temperature": 0,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        })
+        id_map[cid] = ("classify", job_id)
+
+    # Salary: no additional pre-checks needed (already gated in Phase 1)
+    for job_id, snippet in salary_jobs:
+        prompt = build_salary_prompt(snippet)
+        cid = f"salary::{job_id}"
+        batch_requests.append({
+            "custom_id": cid,
+            "params": {
+                "model": LLM_MODEL,
+                "max_tokens": 200,
+                "temperature": 0,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        })
+        id_map[cid] = ("salary", job_id)
+
+    if precheck_hits:
+        print(f"  Batch pre-checks: {precheck_hits} fast-path verdicts, {len(batch_requests)} batch requests remaining")
+
+    if not batch_requests:
+        return classify_results, salary_results
+
+    # Submit in chunks of 9 000 (API limit is 10 000; leave headroom)
+    BATCH_LIMIT = 9_000
+    batch_ids = []
+    n_batches = (len(batch_requests) + BATCH_LIMIT - 1) // BATCH_LIMIT
+    for i in range(0, len(batch_requests), BATCH_LIMIT):
+        chunk = batch_requests[i : i + BATCH_LIMIT]
+        batch = client.beta.messages.batches.create(requests=chunk)
+        batch_ids.append(batch.id)
+        print(f"  Submitted batch {len(batch_ids)}/{n_batches}: {batch.id} ({len(chunk):,} requests)")
+
+    # Poll until all batches end
+    POLL_INTERVAL = 300  # 5 minutes
+    while True:
+        statuses = [client.beta.messages.batches.retrieve(bid) for bid in batch_ids]
+        pending = [b for b in statuses if b.processing_status != "ended"]
+        if not pending:
+            print(f"  [{_time.strftime('%H:%M')}] All batches complete.")
+            break
+        parts = [
+            f"{b.id[-8:]} {b.request_counts.succeeded}ok/{b.request_counts.processing}pending"
+            for b in pending
+        ]
+        print(f"  [{_time.strftime('%H:%M')}] Waiting — {' | '.join(parts)}")
+        _time.sleep(POLL_INTERVAL)
+
+    # Stream results
+    ok = err = 0
+    for bid in batch_ids:
+        for result in client.beta.messages.batches.results(bid):
+            cid = result.custom_id
+            info = id_map.get(cid)
+            if not info:
+                continue
+            kind, job_id = info
+            if result.result.type != "succeeded":
+                err += 1
+                continue
+            text = result.result.message.content[0].text.strip()
+            if kind == "classify":
+                parsed = _parse_classify_json(text)
+                if parsed:
+                    classify_results[job_id] = parsed.get("category")
+                    ok += 1
+                else:
+                    err += 1
+            else:
+                parsed = _parse_salary_json(text)
+                if parsed:
+                    salary_results[job_id] = parsed
+                    ok += 1
+                else:
+                    err += 1
+
+    print(f"  Batch results: {ok} ok, {err} failed/null")
+    return classify_results, salary_results
+
+
+# ============================================================
 # MAIN ENRICH LOOP
 # ============================================================
 
-def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool, rescan_salary: bool = False) -> None:
+COMMIT_INTERVAL = 500  # intermediate commit every N jobs written
+
+
+def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool, rescan_salary: bool = False, use_batch: bool = False) -> None:
     conn = get_conn()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=DictCursor)
@@ -1965,9 +2225,11 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
     # Load existing skills + aliases (full set — domain filtering happens per-job)
     canon_to_skill_id = load_existing_skill_ids(cur)
     skill_aliases = load_skill_aliases_from_db(cur)
-    # Note: no pre-loop pattern build — build_skill_patterns_for_domain() called per-job
 
-    # Select jobs
+    # Pre-load role_category cache into memory (eliminates per-job DB round-trips)
+    cat_cache = _load_cat_cache(cur) if only_missing else {}
+
+    # ── Select jobs ────────────────────────────────────────────────────────────
     if rescan_salary:
         cur.execute(
             """
@@ -2053,143 +2315,235 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
         )
         jobs = cur.fetchall()
 
-    planned_updates = 0
-    planned_skill_inserts = 0
-    touched = 0
+    print(f"Fetched {len(jobs):,} jobs. cat_cache={len(cat_cache):,} entries.")
+
+    # ── Phase 1: sync parse — no LLM calls ────────────────────────────────────
+    # Collect pending LLM work; accumulate per-job parsed dims.
+    t1 = time.time()
+    sync_results = {}  # job_id -> dict with pj, scalar_fields/params, metadata
+    pending_classify = []   # [(job_id, role_name, desc, domain, company)]
+    pending_salary_llm = [] # [(job_id, snippet)]
 
     for job in jobs:
         job_id = job["job_id"]
         desc = job["description_text"] or ""
+        job_domain = job["domain"] if "domain" in job.keys() else None
 
-        pj = parse_dimensions(desc)
+        # Parse all dims without LLM (salary LLM deferred to Phase 2)
+        pj = parse_dimensions(desc, skip_salary_llm=True)
 
-        fields = []
-        params = []
+        # Scalar field updates (workplace, employment, experience, salary from regex)
+        scalar_fields, scalar_params = [], []
+        if pj.workplace_type and pj.workplace_type != job["workplace_type"]:
+            scalar_fields.append("workplace_type=%s"); scalar_params.append(pj.workplace_type)
+        if pj.employment_type and pj.employment_type != job["employment_type"]:
+            scalar_fields.append("employment_type=%s"); scalar_params.append(pj.employment_type)
+        if pj.experience_level and pj.experience_level != job["experience_level"]:
+            scalar_fields.append("experience_level=%s"); scalar_params.append(pj.experience_level)
+        if pj.salary_min is not None and job["salary_min"] is None:
+            scalar_fields.append("salary_min=%s"); scalar_params.append(pj.salary_min)
+        if pj.salary_max is not None and job["salary_max"] is None:
+            scalar_fields.append("salary_max=%s"); scalar_params.append(pj.salary_max)
+        if pj.salary_min is not None and pj.salary_period == "year" and job["salary_min"] is None:
+            if float(pj.salary_min) <= 1000000:
+                scalar_fields.append("salary_min_annual=%s"); scalar_params.append(pj.salary_min)
+        if pj.salary_max is not None and pj.salary_period == "year" and job["salary_max"] is None:
+            if float(pj.salary_max) <= 1000000:
+                scalar_fields.append("salary_max_annual=%s"); scalar_params.append(pj.salary_max)
+        if pj.salary_period is not None and job["salary_period"] is None:
+            scalar_fields.append("salary_period=%s"); scalar_params.append(pj.salary_period)
 
-        # Company
+        # Salary LLM: needed when regex found nothing and job has no salary yet
+        salary_snippet = None
+        if pj.salary_min is None and job["salary_min"] is None:
+            raw_stripped = strip_linkedin_chrome(desc)
+            salary_snippet = _salary_llm_snippet(raw_stripped)
+            if salary_snippet:
+                pending_salary_llm.append((job_id, salary_snippet))
+
+        # Role category: check memory cache first, queue LLM if miss
+        cat_from_cache = None
+        needs_classify = False
+        role_name_for_cls = ""
+        company_for_cls = None
+        company_lower = ""
+        role_lower = ""
+
+        if _LLM_AVAILABLE and only_missing and job_domain is not None:
+            existing_cat = job["role_category"] if "role_category" in job.keys() else None
+            if existing_cat is None:
+                role_name_for_cls = (job["role_name"] if "role_name" in job.keys() else None) or pj.title or ""
+                if role_name_for_cls:
+                    company_for_cls = job["company_name"] if "company_name" in job.keys() else None
+                    company_lower = (company_for_cls or "").strip().lower()
+                    role_lower = role_name_for_cls.strip().lower()
+                    ck = (company_lower, role_lower)
+                    cat_from_cache = cat_cache.get(ck)
+                    if not cat_from_cache:
+                        needs_classify = True
+                        pending_classify.append((job_id, role_name_for_cls, desc, job_domain, company_for_cls))
+
+        needs_skill_scan = (rescan_skills or not job["has_skills"]) and len(desc) > 500
+
+        sync_results[job_id] = {
+            "pj": pj,
+            "scalar_fields": scalar_fields,
+            "scalar_params": scalar_params,
+            "job_domain": job_domain,
+            "cat_from_cache": cat_from_cache,
+            "company_lower": company_lower,
+            "role_lower": role_lower,
+            "needs_skill_scan": needs_skill_scan,
+        }
+
+    print(f"Phase 1: {time.time()-t1:.1f}s — {len(pending_classify)} classify LLM, {len(pending_salary_llm)} salary LLM queued")
+
+    # ── Phase 2: LLM calls — batch or concurrent ──────────────────────────────
+    llm_classify_results = {}  # job_id -> category str or None
+    llm_salary_results = {}    # job_id -> (lo, hi, period) or None
+
+    if _LLM_AVAILABLE and (pending_classify or pending_salary_llm):
+        budget = (_LLM_CAP - _llm_state["calls"]) if _LLM_CAP is not None else (len(pending_classify) + len(pending_salary_llm))
+        classify_to_run = pending_classify[:max(0, budget)]
+        salary_budget = max(0, budget - len(classify_to_run))
+        salary_to_run = pending_salary_llm[:salary_budget]
+
+        if classify_to_run or salary_to_run:
+            n_llm = len(classify_to_run) + len(salary_to_run)
+            t2 = time.time()
+            if use_batch:
+                print(f"Phase 2 (batch): {len(classify_to_run)} classify + {len(salary_to_run)} salary — submitting to Anthropic Batch API ...")
+                llm_classify_results, llm_salary_results = _run_llm_batch(classify_to_run, salary_to_run)
+            else:
+                print(f"Phase 2: {len(classify_to_run)} classify + {len(salary_to_run)} salary — {n_llm} LLM calls, semaphore=50 ...")
+                llm_classify_results, llm_salary_results = asyncio.run(
+                    _run_llm_concurrent(classify_to_run, salary_to_run, semaphore_size=50)
+                )
+            elapsed2 = time.time() - t2
+            got_cat = sum(1 for v in llm_classify_results.values() if v)
+            got_sal = sum(1 for v in llm_salary_results.values() if v)
+            print(f"Phase 2: {elapsed2:.1f}s — {got_cat}/{len(classify_to_run)} classified, {got_sal}/{len(salary_to_run)} salary")
+            _llm_state["calls"] += n_llm
+
+        if budget < len(pending_classify) + len(pending_salary_llm):
+            log.warning(f"ENRICH_MAX_LLM_CALLS={_LLM_CAP} reached after {budget} calls — remaining jobs get no LLM classification")
+
+    # ── Phase 3: write to DB, commit every COMMIT_INTERVAL jobs ───────────────
+    t3 = time.time()
+    touched = 0
+    updates = 0
+    total_skills = 0
+    pending_skill_rows = []  # batched for execute_batch at each commit point
+
+    for i, job in enumerate(jobs):
+        job_id = job["job_id"]
+        desc = job["description_text"] or ""
+        sr = sync_results[job_id]
+        pj = sr["pj"]
+        job_domain = sr["job_domain"]
+
+        fields, params = [], []
+
+        # Company / role / location upserts
         if pj.company and job["company_id"] is None:
             cid = upsert_company(cur, pj.company, pj.company_type)
             if cid:
                 fields.append("company_id=%s"); params.append(cid)
-
-        # Role
         if pj.title and job["role_id"] is None:
             rid = upsert_role(cur, pj.title, pj.role_archetype)
             if rid:
                 fields.append("role_id=%s"); params.append(rid)
-
-        # Location
         if (pj.location or pj.state) and job["location_id"] is None:
             lid = upsert_location(cur, pj.location or "", pj.state)
             if lid:
                 fields.append("location_id=%s"); params.append(lid)
 
-        # Workplace + employment + experience
-        if pj.workplace_type and pj.workplace_type != job["workplace_type"]:
-            fields.append("workplace_type=%s"); params.append(pj.workplace_type)
-        if pj.employment_type and pj.employment_type != job["employment_type"]:
-            fields.append("employment_type=%s"); params.append(pj.employment_type)
-        if pj.experience_level and pj.experience_level != job["experience_level"]:
-            fields.append("experience_level=%s"); params.append(pj.experience_level)
-
-        # Salary only fills missing (no overwrites)
-        if pj.salary_min is not None and job["salary_min"] is None:
-            fields.append("salary_min=%s"); params.append(pj.salary_min)
-        if pj.salary_max is not None and job["salary_max"] is None:
-            fields.append("salary_max=%s"); params.append(pj.salary_max)
-        # Auto-annualize when period is year — with $1M cap
-        if pj.salary_min is not None and pj.salary_period == "year" and job["salary_min"] is None:
-            if float(pj.salary_min) <= 1000000:
-                fields.append("salary_min_annual=%s"); params.append(pj.salary_min)
-        if pj.salary_max is not None and pj.salary_period == "year" and job["salary_max"] is None:
-            if float(pj.salary_max) <= 1000000:
-                fields.append("salary_max_annual=%s"); params.append(pj.salary_max)
-        if pj.salary_period is not None and job["salary_period"] is None:
-            fields.append("salary_period=%s"); params.append(pj.salary_period)
+        # Scalar dims from Phase 1
+        fields.extend(sr["scalar_fields"])
+        params.extend(sr["scalar_params"])
 
         # === DOMAIN_AWARE_ENRICH_v1 ===
-        # Read domain — may be None for jobs not yet classified by classify_domain
-        job_domain = job["domain"] if "domain" in job.keys() else None
+        # Role category — cache hit (Phase 1) or LLM result (Phase 2)
+        if sr["cat_from_cache"]:
+            fields.extend(["role_category=%s", "role_classified_at=NOW()"])
+            params.append(sr["cat_from_cache"])
+        elif job_id in llm_classify_results and llm_classify_results[job_id]:
+            cat_val = llm_classify_results[job_id]
+            fields.extend(["role_category=%s", "role_classified_at=NOW()"])
+            params.append(cat_val)
+            if apply and sr["company_lower"] and sr["role_lower"]:
+                try:
+                    cur.execute("""
+                        INSERT INTO role_category_cache (company_lower, role_lower, role_category, cached_at)
+                        VALUES (%s, %s, %s, NOW())
+                        ON CONFLICT (company_lower, role_lower)
+                        DO UPDATE SET role_category=EXCLUDED.role_category, cached_at=NOW()
+                    """, (sr["company_lower"], sr["role_lower"], cat_val))
+                except Exception as _e:
+                    log.warning(f"role_category_cache write failed: {_e}")
 
-        # Role category classifier — skip entirely if domain is NULL
-        # ROLE_CATEGORY_CACHE_v1: check cache before LLM call (saves ~80% of LLM calls)
-        if _LLM_AVAILABLE and only_missing and job_domain is not None:
-            existing_cat = job["role_category"] if "role_category" in job.keys() else None
-            if existing_cat is None:
-                role_name_for_cls = job["role_name"] if "role_name" in job.keys() else (pj.title or "")
-                if role_name_for_cls:
-                    company_for_cls = job["company_name"] if "company_name" in job.keys() else None
-                    company_lower = (company_for_cls or "").strip().lower()
-                    role_lower = role_name_for_cls.strip().lower()
-                    cached_category = None
+        # Salary from LLM (Phase 2) — only fills what regex missed
+        if job_id in llm_salary_results and llm_salary_results[job_id]:
+            lo, hi, period = llm_salary_results[job_id]
+            if pj.salary_min is None and job["salary_min"] is None:
+                fields.append("salary_min=%s"); params.append(lo)
+            if pj.salary_max is None and job["salary_max"] is None:
+                fields.append("salary_max=%s"); params.append(hi)
+            if pj.salary_period is None and job["salary_period"] is None:
+                fields.append("salary_period=%s"); params.append(period)
+            if period == "year" and job["salary_min"] is None and float(lo) <= 1000000:
+                fields.append("salary_min_annual=%s"); params.append(lo)
+            if period == "year" and job["salary_max"] is None and float(hi) <= 1000000:
+                fields.append("salary_max_annual=%s"); params.append(hi)
 
-                    # Check cache (30-day TTL)
-                    if company_lower and role_lower:
-                        try:
-                            cur.execute("""
-                                SELECT role_category FROM role_category_cache
-                                WHERE company_lower = %s AND role_lower = %s
-                                  AND cached_at > NOW() - INTERVAL '30 days'
-                            """, (company_lower, role_lower))
-                            row = cur.fetchone()
-                            if row:
-                                cached_category = row[0]
-                        except Exception as _e:
-                            log.warning(f"role_category_cache lookup failed: {_e}")
-
-                    if cached_category:
-                        fields.append("role_category=%s")
-                        params.append(cached_category)
-                        fields.append("role_classified_at=NOW()")
-                    elif _llm_allowed():
-                        # Cache miss — call domain-aware LLM
-                        _llm_state["calls"] += 1
-                        cls_result = classify_role(
-                            role_name_for_cls, desc,
-                            domain=job_domain,
-                            company_name=company_for_cls,
-                        )
-                        if cls_result and cls_result.get("category"):
-                            cat_value = cls_result["category"]
-                            fields.append("role_category=%s")
-                            params.append(cat_value)
-                            fields.append("role_classified_at=NOW()")
-                            if company_lower and role_lower:
-                                try:
-                                    cur.execute("""
-                                        INSERT INTO role_category_cache (company_lower, role_lower, role_category, cached_at)
-                                        VALUES (%s, %s, %s, NOW())
-                                        ON CONFLICT (company_lower, role_lower)
-                                        DO UPDATE SET role_category=EXCLUDED.role_category, cached_at=NOW()
-                                    """, (company_lower, role_lower, cat_value))
-                                except Exception as _e:
-                                    log.warning(f"role_category_cache write failed: {_e}")
-
-        # Skills — domain-filtered; NULL domain skips extraction entirely
+        # Skills — collect rows for batch insert; NULL domain skips entirely
         ins = 0
-        should_scan_skills = (rescan_skills or not job["has_skills"]) and len(desc) > 500
-        if should_scan_skills:
+        if sr["needs_skill_scan"]:
             patterns = build_skill_patterns_for_domain(job_domain, canon_to_skill_id, skill_aliases)
             if patterns:
                 canon_to_priority = extract_skills_allowlist(desc, patterns)
-                ins = insert_job_skills(cur, job_id, canon_to_priority, canon_to_skill_id)
+                for canon, pr in canon_to_priority.items():
+                    sid = canon_to_skill_id.get(canon)
+                    if sid:
+                        jsid = _md5_id("JS", f"{job_id}|{sid}")
+                        pending_skill_rows.append((jsid, job_id, sid, pr, 0.9, "two_pass"))
+                        ins += 1
         # === END_DOMAIN_AWARE_ENRICH_v1 ===
 
         if fields or ins:
             touched += 1
-            planned_updates += (1 if fields else 0)
-            planned_skill_inserts += ins
+            updates += (1 if fields else 0)
+            total_skills += ins
 
         if apply and fields:
             params.append(job_id)
             cur.execute(f"UPDATE job_postings SET {', '.join(fields)} WHERE job_id=%s", tuple(params))
 
-    print(f"Scanned jobs: {len(jobs)}")
-    print(f"Jobs touched: {touched}")
-    print(f"Planned job_postings updates: {planned_updates}")
-    print(f"Planned job_skills inserts: {planned_skill_inserts}")
+        # Intermediate commit every COMMIT_INTERVAL: flush skills + commit
+        if apply and (i + 1) % COMMIT_INTERVAL == 0:
+            if pending_skill_rows:
+                execute_batch(
+                    cur,
+                    """INSERT INTO job_skills (job_skills_id, job_id, skill_id, skill_priority, confidence, extraction_src)
+                       VALUES (%s,%s,%s,%s,%s,%s)
+                       ON CONFLICT (job_skills_id) DO UPDATE SET skill_priority=EXCLUDED.skill_priority""",
+                    pending_skill_rows, page_size=500,
+                )
+                pending_skill_rows = []
+            conn.commit()
+            log.info(f"  checkpoint {i+1}/{len(jobs)} ({time.time()-t3:.0f}s) — {touched} touched so far")
+
+    print(f"Phase 3: {time.time()-t3:.1f}s — {touched} touched, {updates} updates, {total_skills} skills")
 
     if apply:
+        if pending_skill_rows:
+            execute_batch(
+                cur,
+                """INSERT INTO job_skills (job_skills_id, job_id, skill_id, skill_priority, confidence, extraction_src)
+                   VALUES (%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (job_skills_id) DO UPDATE SET skill_priority=EXCLUDED.skill_priority""",
+                pending_skill_rows, page_size=500,
+            )
         conn.commit()
         print("✅ Applied (COMMIT).")
     else:
@@ -2207,9 +2561,10 @@ def main():
     ap.add_argument("--only-missing", action="store_true", help="Only jobs missing dims or skills")
     ap.add_argument("--rescan-skills", action="store_true", help="Re-scan skills even if job already has skills")
     ap.add_argument("--rescan-salary", action="store_true", help="Re-scan salary for jobs with no salary but salary text in description")
+    ap.add_argument("--batch", action="store_true", help="Use Anthropic Batch API for LLM calls (async, cheaper, for large backfills)")
     args = ap.parse_args()
 
-    enrich_jobs(limit=args.limit, apply=args.apply, only_missing=args.only_missing, rescan_skills=args.rescan_skills, rescan_salary=args.rescan_salary)
+    enrich_jobs(limit=args.limit, apply=args.apply, only_missing=args.only_missing, rescan_skills=args.rescan_skills, rescan_salary=args.rescan_salary, use_batch=args.batch)
 
 
 if __name__ == "__main__":

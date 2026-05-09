@@ -2,6 +2,7 @@
 Shared LLM client for enrichment tasks.
 Provides caching, cost logging, and retry logic for all LLM-powered features.
 """
+import asyncio
 import os
 import sys
 import json
@@ -12,7 +13,7 @@ from pathlib import Path
 from decimal import Decimal
 from typing import Optional, Tuple
 from collections import deque
-from anthropic import Anthropic, APIError
+from anthropic import Anthropic, AsyncAnthropic, APIError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from vertical_taxonomy import VERTICALS
@@ -590,3 +591,203 @@ def classify_role(
         log.warning(f"classify_role parse error (domain={domain}): {e}")
         return None
 # === END_DOMAIN_AWARE_CLASSIFY_v1 ===
+
+
+# ── Shared helpers used by both async and batch paths ─────────────────────────
+
+_SALARY_PROMPT_TMPL = """\
+Extract US salary information from this job description snippet.
+
+STRICT RULES:
+- Return JSON only, no other text.
+- Schema: {{"min": number|null, "max": number|null, "period": "year"|"hour"|"month"|null, "currency": "USD"|"other"|null, "confidence": "high"|"low"}}
+- If NO specific salary numbers are disclosed, return all null values.
+- If salary is in non-USD currency (EUR, GBP, PLN, etc.), set currency to "other" — still extract numbers.
+- For ranges like "$80K-$100K", convert to full numbers: 80000, 100000.
+- period is "year" for annual, "hour" for hourly, "month" for monthly.
+- DO NOT infer or estimate salaries from context. DO NOT use funding amounts, revenue figures, or non-salary dollar amounts.
+- If the description says "competitive salary" with no number, return all null.
+- Set confidence to "low" if the salary is ambiguous or you're unsure.
+
+Snippet:
+{snippet}"""
+
+
+def build_salary_prompt(snippet: str) -> str:
+    return _SALARY_PROMPT_TMPL.format(snippet=snippet)
+
+
+def _parse_classify_json(text: str) -> Optional[dict]:
+    """Parse LLM classify response text into a result dict, or None on failure."""
+    try:
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text
+            text = text.rsplit("```", 1)[0].strip()
+        if text.startswith("json"):
+            text = text[4:].strip()
+        data = json.loads(text)
+        if "category" not in data:
+            return None
+        return data
+    except (json.JSONDecodeError, KeyError):
+        return None
+
+
+def _parse_salary_json(text: str) -> Optional[Tuple[Decimal, Decimal, str]]:
+    """Parse LLM salary response text into (min, max, period), or None on failure."""
+    try:
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text
+            text = text.rsplit("```", 1)[0].strip()
+        if text.startswith("json"):
+            text = text[4:].strip()
+        data = json.loads(text)
+        if data.get("currency") != "USD":
+            return None
+        if data.get("confidence") == "low":
+            return None
+        if data.get("min") is None or data.get("max") is None:
+            return None
+        if data.get("period") not in ("year", "hour", "month"):
+            return None
+        min_val = Decimal(str(data["min"]))
+        max_val = Decimal(str(data["max"]))
+        period = data["period"]
+        if period == "year" and not (Decimal("15000") <= min_val and max_val <= Decimal("1000000")):
+            return None
+        if period == "hour" and not (Decimal("7") <= min_val and max_val <= Decimal("500")):
+            return None
+        if period == "month" and not (Decimal("1000") <= min_val and max_val <= Decimal("50000")):
+            return None
+        return min(min_val, max_val), max(min_val, max_val), period
+    except (json.JSONDecodeError, ValueError, KeyError):
+        return None
+
+
+# ── Async LLM functions (used by enrich_job_postings concurrent path) ─────────
+
+async def classify_role_async(
+    role_title: str,
+    description: str,
+    domain: str,
+    company_name: Optional[str],
+    client: AsyncAnthropic,
+    semaphore: asyncio.Semaphore,
+) -> Optional[dict]:
+    """Async version of classify_role — shares all pre-checks and prompts."""
+    if not role_title or not domain:
+        return None
+    if _is_breaker_tripped():
+        return None
+    if is_blocked_aggregator(company_name):
+        return None
+    if domain == "data_ml":
+        if _is_federal_staffing(company_name):
+            return _federal_staffing_verdict()
+        subcat = _data_title_subcategory(role_title)
+        if subcat:
+            return _data_title_verdict(subcat, role_title)
+
+    snippet = (description or "")[:600]
+    prompt = _build_domain_prompt(domain, role_title, snippet)
+
+    async with semaphore:
+        try:
+            # SDK handles 429 retries via retry-after headers (max_retries set on client)
+            response = await client.messages.create(
+                model=MODEL,
+                max_tokens=200,
+                temperature=0,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text.strip()
+        except Exception as e:
+            log.warning(f"classify_role_async API error (domain={domain}): {e}")
+            if _is_fatal_api_error(e):
+                _trip_breaker(f"classify_role_async: {e}")
+            return None
+
+        try:
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1] if "\n" in text else text
+                text = text.rsplit("```", 1)[0].strip()
+            if text.startswith("json"):
+                text = text[4:].strip()
+            data = json.loads(text)
+            if "category" not in data:
+                return None
+            return data
+        except (json.JSONDecodeError, KeyError) as e:
+            log.warning(f"classify_role_async parse error (domain={domain}): {e}")
+            return None
+
+
+async def extract_salary_llm_async(
+    description_snippet: str,
+    client: AsyncAnthropic,
+    semaphore: asyncio.Semaphore,
+) -> Optional[Tuple[Decimal, Decimal, str]]:
+    """Async version of extract_salary_llm."""
+    if not description_snippet or len(description_snippet.strip()) < 20:
+        return None
+    if _is_breaker_tripped():
+        return None
+
+    prompt = f"""Extract US salary information from this job description snippet.
+
+STRICT RULES:
+- Return JSON only, no other text.
+- Schema: {{"min": number|null, "max": number|null, "period": "year"|"hour"|"month"|null, "currency": "USD"|"other"|null, "confidence": "high"|"low"}}
+- If NO specific salary numbers are disclosed, return all null values.
+- If salary is in non-USD currency (EUR, GBP, PLN, etc.), set currency to "other" — still extract numbers.
+- For ranges like "$80K-$100K", convert to full numbers: 80000, 100000.
+- period is "year" for annual, "hour" for hourly, "month" for monthly.
+- DO NOT infer or estimate salaries from context. DO NOT use funding amounts, revenue figures, or non-salary dollar amounts.
+- If the description says "competitive salary" with no number, return all null.
+- Set confidence to "low" if the salary is ambiguous or you're unsure.
+
+Snippet:
+{description_snippet}"""
+
+    async with semaphore:
+        try:
+            response = await client.messages.create(
+                model=MODEL,
+                max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            text = response.content[0].text.strip()
+        except Exception as e:
+            log.warning(f"extract_salary_llm_async API error: {e}")
+            if _is_fatal_api_error(e):
+                _trip_breaker(f"extract_salary_llm_async: {e}")
+            return None
+        try:
+            if text.startswith("```"):
+                text = text.split("\n", 1)[1] if "\n" in text else text
+                text = text.rsplit("```", 1)[0].strip()
+            if text.startswith("json"):
+                text = text[4:].strip()
+            data = json.loads(text)
+            if data.get("currency") != "USD":
+                return None
+            if data.get("confidence") == "low":
+                return None
+            if data.get("min") is None or data.get("max") is None:
+                return None
+            if data.get("period") not in ("year", "hour", "month"):
+                return None
+            min_val = Decimal(str(data["min"]))
+            max_val = Decimal(str(data["max"]))
+            period = data["period"]
+            if period == "year" and not (Decimal("15000") <= min_val and max_val <= Decimal("1000000")):
+                return None
+            if period == "hour" and not (Decimal("7") <= min_val and max_val <= Decimal("500")):
+                return None
+            if period == "month" and not (Decimal("1000") <= min_val and max_val <= Decimal("50000")):
+                return None
+            return min(min_val, max_val), max(min_val, max_val), period
+        except (json.JSONDecodeError, ValueError, KeyError) as e:
+            log.warning(f"extract_salary_llm_async parse error: {e}")
+            return None
