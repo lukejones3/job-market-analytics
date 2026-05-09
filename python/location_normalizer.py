@@ -163,6 +163,10 @@ _US_STATE_CODES_LOWER = {
 # Final foreign ISO set: candidates minus US state collisions
 FOREIGN_ISO_CODES = _FOREIGN_ISO_CANDIDATES - _US_STATE_CODES_LOWER
 
+# "in" (India) and "ca" (Canada) were removed from FOREIGN_ISO_CODES because they collide
+# with US state codes IN (Indiana) and CA (California). Keep them here for context-sensitive checks.
+_COLLIDING_COUNTRY_ISO = frozenset({"in", "ca"})
+
 # Workday office code suffix: "Mountain View (US-MTV-EMF680)"
 WORKDAY_OFFICE_SUFFIX_RE = re.compile(r"\s*\((?:US-)[A-Z]{2,4}-?[A-Z0-9-]+\)\s*$")
 
@@ -376,7 +380,15 @@ def _is_foreign_iso_suffix(parts: list) -> bool:
     if not parts:
         return False
     last = parts[-1].strip().lower()
-    return last in FOREIGN_ISO_CODES and last != "us"
+    if last in FOREIGN_ISO_CODES and last != "us":
+        return True
+    # "in" (India) and "ca" (Canada) were stripped from FOREIGN_ISO_CODES due to collisions
+    # with Indiana and California. Only safe to flag as foreign in 3-part format:
+    #   "Bengaluru, KA, in"  → foreign  ✓
+    #   "Indianapolis, IN"   → NOT flagged (len=2), falls through to US city check  ✓
+    if last in _COLLIDING_COUNTRY_ISO and len(parts) >= 3:
+        return True
+    return False
 
 
 def normalize_location(
@@ -427,6 +439,10 @@ def normalize_location(
         return NormalizedLocation(None, None, "foreign", False)
     if m and m.group(1).lower() == "in":  # India special case
         return NormalizedLocation(None, None, "foreign", False)
+    if m and m.group(1).lower() == "ca":  # Canada prefix e.g. "CA-Toronto", "CA-Vancouver"
+        rest_ca = s[m.end():].strip(" -")
+        if FOREIGN_COUNTRY_RE.search(rest_ca.lower()):
+            return NormalizedLocation(None, None, "foreign", False)
     # ---- "VA - Mark Center" / "TX - Austin Office" style: US state prefix ----
     if m and m.group(1).upper() in US_STATE_CODES:
         state_p = m.group(1).upper()
@@ -534,10 +550,15 @@ def normalize_location(
     # ---- Foreign signal check on remainder (after stripping US suffix) ----
     remaining = ", ".join(parts) if parts else s
     if FOREIGN_COUNTRY_RE.search(remaining.lower()):
-        # US-wins overrides: explicit US marker OR a US state code anywhere in parts
+        # US-wins overrides: explicit US marker OR a US state code anywhere in parts.
+        # Exclude the last token from the state check if it's a colliding country ISO
+        # ("in"=India/Indiana, "ca"=Canada/California) — in suffix position it's a
+        # country code, not a state. Unambiguous codes like "ky" still win correctly.
+        last_lower = parts[-1].strip().lower() if parts else ""
+        parts_for_state_check = parts[:-1] if last_lower in _COLLIDING_COUNTRY_ISO else parts
         has_us_state = any(
             (p.strip().upper() in US_STATE_CODES) or (p.strip().lower() in US_STATE_NAMES)
-            for p in parts
+            for p in parts_for_state_check
         )
         if US_EXPLICIT_RE.search(remaining.lower()) or has_us_state or had_us_suffix:
             pass  # foreign+US = US wins (e.g. "London, KY", "Paris, TX")
@@ -779,6 +800,24 @@ def _run_tests():
         ("Fremont", None, "Fremont", "CA", "US", False, False),
         ("London, KY, USA", None, "London", "KY", "US", False, False),
         ("Los Angeles, USA", None, "Los Angeles", "CA", "US", False, False),
+        # Foreign ISO suffix — colliding country codes (regression tests for the IN/CA bug)
+        ("Bengaluru, KA, in",          None, None, None, "foreign", False, True),
+        ("Coimbatore, TN, in",         None, None, None, "foreign", False, True),
+        ("Hyderabad, TS, in",          None, None, None, "foreign", False, True),
+        ("Mumbai, MH, in",             None, None, None, "foreign", False, True),
+        ("Chandigarh, CH, in",         None, None, None, "foreign", False, True),
+        ("bangalore, in",              None, None, None, "foreign", False, True),
+        ("Hyderabad, in",              None, None, None, "foreign", False, True),
+        ("Burlington, ON, ca",         None, None, None, "foreign", False, True),
+        ("CA-Toronto",                 None, None, None, "foreign", False, True),
+        ("CA-Vancouver",               None, None, None, "foreign", False, True),
+        # Regression — must NOT be broken by the above fix
+        ("Indianapolis, IN",           None, "Indianapolis", "IN", "US", False, False),
+        ("Nashville, TN",              None, "Nashville",    "TN", "US", False, False),
+        ("Los Angeles, CA",            None, "Los Angeles",  "CA", "US", False, False),
+        ("London, KY, USA",            None, "London",       "KY", "US", False, False),
+        ("Paris, TX",                  None, "Paris",        "TX", "US", False, False),
+        ("CA-Sunnyvale",               None, "Sunnyvale",    "CA", "US", False, False),
     ]
 
     passed = 0
