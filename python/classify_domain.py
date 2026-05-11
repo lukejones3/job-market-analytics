@@ -135,10 +135,22 @@ def _classify_by_skills(
         return None, []
 
     desc_lower = description.lower()
+    # Tokenize for word-boundary matching of short alphabetical aliases.
+    # Substring matching lets 'r' hit "director", 'ai' hit "available", etc.
+    # Pure-alpha aliases (sql, ml, ai, r) must appear as whole tokens; aliases
+    # with non-alpha chars (c++, c#, asp.net) still use substring matching since
+    # word-splitting destroys them.
+    desc_words = set(re.split(r'\W+', desc_lower))
+    desc_words.discard('')
+
     scores: dict[str, int] = {}
 
     for alias, vertical_or_list in alias_map.items():
-        if alias in desc_lower:
+        if alias.isalpha() and ' ' not in alias:
+            matched = alias in desc_words
+        else:
+            matched = alias in desc_lower
+        if matched:
             verticals = (
                 vertical_or_list
                 if isinstance(vertical_or_list, list)
