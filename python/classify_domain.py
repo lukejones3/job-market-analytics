@@ -61,6 +61,22 @@ _NULL_BLOCKLIST: re.Pattern = re.compile(
     re.IGNORECASE,
 )
 
+# Hardware engineering disciplines with no software/ML context → NULL.
+# These appear in aerospace/defense/manufacturing feeds and pull into finance
+# via incidental skill matches (Anaplan, financial modeling vocabulary).
+_HARDWARE_ENGINEER_RE: re.Pattern = re.compile(
+    r"\b(mechanical|electrical|civil|structural)\s+(?:design\s+)?engineer",
+    re.IGNORECASE,
+)
+_SOFTWARE_CONTEXT_RE: re.Pattern = re.compile(
+    r"\b(ml|ai\b|software|robotics|embedded|firmware|controls|autonomous|fpga|vision)\b",
+    re.IGNORECASE,
+)
+
+# Strip parenthetical clarifiers before title classification so "(Tax & Accounting)"
+# in "CX/UX Designer (Tax & Accounting)" doesn't bleed into the finance scorer.
+_PAREN_RE: re.Pattern = re.compile(r"\s*\([^)]*\)", re.IGNORECASE)
+
 
 # ── Build alias map ────────────────────────────────────────────────────────────
 
@@ -303,8 +319,18 @@ def _run_classify(title, description, alias_map, use_llm, llm_cache):
     if title and _NULL_BLOCKLIST.search(title):
         return None, [], "null_blocked"
 
+    # Stage 0b: Hardware engineering without software context → NULL
+    # Prevents mechanical/electrical engineers from scoring into finance via
+    # incidental Anaplan / financial-modeling skill matches.
+    if title and _HARDWARE_ENGINEER_RE.search(title) and not _SOFTWARE_CONTEXT_RE.search(title):
+        return None, [], "null_blocked"
+
+    # Strip parenthetical qualifiers before title classification so that
+    # "CX/UX Designer (Tax & Accounting)" doesn't gain a finance score.
+    clean_title = _PAREN_RE.sub("", title).strip() if title else title
+
     # Stage 1: title
-    domain, secondary = _classify_by_title(title)
+    domain, secondary = _classify_by_title(clean_title)
     if domain:
         return domain, secondary, "title"
 
