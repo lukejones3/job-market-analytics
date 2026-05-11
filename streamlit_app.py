@@ -901,7 +901,9 @@ fresh_jobs = query(f"""
         FROM company_contacts cc2
         WHERE cc2.company_id = jp.company_id
           AND cc2.email IS NOT NULL
-        ORDER BY cc2.fetched_at DESC
+        ORDER BY
+            (cc2.domain = jp.domain) DESC,
+            cc2.fetched_at DESC
         LIMIT 1
     ) cc ON true
     WHERE {where_sql}
