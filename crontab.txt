@@ -13,6 +13,9 @@
 0 6 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/ingest_jobs.py --apply --source workable >> logs/ingest_wk.log 2>&1
 0 6 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/ingest_jobs.py --apply --source icims >> logs/ingest_ic.log 2>&1
 
+# Reclassify — runs between ingest (06:00) and enrich (06:30); ensures new jobs get multi-vertical domain before skill gate fires
+15 6 * * * cd /opt/job-market-analytics && /opt/job-market-analytics/.venv/bin/python python/reclassify_domains.py --apply --since-hours 24 >> logs/reclassify.log 2>&1
+
 # Annualize salaries
 30 6 * * * cd /opt/job-market-analytics && psql -h 127.0.0.1 -U lukejones -d job_analytics -c "UPDATE job_postings SET salary_min_annual=salary_min, salary_max_annual=salary_max WHERE salary_period='year' AND salary_max_annual IS NULL AND salary_max <= 1000000;" >> logs/annualize.log 2>&1
 

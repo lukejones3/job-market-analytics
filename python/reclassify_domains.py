@@ -9,9 +9,11 @@ Uses title regex → skill alias counts → NULL (no LLM, no fake defaults).
 NULL domain after this pass = no clear signal; candidate for a targeted LLM pass.
 
 Usage:
-    python python/reclassify_domains.py            # dry-run
-    python python/reclassify_domains.py --apply    # write to DB
-    python python/reclassify_domains.py --limit N  # dry-run on N random jobs
+    python python/reclassify_domains.py                      # dry-run, all jobs
+    python python/reclassify_domains.py --apply              # write to DB, all jobs
+    python python/reclassify_domains.py --limit N            # dry-run on N random jobs
+    python python/reclassify_domains.py --since-hours 24     # only jobs ingested in last 24h
+    python python/reclassify_domains.py --apply --since-hours 24  # cron incremental mode
 """
 
 import argparse
@@ -41,19 +43,21 @@ def get_conn():
     )
 
 
-def run(apply: bool, limit):
+def run(apply: bool, limit, since_hours=None):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
     alias_map = build_alias_map(conn)
     print(f"Alias map: {len(alias_map):,} entries")
 
-    q = """
+    since_clause = f"AND jp.ingested_at >= NOW() - INTERVAL '{since_hours} hours'" if since_hours else ""
+    q = f"""
         SELECT jp.job_id, r.role_name AS title, jp.description_text,
                jp.domain AS current_domain
         FROM job_postings jp
         LEFT JOIN roles r ON r.role_id = jp.role_id
         WHERE jp.status = 'raw' AND jp.data_tier = 1
+        {since_clause}
     """
     if limit:
         q += f" ORDER BY random() LIMIT {limit}"
@@ -167,5 +171,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true", help="Write to DB (default: dry-run)")
     parser.add_argument("--limit", type=int, metavar="N", help="Process N random jobs only")
+    parser.add_argument("--since-hours", type=int, metavar="N", help="Only jobs ingested in last N hours")
     args = parser.parse_args()
-    run(apply=args.apply, limit=args.limit)
+    run(apply=args.apply, limit=args.limit, since_hours=args.since_hours)
