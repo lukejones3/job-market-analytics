@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from classify_domain import build_alias_map_multi, classify_domain
+from classify_domain import build_alias_map, classify_domain
 
 BATCH_SIZE = 500
 
@@ -45,8 +45,8 @@ def run(apply: bool, limit):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
-    alias_map = build_alias_map_multi(conn)
-    print(f"Alias map (multi-vertical): {len(alias_map):,} entries")
+    alias_map = build_alias_map(conn)
+    print(f"Alias map: {len(alias_map):,} entries")
 
     q = """
         SELECT jp.job_id, r.role_name AS title, jp.description_text,
@@ -64,9 +64,11 @@ def run(apply: bool, limit):
     print(f"Classifying {total:,} survivors (title + skill, no LLM)...")
 
     results = []          # (job_id, new_domain, new_secondary) — changed rows only
+    samples: list[tuple[str, str, str]] = []  # (old, new, title) — for dry-run display
     unchanged = 0
     method_counts: dict[str, int] = {}
     domain_counts: dict[str, int] = {}
+    old_domain_counts: dict[str, int] = {}
     old_to_new: dict[str, dict[str, int]] = {}  # old_domain → {new_domain: count}
 
     for job in jobs:
@@ -81,12 +83,15 @@ def run(apply: bool, limit):
         domain_counts[dk] = domain_counts.get(dk, 0) + 1
 
         old = job["current_domain"] or "NULL"
+        old_domain_counts[old] = old_domain_counts.get(old, 0) + 1
         if old not in old_to_new:
             old_to_new[old] = {}
         old_to_new[old][dk] = old_to_new[old].get(dk, 0) + 1
 
         if dk != old:
             results.append((job["job_id"], domain, secondary or None))
+            if len(samples) < 20:
+                samples.append((old, dk, job["title"] or ""))
         else:
             unchanged += 1
 
@@ -97,17 +102,32 @@ def run(apply: bool, limit):
         print(f"  {m:<15} {c:>8,}  ({100*c/total:.1f}%)")
 
     print(f"\n=== NEW DOMAIN BREAKDOWN ===")
-    for d, c in sorted(domain_counts.items(), key=lambda x: -x[1]):
-        print(f"  {d:<25} {c:>8,}  ({100*c/total:.1f}%)")
+    all_verticals = sorted(set(list(domain_counts) + list(old_domain_counts)))
+    print(f"  {'domain':<25} {'old':>8}  {'new':>8}  {'delta':>8}")
+    print(f"  {'-'*25} {'-'*8}  {'-'*8}  {'-'*8}")
+    for d in all_verticals:
+        old_c = old_domain_counts.get(d, 0)
+        new_c = domain_counts.get(d, 0)
+        delta = new_c - old_c
+        sign = "+" if delta > 0 else ""
+        print(f"  {d:<25} {old_c:>8,}  {new_c:>8,}  {sign}{delta:>7,}")
 
     print(f"\n=== CHANGE SUMMARY ===")
     print(f"  Changed:   {changed:>8,}  ({100*changed/total:.1f}%)")
     print(f"  Unchanged: {unchanged:>8,}  ({100*unchanged/total:.1f}%)")
 
-    print(f"\n=== OLD data_ml → new domain (top reassignments) ===")
-    if "data_ml" in old_to_new:
-        for nd, c in sorted(old_to_new["data_ml"].items(), key=lambda x: -x[1])[:10]:
-            print(f"  data_ml → {nd:<22} {c:>7,}")
+    print(f"\n=== TOP REASSIGNMENT FLOWS ===")
+    flows: list[tuple[int, str, str]] = []
+    for od, nd_map in old_to_new.items():
+        for nd, c in nd_map.items():
+            if od != nd:
+                flows.append((c, od, nd))
+    for c, od, nd in sorted(flows, key=lambda x: -x[0])[:15]:
+        print(f"  {od:<20} → {nd:<20} {c:>7,}")
+
+    print(f"\n=== SAMPLE CHANGED ROWS (first 20) ===")
+    for old, new, title in samples:
+        print(f"  {old:<20} → {new:<20} {title[:60]}")
 
     if not apply:
         print(f"\nDry-run — no DB changes. Re-run with --apply to write {changed:,} changed rows.")

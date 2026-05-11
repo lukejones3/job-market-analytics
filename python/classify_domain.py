@@ -8,8 +8,8 @@ Three-stage pipeline:
 
 Public API
 ----------
-build_alias_map(conn) -> dict[str, str]
-    Load skill_aliases + skills from DB: {alias_lower: primary_vertical}.
+build_alias_map(conn) -> dict[str, list[str]]
+    Load skill_aliases + skills from DB: {alias_lower: [primary_vertical, *also_in]}.
     Call once at startup and pass the result into classify_domain.
 
 classify_domain(title, description, alias_map, use_llm=False, llm_cache=None)
@@ -62,25 +62,9 @@ _NULL_BLOCKLIST: re.Pattern = re.compile(
 )
 
 
-# ── Build alias maps ───────────────────────────────────────────────────────────
+# ── Build alias map ────────────────────────────────────────────────────────────
 
-def build_alias_map(conn) -> Dict[str, str]:
-    """
-    Load {alias_text_lower: primary_vertical} from DB.
-    Kept for backwards compatibility with ingest_jobs.py.
-    For domain classification prefer build_alias_map_multi().
-    """
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT sa.alias_text, s.vertical
-            FROM skill_aliases sa
-            JOIN skills s ON s.skill_id = sa.skill_id
-            WHERE s.vertical IS NOT NULL
-        """)
-        return {row[0].lower(): row[1] for row in cur.fetchall()}
-
-
-def build_alias_map_multi(conn) -> Dict[str, List[str]]:
+def build_alias_map(conn) -> Dict[str, List[str]]:
     """
     Load {alias_text_lower: [primary_vertical, *also_in_verticals]} from DB.
 
