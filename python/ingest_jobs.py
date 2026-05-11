@@ -738,39 +738,6 @@ def _content_hash(job: RawJob) -> str:
     raw = f"{job.source}|{job.source_id}"
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
-# ---- Non-US location patterns to reject ----
-# Greenhouse/Lever use freetext office names, so we match on known
-# international signals. Anything not matching these passes through.
-_NON_US_LOCATION_RE = re.compile(
-    r"\b(IN-[A-Za-z]|canada|uk|united kingdom|ireland|india|mexico|australia|"
-    r"singapore|germany|france|netherlands|spain|brazil|japan|"
-    r"poland|czech|sweden|denmark|norway|finland|israel|dubai|uae|"
-    r"emea|apac|latam|latin america|europe|asia|africa|"
-    r"toronto|vancouver|montreal|london|dublin|bangalore|bengaluru|hyderabad|"
-    r"chennai|pune|mumbai|kolkata|mexico city|sydney|melbourne|berlin|amsterdam|"
-    r"paris|madrid|stockholm|tel aviv|remote - international|"
-    r"seoul|south korea|kor -|ukraine|kyiv|warsaw|bucharest|"
-    r"beijing|shanghai|hong kong|taipei|jakarta|kuala lumpur|"
-    r"sao paulo|bogota|buenos aires|lima|santiago)\b",
-    re.IGNORECASE,
-)
-
-def _is_us_location(location: str, is_remote: bool = False) -> bool:
-    """
-    Returns True if the location is US-based or safely remote (no country specified).
-    Rejects known international office names.
-    Remote with no country specified is allowed — assumed US remote.
-    """
-    if not location:
-        # No location at all — allow (enrich will handle it)
-        return True
-    loc = location.strip()
-    # Explicit international signal → reject
-    if _NON_US_LOCATION_RE.search(loc):
-        return False
-    return True
-
-
 # ── Knowledge-worker title filter (whitelist approach) ─────────────────────────
 # A title must match at least one INCLUDE pattern AND no EXCLUDE pattern.
 # INCLUDE: any of the 8 target verticals
