@@ -184,14 +184,16 @@ def main():
             # Insert skill (skip if skill_id already exists — idempotent)
             cur.execute(
                 """
-                INSERT INTO skills (skill_id, skill_name, vertical, also_in, difficulty_relevant)
-                VALUES (%s, %s, %s, %s, true)
+                INSERT INTO skills (skill_id, skill_name, vertical, also_in, category, difficulty_relevant)
+                VALUES (%s, %s, %s, %s, %s, true)
                 ON CONFLICT (skill_id) DO UPDATE
-                    SET vertical = EXCLUDED.vertical,
-                        also_in  = EXCLUDED.also_in
+                    SET vertical  = EXCLUDED.vertical,
+                        also_in   = EXCLUDED.also_in,
+                        category  = EXCLUDED.category
                 """,
                 (s["skill_id"], s["skill_name"], s["vertical"],
-                 s["also_in"] if s["also_in"] else None),
+                 s["also_in"] if s["also_in"] else None,
+                 s["category"] if s["category"] else None),
             )
             inserted_skills += cur.rowcount
 
