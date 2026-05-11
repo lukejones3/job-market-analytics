@@ -3173,6 +3173,28 @@ def run_ingestion(source: str, apply: bool) -> None:
         log.warning(f"Lever salary annualization failed: {e}")
         conn.rollback()
 
+    # ---- Remote dedup: keep latest posting per (company, role) for remote jobs ----
+    try:
+        cur.execute("""
+            UPDATE job_postings jp
+            SET status = 'ignored'
+            WHERE jp.status = 'raw'
+              AND jp.workplace_type = 'remote'
+              AND jp.job_id NOT IN (
+                SELECT DISTINCT ON (company_id, role_id) job_id
+                FROM job_postings
+                WHERE status = 'raw' AND workplace_type = 'remote'
+                ORDER BY company_id, role_id, date_found DESC, ingested_at DESC
+              )
+        """)
+        deduped_remote = cur.rowcount
+        if deduped_remote > 0:
+            log.info(f"Remote dedup: marked {deduped_remote} duplicate remote postings as ignored")
+        conn.commit()
+    except Exception as e:
+        log.warning(f"Remote dedup pass failed: {e}")
+        conn.rollback()
+
     # ---- Pipeline logging in a SEPARATE transaction so it can never roll back job data ----
     try:
         log_pipeline_run(cur, run_id, source, inserted, skipped, errors)
