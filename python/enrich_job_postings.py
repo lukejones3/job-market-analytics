@@ -281,6 +281,11 @@ ALLOWED_CANON_SKILLS = {
     "Statistical Modeling",
     "Agentic Systems",
     "AWS Bedrock",
+    # Finance credentials
+    "CPA",
+    "CFA",
+    "CFP",
+    "CMA",
 }
 
 # Canonical skills that are too generic/noisy for your goal — banned even if present in data.

@@ -829,6 +829,27 @@ VERTICALS = {
                 "weight": 3,
                 "also_in": ["data_ml"],
             },
+            # ── Credentials ──
+            "CPA": {
+                "aliases": ["cpa", "certified public accountant", "cpa license", "cpa certification", "cpa required"],
+                "category": "credential",
+                "weight": 4,
+            },
+            "CFA": {
+                "aliases": ["cfa", "chartered financial analyst"],
+                "category": "credential",
+                "weight": 4,
+            },
+            "CFP": {
+                "aliases": ["cfp", "certified financial planner"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "CMA": {
+                "aliases": ["cma", "certified management accountant"],
+                "category": "credential",
+                "weight": 3,
+            },
         },
         "overlaps": [
             {
