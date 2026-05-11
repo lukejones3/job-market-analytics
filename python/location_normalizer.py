@@ -81,21 +81,24 @@ FOREIGN_COUNTRY_RE = re.compile(
     # Major foreign cities (where the whole word is unambiguous)
     r"toronto|vancouver|montreal|ottawa|calgary|edmonton|"
     r"london|dublin|edinburgh|manchester|bristol|birmingham|cambridge|oxford|leeds|glasgow|"
-    r"berlin|munich|hamburg|frankfurt|cologne|stuttgart|dusseldorf|düsseldorf|"
-    r"paris|lyon|marseille|bordeaux|lille|rouen|toulouse|nice|levallois|levallois-perret|"
+    r"berlin|munich|hamburg|frankfurt|cologne|köln|stuttgart|dusseldorf|düsseldorf|hannover|leipzig|dresden|nuremberg|nürnberg|"
+    r"paris|lyon|marseille|bordeaux|lille|rouen|toulouse|nice|nantes|strasbourg|levallois|levallois-perret|"
     r"amsterdam|rotterdam|eindhoven|the hague|utrecht|amersfoort|"
-    r"madrid|barcelona|seville|valencia|"
+    r"brussels|bruxelles|antwerp|ghent|liege|bruges|"
+    r"madrid|barcelona|seville|sevilla|valencia|bilbao|"
     r"lisbon|lisboa|porto|"
-    r"rome|milan|turin|naples|florence|"
+    r"rome|roma|milan|milano|turin|torino|naples|napoli|florence|firenze|"
     r"stockholm|gothenburg|göteborg|malmö|malmo|"
     r"copenhagen|aarhus|oslo|helsinki|"
     r"warsaw|warszawa|krakow|kraków|gdansk|wroclaw|"
     r"prague|brno|budapest|bucharest|sofia|bratislava|kosice|"
-    r"vienna|zurich|geneva|bern|basel|"
-    r"athens|istanbul|ankara|tel aviv|jerusalem|haifa|dubai|abu dhabi|cairo|riyadh|"
+    r"vienna|zurich|geneva|bern|basel|lausanne|lugano|"
+    r"sur-glane|sur-mer|im aargau|"
+    r"athens|istanbul|ankara|tel aviv|jerusalem|haifa|dubai|abu dhabi|doha|cairo|riyadh|"
     r"vilnius|riga|tallinn|kiev|kyiv|"
     r"bangalore|bengaluru|hyderabad|chennai|mumbai|delhi|new delhi|kolkata|pune|noida|gurgaon|gurugram|ahmedabad|"
     r"sydney|melbourne|brisbane|perth|adelaide|"
+    r"auckland|wellington|christchurch|"
     r"singapore city|kuala lumpur|jakarta|manila|bangkok|ho chi minh|hanoi|"
     r"tokyo|osaka|kyoto|yokohama|nagoya|"
     r"beijing|shanghai|guangzhou|shenzhen|hangzhou|"
@@ -426,6 +429,22 @@ def normalize_location(
         if FOREIGN_COUNTRY_RE.search(raw_clean.lower()) and not US_EXPLICIT_RE.search(raw_clean.lower()):
             return NormalizedLocation(None, None, "foreign", True)
         return NormalizedLocation(None, None, "US", True)
+
+    # ---- Early foreign check on raw string (before _clean_city may strip city names) ----
+    # Handles "Title - ForeignCity" patterns where the dash-separator cleanup would
+    # otherwise discard the city before FOREIGN_COUNTRY_RE gets a chance to see it.
+    if FOREIGN_COUNTRY_RE.search(raw_clean.lower()) and not US_EXPLICIT_RE.search(raw_clean.lower()):
+        _raw_parts = [p.strip() for p in raw_clean.split(",")]
+        _last_lower = _raw_parts[-1].strip().lower() if _raw_parts else ""
+        _parts_for_state = _raw_parts[:-1] if _last_lower in _COLLIDING_COUNTRY_ISO else _raw_parts
+        _has_us_signal = any(
+            p.strip().upper() in US_STATE_CODES
+            or p.strip().lower() in US_STATE_NAMES
+            or p.strip().lower() in US_CITIES
+            for p in _parts_for_state
+        )
+        if not _has_us_signal:
+            return NormalizedLocation(None, None, "foreign", False)
 
     # ---- Strip office descriptors ----
     s = _clean_city(raw_clean)
@@ -782,6 +801,10 @@ def _run_tests():
         ("VA, Reston", None, "Reston", "VA", "US", False, False),
         # Boston, Mass. with period
         ("Boston, Mass.", None, "Boston", "MA", "US", False, False),
+        # "Title - ForeignCity" patterns (city stripped by _clean_city without early check)
+        ("Director Wealth Banking - Brussels", None, None, None, "foreign", False, True),
+        ("AI Consultant - London OR Lisbon",   None, None, None, "foreign", False, True),
+        ("Director - Bruxelles Avenue Marnix", None, None, None, "foreign", False, True),
         # New foreign cities (from production audit)
         ("Iasi", None, None, None, "foreign", False, True),
         ("Cluj-Napoca", None, None, None, "foreign", False, True),
@@ -811,6 +834,30 @@ def _run_tests():
         ("Burlington, ON, ca",         None, None, None, "foreign", False, True),
         ("CA-Toronto",                 None, None, None, "foreign", False, True),
         ("CA-Vancouver",               None, None, None, "foreign", False, True),
+        # Swiss cities + village patterns
+        ("Lausanne", None, None, None, "foreign", False, True),
+        ("Lugano", None, None, None, "foreign", False, True),
+        ("Villars-sur-Glane", None, None, None, "foreign", False, True),
+        ("Boulogne-sur-Mer", None, None, None, "foreign", False, True),
+        # Italian name variants
+        ("Milano", None, None, None, "foreign", False, True),
+        ("Roma", None, None, None, "foreign", False, True),
+        ("Firenze", None, None, None, "foreign", False, True),
+        ("Napoli", None, None, None, "foreign", False, True),
+        ("Torino", None, None, None, "foreign", False, True),
+        # Spanish additions
+        ("Bilbao", None, None, None, "foreign", False, True),
+        ("Sevilla", None, None, None, "foreign", False, True),
+        # French smaller
+        ("Nantes", None, None, None, "foreign", False, True),
+        ("Strasbourg", None, None, None, "foreign", False, True),
+        # German smaller
+        ("Hannover", None, None, None, "foreign", False, True),
+        ("Leipzig", None, None, None, "foreign", False, True),
+        ("Dresden", None, None, None, "foreign", False, True),
+        ("Nuremberg", None, None, None, "foreign", False, True),
+        ("Nürnberg", None, None, None, "foreign", False, True),
+        ("Köln", None, None, None, "foreign", False, True),
         # Regression — must NOT be broken by the above fix
         ("Indianapolis, IN",           None, "Indianapolis", "IN", "US", False, False),
         ("Nashville, TN",              None, "Nashville",    "TN", "US", False, False),

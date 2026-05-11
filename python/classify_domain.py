@@ -296,7 +296,7 @@ def classify_domain(
       'skills'     — matched via skill alias counts in description
       'llm'        — matched via LLM (Haiku 4.5)
       'llm_cached' — LLM result served from in-process cache
-      'default'    — no signal found; fallback to data_ml
+      'default'    — no signal found; domain=NULL
     """
     domain, secondary, method = _run_classify(title, description, alias_map, use_llm, llm_cache)
     return domain, secondary, method
