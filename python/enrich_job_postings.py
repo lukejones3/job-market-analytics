@@ -1303,78 +1303,63 @@ def _extract_years_experience_requirements(desc: str) -> Optional[int]:
     return min(candidates) if candidates else None
 
 
-def infer_experience_level(desc: str, title_hint: Optional[str] = None) -> Optional[str]:
+def infer_experience_level(
+    desc: str,
+    title_hint: Optional[str] = None,
+    salary_max: Optional[float] = None,
+) -> Optional[str]:
     """
-    Robust experience level inference.
-    Priority:
-      1) Title keywords (most reliable)
-      2) YOE extraction from description
-      3) Conservative fallback for titles with no signal (default mid)
+    Title-dominant experience level inference.
+    Order of precedence (title regex wins over everything):
+      1. intern/co-op → entry
+      2. junior/jr/entry/associate → entry
+      3. senior/sr/staff/principal/lead/distinguished/fellow → senior
+      4. manager/director/vp/head of/chief/CxO → senior
+      5. mid/mid-level/II/III in title → mid
+      6. Salary tiebreaker for ambiguous titles
+      7. Default → mid (Entry requires explicit signal)
 
-    Returns one of: entry, associate, mid, senior
+    Returns one of: entry, mid, senior
     """
     title_lower = (title_hint or '').lower()
 
-    # === TIER 1: Title-based classification (highest confidence) ===
-    # Senior indicators (check first — most titles contain these)
-    SENIOR_PATTERNS = [
-        r'\bsenior\b', r'\bsr\.?\b', r'\bstaff\b', r'\bprincipal\b',
-        r'\blead\b', r'\bhead\s+of\b', r'\bdirector\b', r'\bmanager\b',
-        r'\bvp\b', r'\bvice\s+president\b', r'\bchief\b',
-        r'\bdistinguished\b', r'\bexpert\b',
-        r'\biii\b', r'\biv\b',  # Roman numerals
-        r'\biii+\b',
-        r'\blevel\s*[3-9]\b',
-    ]
-    for p in SENIOR_PATTERNS:
-        if re.search(p, title_lower):
-            return 'senior'
+    # === TIER 1: Intern / co-op (checked before senior to handle "Senior Intern" edge cases) ===
+    if re.search(r'\b(intern|internship|co-op|coop)\b', title_lower):
+        return 'entry'
 
-    # Entry-level indicators
-    ENTRY_PATTERNS = [
-        r'\bintern\b', r'\binternship\b',
-        r'\bentry[\s-]?level\b', r'\bjunior\b', r'\bjr\.?\b',
-        r'\bnew\s+grad\b', r'\bnew\s+graduate\b', r'\bgraduate\s+program\b',
-        r'\bapprentice\b', r'\btrainee\b',
-        r'\bearly\s+career\b', r'\bcollege\s+grad\b',
-        r'\blevel\s*1\b',
-    ]
-    for p in ENTRY_PATTERNS:
-        if re.search(p, title_lower):
-            return 'entry'
+    # === TIER 2: Junior / explicit entry ===
+    if re.search(r'\b(junior|jr\.?|entry[\s-]?level|associate|new\s+grad|new\s+graduate|graduate\s+program|apprentice|trainee|early\s+career)\b', title_lower):
+        return 'entry'
 
-    # Associate (explicit)
-    if re.search(r'\bassociate\b', title_lower):
-        return 'associate'
+    # === TIER 3: Senior IC markers ===
+    if re.search(r'\b(senior|sr\.?|staff|principal|lead|distinguished|fellow)\b', title_lower):
+        return 'senior'
 
-    # Level II = mid
-    if re.search(r'\bii\b|\blevel\s*2\b', title_lower):
+    # === TIER 4: Management / executive markers ===
+    if re.search(r'\b(manager|director|vp|vice\s+president|head\s+of|chief|c[a-z]o)\b', title_lower):
+        return 'senior'
+
+    # === TIER 5: Explicit mid signals in title ===
+    if re.search(r'\b(mid[\s-]?level|mid\b|\bii\b|\biii\b|\biv\b|\blevel\s*[23]\b)', title_lower):
         return 'mid'
 
-    # Level I = associate
-    if re.search(r'\bi\b(?!i)|\blevel\s*1\b', title_lower):
-        # "I" alone but not "II" — probably level 1 = associate
-        return 'associate'
+    # === TIER 6: Salary tiebreaker for ambiguous titles ===
+    if salary_max is not None:
+        if salary_max > 200_000:
+            return 'senior'
+        if salary_max < 80_000:
+            return 'entry'
 
-    # === TIER 2: YOE extraction from description ===
+    # === TIER 7: YOE extraction from description ===
     yrs = _extract_years_experience_requirements(desc or '')
     if yrs is not None:
         if yrs >= 7:
             return 'senior'
-        if yrs >= 4:
+        if yrs >= 3:
             return 'mid'
-        if yrs >= 2:
-            return 'associate'
-        if yrs >= 0:
-            return 'entry'
-
-    # === TIER 3: Explicit entry phrases in description ===
-    desc_lower = (desc or '').lower()
-    if re.search(r'\b(entry[\s-]?level|new grad|recent graduate|no experience (required|necessary))\b', desc_lower):
         return 'entry'
 
-    # === TIER 4: Conservative fallback — default to mid for unspecified ===
-    # Most jobs without explicit signals are mid-level. Safer than "associate".
+    # === TIER 8: Default mid — Entry requires an explicit signal ===
     return 'mid'
 
 
@@ -1963,7 +1948,7 @@ def parse_dimensions(desc: str, *, skip_salary_llm: bool = False) -> ParsedJob:
     smin, smax, sper = parse_salary_range(desc or "", skip_llm=skip_salary_llm)
     pj.salary_min, pj.salary_max, pj.salary_period = smin, smax, sper
 
-    pj.experience_level = infer_experience_level(desc or "", pj.title)
+    pj.experience_level = infer_experience_level(desc or "", pj.title, salary_max=pj.salary_max)
 
     # optional strict enrichments
     pj.company_type = infer_company_type(pj.company, desc or "")
