@@ -96,7 +96,7 @@ VERTICALS = {
                 "aliases": ["python", "python3", "py", "cpython"],
                 "category": "language",
                 "weight": 5,
-                "also_in": ["engineering", "finance"],
+                "also_in": ["engineering", "finance", "ops"],
             },
             "R": {
                 "aliases": ["r programming", "rlang", "tidyverse", "ggplot2", "dplyr"],
@@ -275,13 +275,13 @@ VERTICALS = {
                 "aliases": ["looker", "lookml", "looker studio", "google looker"],
                 "category": "bi_tool",
                 "weight": 4,
-                "also_in": ["marketing", "product"],
+                "also_in": ["marketing", "product", "finance", "ops", "sales"],
             },
             "Power BI": {
                 "aliases": ["power bi", "powerbi", "microsoft power bi"],
                 "category": "bi_tool",
                 "weight": 4,
-                "also_in": ["finance", "ops"],
+                "also_in": ["finance", "ops", "marketing", "sales", "product"],
             },
             "Metabase": {
                 "aliases": ["metabase"],
@@ -629,6 +629,88 @@ VERTICALS = {
                 "category": "devops",
                 "weight": 4,
             },
+            # ── Credentials ──
+            "AWS Solutions Architect": {
+                "aliases": ["aws solutions architect", "aws certified solutions architect", "aws sa"],
+                "category": "credential",
+                "weight": 4,
+            },
+            "AWS Developer": {
+                "aliases": ["aws certified developer", "aws developer associate"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "AWS SysOps": {
+                "aliases": ["aws sysops", "aws certified sysops", "aws sysops administrator"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "AZ-900": {
+                "aliases": ["az-900", "azure fundamentals", "microsoft azure fundamentals"],
+                "category": "credential",
+                "weight": 2,
+            },
+            "AZ-104": {
+                "aliases": ["az-104", "azure administrator", "microsoft azure administrator"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "AZ-204": {
+                "aliases": ["az-204", "azure developer associate", "microsoft azure developer"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "AZ-400": {
+                "aliases": ["az-400", "azure devops engineer", "microsoft devops engineer"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "GCP Professional Cloud Architect": {
+                "aliases": ["gcp professional cloud architect", "google cloud architect", "professional cloud architect"],
+                "category": "credential",
+                "weight": 4,
+            },
+            "GCP Data Engineer": {
+                "aliases": ["gcp data engineer", "google cloud data engineer", "professional data engineer"],
+                "category": "credential",
+                "weight": 4,
+                "also_in": ["data_ml"],
+            },
+            "CKA": {
+                "aliases": ["cka", "certified kubernetes administrator"],
+                "category": "credential",
+                "weight": 4,
+            },
+            "CKAD": {
+                "aliases": ["ckad", "certified kubernetes application developer"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "CKS": {
+                "aliases": ["cks", "certified kubernetes security specialist"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "CISSP": {
+                "aliases": ["cissp", "certified information systems security professional"],
+                "category": "credential",
+                "weight": 4,
+            },
+            "CEH": {
+                "aliases": ["ceh", "certified ethical hacker"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "OSCP": {
+                "aliases": ["oscp", "offensive security certified professional"],
+                "category": "credential",
+                "weight": 4,
+            },
+            "Security+": {
+                "aliases": ["security+", "comptia security+", "security plus"],
+                "category": "credential",
+                "weight": 3,
+            },
         },
         "overlaps": [
             {
@@ -713,7 +795,7 @@ VERTICALS = {
                 "aliases": ["microsoft excel", "excel modeling", "advanced excel", "vba", "pivot tables"],
                 "category": "tool",
                 "weight": 5,
-                "also_in": ["ops", "marketing"],
+                "also_in": ["ops", "marketing", "sales"],
             },
             "Financial Modeling": {
                 "aliases": ["financial modeling", "financial modelling", "dcf", "lbo", "m&a modeling", "three-statement model"],
@@ -767,6 +849,7 @@ VERTICALS = {
                 "aliases": ["anaplan"],
                 "category": "fpa_tool",
                 "weight": 3,
+                "also_in": ["ops"],
             },
             "TM1": {
                 "aliases": ["tm1", "ibm planning analytics", "ibm tm1"],
@@ -847,6 +930,47 @@ VERTICALS = {
             },
             "CMA": {
                 "aliases": ["cma", "certified management accountant"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "Series 7": {
+                "aliases": ["series 7", "finra series 7", "series 7 license"],
+                "category": "credential",
+                "weight": 4,
+            },
+            "Series 63": {
+                "aliases": ["series 63", "finra series 63"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "Series 66": {
+                "aliases": ["series 66", "finra series 66"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "Series 79": {
+                "aliases": ["series 79", "finra series 79"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "FRM": {
+                "aliases": ["frm", "financial risk manager", "garp frm"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "CIA": {
+                "aliases": ["cia", "certified internal auditor"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "CISA": {
+                "aliases": ["cisa", "certified information systems auditor"],
+                "category": "credential",
+                "weight": 3,
+                "also_in": ["engineering"],
+            },
+            "EA": {
+                "aliases": ["enrolled agent", "ea tax"],
                 "category": "credential",
                 "weight": 3,
             },
@@ -1079,6 +1203,22 @@ VERTICALS = {
                 "category": "soft_skill",
                 "weight": 3,
             },
+            # ── Credentials ──
+            "Google Analytics Certified": {
+                "aliases": ["google analytics certified", "ga certified", "google analytics certification"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "HubSpot Certified": {
+                "aliases": ["hubspot certified", "hubspot certification", "hubspot inbound certified", "hubspot marketing certified"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "Facebook Blueprint": {
+                "aliases": ["facebook blueprint", "meta blueprint", "meta certified", "facebook certified"],
+                "category": "credential",
+                "weight": 3,
+            },
         },
         "overlaps": [
             {
@@ -1254,6 +1394,17 @@ VERTICALS = {
                 "category": "pm_methodology",
                 "weight": 3,
                 "also_in": ["data_ml", "marketing"],
+            },
+            # ── Credentials ──
+            "Pragmatic Marketing": {
+                "aliases": ["pragmatic marketing", "pragmatic certified", "pragmatic institute", "pragmatic product manager"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "PMC": {
+                "aliases": ["pmc", "pragmatic marketing certified"],
+                "category": "credential",
+                "weight": 3,
             },
         },
         "overlaps": [
@@ -1811,6 +1962,67 @@ VERTICALS = {
                 "aliases": ["itil change management", "organizational change management"],
                 "category": "methodology",
                 "weight": 3,
+            },
+            # ── Credentials ──
+            "PMP": {
+                "aliases": ["pmp", "project management professional", "pmp certified", "pmp certification"],
+                "category": "credential",
+                "weight": 4,
+            },
+            "CAPM": {
+                "aliases": ["capm", "certified associate in project management"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "CSM": {
+                "aliases": ["csm", "certified scrum master", "scrum master certified"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "PSM": {
+                "aliases": ["psm", "professional scrum master", "psm i", "psm ii"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "SAFe": {
+                "aliases": ["safe", "safe certification", "safe agile", "scaled agile framework", "safe agilist"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "ITIL": {
+                "aliases": ["itil", "itil foundation", "itil certified", "itil 4"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "Six Sigma Green Belt": {
+                "aliases": ["six sigma green belt", "green belt", "lean six sigma green belt"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "Six Sigma Black Belt": {
+                "aliases": ["six sigma black belt", "black belt", "lean six sigma black belt"],
+                "category": "credential",
+                "weight": 4,
+            },
+            "SHRM-CP": {
+                "aliases": ["shrm-cp", "shrm cp", "society for human resource management certified professional"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "SHRM-SCP": {
+                "aliases": ["shrm-scp", "shrm scp", "shrm senior certified professional"],
+                "category": "credential",
+                "weight": 4,
+            },
+            "PHR": {
+                "aliases": ["phr", "professional in human resources"],
+                "category": "credential",
+                "weight": 3,
+            },
+            "SPHR": {
+                "aliases": ["sphr", "senior professional in human resources"],
+                "category": "credential",
+                "weight": 4,
             },
         },
         "overlaps": [
