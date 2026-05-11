@@ -21,6 +21,7 @@ from psycopg2.extras import DictCursor, execute_batch
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent))
 from vertical_taxonomy import VERTICALS
+from classify_domain import build_alias_map as _build_domain_alias_map, classify_domain as _classify_domain_fn
 
 # Always load .env from repo root (safe in heredocs / python -c)
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
@@ -2321,6 +2322,43 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
         jobs = cur.fetchall()
 
     print(f"Fetched {len(jobs):,} jobs. cat_cache={len(cat_cache):,} entries.")
+
+    # ── Pre-pass: classify NULL-domain jobs before Phase 1 skill gate ─────────
+    # Jobs that arrived with domain=NULL skip skill extraction and LLM role_category.
+    # Classify them here so Phase 1 sees a real domain value.
+    if only_missing:
+        null_domain_jobs = [j for j in jobs if not j.get("domain")]
+        if null_domain_jobs:
+            pre_alias_map = _build_domain_alias_map(conn)
+            pre_classified: list[tuple] = []  # (job_id, domain, secondary)
+            for job in null_domain_jobs:
+                title = (job["role_name"] if "role_name" in job.keys() else None) or ""
+                desc = job["description_text"] or ""
+                domain, secondary, _ = _classify_domain_fn(title, desc, pre_alias_map, use_llm=False)
+                if domain:
+                    pre_classified.append((job["job_id"], domain, secondary or None))
+
+            print(f"Pre-pass: {len(null_domain_jobs):,} NULL-domain → {len(pre_classified):,} newly classified")
+
+            if apply and pre_classified:
+                execute_batch(
+                    cur,
+                    """
+                    UPDATE job_postings
+                    SET domain = %s, domain_secondary = %s, domain_classified_at = now()
+                    WHERE job_id = %s
+                    """,
+                    [(d, s, jid) for jid, d, s in pre_classified],
+                    page_size=500,
+                )
+                conn.commit()
+                # Update in-memory rows so Phase 1's LLM and skill gates see the new domain
+                classified_lookup = {jid: d for jid, d, _ in pre_classified}
+                jobs = [
+                    {**dict(job), "domain": classified_lookup[job["job_id"]]}
+                    if job["job_id"] in classified_lookup else job
+                    for job in jobs
+                ]
 
     # ── Phase 1: sync parse — no LLM calls ────────────────────────────────────
     # Collect pending LLM work; accumulate per-job parsed dims.
