@@ -45,8 +45,15 @@ def _compile_patterns() -> dict[str, re.Pattern]:
 
 _PATTERN_MAP: dict[str, re.Pattern] = _compile_patterns()
 
-MIN_SKILL_MATCHES = 2   # skills pass: minimum matches to trust a winner
-SECONDARY_RATIO   = 0.4  # skills pass: secondary if score >= this fraction of winner
+# Skills pass: aliases score weight-2 (core tools) or weight-1 (soft/generic terms).
+# Soft aliases are short/common words that appear in many non-data JDs.  The weighted
+# total must reach MIN_SKILL_SCORE before we trust skills as a vertical signal — this
+# prevents "ai" + "ml" in a legal or marketing JD from triggering data_ml classification.
+_SOFT_SKILL_ALIASES: frozenset[str] = frozenset({
+    "ai", "ml", "data", "analytics", "intelligence", "analysis",
+})
+MIN_SKILL_SCORE = 6    # weighted total required to assign a vertical via skills alone
+SECONDARY_RATIO = 0.4  # secondary vertical if its score >= this fraction of the winner
 
 # ── NULL blocklist: titles that are definitively non-tech verticals ─────────────
 # When a title matches here we return domain=NULL immediately — no skill scoring.
@@ -167,21 +174,22 @@ def _classify_by_skills(
         else:
             matched = alias in desc_lower
         if matched:
+            weight = 1 if alias in _SOFT_SKILL_ALIASES else 2
             verticals = (
                 vertical_or_list
                 if isinstance(vertical_or_list, list)
                 else [vertical_or_list]
             )
             for v in verticals:
-                scores[v] = scores.get(v, 0) + 1
+                scores[v] = scores.get(v, 0) + weight
 
-    if not scores or max(scores.values()) < MIN_SKILL_MATCHES:
+    if not scores or max(scores.values()) < MIN_SKILL_SCORE:
         return None, []
 
     ranked = sorted(scores.items(), key=lambda x: -x[1])
     primary = ranked[0][0]
     primary_score = ranked[0][1]
-    threshold = max(primary_score * SECONDARY_RATIO, MIN_SKILL_MATCHES)
+    threshold = max(primary_score * SECONDARY_RATIO, MIN_SKILL_SCORE)
     secondary = [v for v, s in ranked[1:] if s >= threshold]
     return primary, secondary
 

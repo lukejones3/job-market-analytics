@@ -69,6 +69,9 @@ def run(apply: bool, limit, since_hours=None):
 
     results = []          # (job_id, new_domain, new_secondary) — changed rows only
     samples: list[tuple[str, str, str]] = []  # (old, new, title) — for dry-run display
+    # Targeted samples for the data_ml audit
+    dm_to_null_samples: list[tuple[str, str]] = []   # (title, snippet) — noise we're clearing
+    dm_stays_samples: list[tuple[str, str]] = []     # (title, snippet) — legitimate retained
     unchanged = 0
     method_counts: dict[str, int] = {}
     domain_counts: dict[str, int] = {}
@@ -92,12 +95,17 @@ def run(apply: bool, limit, since_hours=None):
             old_to_new[old] = {}
         old_to_new[old][dk] = old_to_new[old].get(dk, 0) + 1
 
+        desc_snippet = (job["description_text"] or "")[:120].replace("\n", " ")
         if dk != old:
             results.append((job["job_id"], domain, secondary or None))
             if len(samples) < 20:
                 samples.append((old, dk, job["title"] or ""))
+            if old == "data_ml" and dk == "NULL" and len(dm_to_null_samples) < 20:
+                dm_to_null_samples.append((job["title"] or "", desc_snippet))
         else:
             unchanged += 1
+            if old == "data_ml" and dk == "data_ml" and len(dm_stays_samples) < 20:
+                dm_stays_samples.append((job["title"] or "", desc_snippet))
 
     # ── Report ─────────────────────────────────────────────────────────────────
     changed = len(results)
@@ -132,6 +140,28 @@ def run(apply: bool, limit, since_hours=None):
     print(f"\n=== SAMPLE CHANGED ROWS (first 20) ===")
     for old, new, title in samples:
         print(f"  {old:<20} → {new:<20} {title[:60]}")
+
+    dm_to_null_count = old_to_new.get("data_ml", {}).get("NULL", 0)
+    dm_stays_count   = old_to_new.get("data_ml", {}).get("data_ml", 0)
+    dm_total_old     = old_domain_counts.get("data_ml", 0)
+
+    print(f"\n=== DATA_ML AUDIT ===")
+    print(f"  data_ml before:  {dm_total_old:>7,}")
+    print(f"  data_ml → NULL:  {dm_to_null_count:>7,}  (noise cleared)")
+    print(f"  data_ml stays:   {dm_stays_count:>7,}  (legitimate retained)")
+    print(f"  data_ml → other: {dm_total_old - dm_to_null_count - dm_stays_count:>7,}  (reclassified to a different vertical)")
+
+    print(f"\n--- 20 data_ml → NULL samples (verify these are noise) ---")
+    for title, snippet in dm_to_null_samples:
+        print(f"  TITLE: {title[:65]}")
+        print(f"  DESC:  {snippet}")
+        print()
+
+    print(f"\n--- 20 data_ml STAYS samples (verify legitimate) ---")
+    for title, snippet in dm_stays_samples:
+        print(f"  TITLE: {title[:65]}")
+        print(f"  DESC:  {snippet}")
+        print()
 
     if not apply:
         print(f"\nDry-run — no DB changes. Re-run with --apply to write {changed:,} changed rows.")

@@ -2213,7 +2213,7 @@ def _run_llm_batch(classify_jobs, salary_jobs):
 COMMIT_INTERVAL = 500  # intermediate commit every N jobs written
 
 
-def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool, rescan_salary: bool = False, use_batch: bool = False) -> None:
+def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool, rescan_salary: bool = False, use_batch: bool = False, skills_only: bool = False) -> None:
     conn = get_conn()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=DictCursor)
@@ -2293,6 +2293,25 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
             (limit,),
         )
         jobs = cur.fetchall()
+    elif skills_only:
+        has_skills_filter = "" if rescan_skills else "AND NOT EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id)"
+        cur.execute(
+            f"""
+            SELECT jp.job_id, jp.description_text,
+                   jp.company_id, jp.role_id, jp.location_id,
+                   jp.workplace_type, jp.employment_type, jp.experience_level,
+                   jp.salary_min, jp.salary_max, jp.salary_period,
+                   jp.domain, COALESCE(jp.data_tier, 1) AS data_tier,
+                   EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id) AS has_skills
+            FROM job_postings jp
+            WHERE jp.description_text IS NOT NULL AND length(jp.description_text) > 500
+              {has_skills_filter}
+            ORDER BY jp.ingested_at DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        jobs = cur.fetchall()
     else:
         cur.execute(
             """
@@ -2361,6 +2380,20 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
         job_id = job["job_id"]
         desc = job["description_text"] or ""
         job_domain = job["domain"] if "domain" in job.keys() else None
+
+        if skills_only:
+            needs_skill_scan = (rescan_skills or not job["has_skills"]) and len(desc) > 500
+            sync_results[job_id] = {
+                "job_domain": job_domain,
+                "needs_skill_scan": needs_skill_scan,
+                "scalar_fields": [],
+                "scalar_params": [],
+                "pj": None,
+                "cat_from_cache": None,
+                "company_lower": "",
+                "role_lower": "",
+            }
+            continue
 
         # Parse all dims without LLM (salary LLM deferred to Phase 2)
         pj = parse_dimensions(desc, skip_salary_llm=True)
@@ -2477,57 +2510,58 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
 
         fields, params = [], []
 
-        # Company / role / location upserts
-        if pj.company and job["company_id"] is None:
-            cid = upsert_company(cur, pj.company, pj.company_type)
-            if cid:
-                fields.append("company_id=%s"); params.append(cid)
-        if pj.title and job["role_id"] is None:
-            rid = upsert_role(cur, pj.title, pj.role_archetype)
-            if rid:
-                fields.append("role_id=%s"); params.append(rid)
-        if (pj.location or pj.state) and job["location_id"] is None:
-            lid = upsert_location(cur, pj.location or "", pj.state)
-            if lid:
-                fields.append("location_id=%s"); params.append(lid)
+        if not skills_only:
+            # Company / role / location upserts
+            if pj.company and job["company_id"] is None:
+                cid = upsert_company(cur, pj.company, pj.company_type)
+                if cid:
+                    fields.append("company_id=%s"); params.append(cid)
+            if pj.title and job["role_id"] is None:
+                rid = upsert_role(cur, pj.title, pj.role_archetype)
+                if rid:
+                    fields.append("role_id=%s"); params.append(rid)
+            if (pj.location or pj.state) and job["location_id"] is None:
+                lid = upsert_location(cur, pj.location or "", pj.state)
+                if lid:
+                    fields.append("location_id=%s"); params.append(lid)
 
-        # Scalar dims from Phase 1
-        fields.extend(sr["scalar_fields"])
-        params.extend(sr["scalar_params"])
+            # Scalar dims from Phase 1
+            fields.extend(sr["scalar_fields"])
+            params.extend(sr["scalar_params"])
 
-        # === DOMAIN_AWARE_ENRICH_v1 ===
-        # Role category — cache hit (Phase 1) or LLM result (Phase 2)
-        if sr["cat_from_cache"]:
-            fields.extend(["role_category=%s", "role_classified_at=NOW()"])
-            params.append(sr["cat_from_cache"])
-        elif job_id in llm_classify_results and llm_classify_results[job_id]:
-            cat_val = llm_classify_results[job_id]
-            fields.extend(["role_category=%s", "role_classified_at=NOW()"])
-            params.append(cat_val)
-            if apply and sr["company_lower"] and sr["role_lower"]:
-                try:
-                    cur.execute("""
-                        INSERT INTO role_category_cache (company_lower, role_lower, role_category, cached_at)
-                        VALUES (%s, %s, %s, NOW())
-                        ON CONFLICT (company_lower, role_lower)
-                        DO UPDATE SET role_category=EXCLUDED.role_category, cached_at=NOW()
-                    """, (sr["company_lower"], sr["role_lower"], cat_val))
-                except Exception as _e:
-                    log.warning(f"role_category_cache write failed: {_e}")
+            # === DOMAIN_AWARE_ENRICH_v1 ===
+            # Role category — cache hit (Phase 1) or LLM result (Phase 2)
+            if sr["cat_from_cache"]:
+                fields.extend(["role_category=%s", "role_classified_at=NOW()"])
+                params.append(sr["cat_from_cache"])
+            elif job_id in llm_classify_results and llm_classify_results[job_id]:
+                cat_val = llm_classify_results[job_id]
+                fields.extend(["role_category=%s", "role_classified_at=NOW()"])
+                params.append(cat_val)
+                if apply and sr["company_lower"] and sr["role_lower"]:
+                    try:
+                        cur.execute("""
+                            INSERT INTO role_category_cache (company_lower, role_lower, role_category, cached_at)
+                            VALUES (%s, %s, %s, NOW())
+                            ON CONFLICT (company_lower, role_lower)
+                            DO UPDATE SET role_category=EXCLUDED.role_category, cached_at=NOW()
+                        """, (sr["company_lower"], sr["role_lower"], cat_val))
+                    except Exception as _e:
+                        log.warning(f"role_category_cache write failed: {_e}")
 
-        # Salary from LLM (Phase 2) — only fills what regex missed
-        if job_id in llm_salary_results and llm_salary_results[job_id]:
-            lo, hi, period = llm_salary_results[job_id]
-            if pj.salary_min is None and job["salary_min"] is None:
-                fields.append("salary_min=%s"); params.append(lo)
-            if pj.salary_max is None and job["salary_max"] is None:
-                fields.append("salary_max=%s"); params.append(hi)
-            if pj.salary_period is None and job["salary_period"] is None:
-                fields.append("salary_period=%s"); params.append(period)
-            if period == "year" and job["salary_min"] is None and float(lo) <= 1000000:
-                fields.append("salary_min_annual=%s"); params.append(lo)
-            if period == "year" and job["salary_max"] is None and float(hi) <= 1000000:
-                fields.append("salary_max_annual=%s"); params.append(hi)
+            # Salary from LLM (Phase 2) — only fills what regex missed
+            if job_id in llm_salary_results and llm_salary_results[job_id]:
+                lo, hi, period = llm_salary_results[job_id]
+                if pj.salary_min is None and job["salary_min"] is None:
+                    fields.append("salary_min=%s"); params.append(lo)
+                if pj.salary_max is None and job["salary_max"] is None:
+                    fields.append("salary_max=%s"); params.append(hi)
+                if pj.salary_period is None and job["salary_period"] is None:
+                    fields.append("salary_period=%s"); params.append(period)
+                if period == "year" and job["salary_min"] is None and float(lo) <= 1000000:
+                    fields.append("salary_min_annual=%s"); params.append(lo)
+                if period == "year" and job["salary_max"] is None and float(hi) <= 1000000:
+                    fields.append("salary_max_annual=%s"); params.append(hi)
 
         # Skills — collect rows for batch insert; NULL domain skips entirely
         ins = 0
@@ -2595,9 +2629,10 @@ def main():
     ap.add_argument("--rescan-skills", action="store_true", help="Re-scan skills even if job already has skills")
     ap.add_argument("--rescan-salary", action="store_true", help="Re-scan salary for jobs with no salary but salary text in description")
     ap.add_argument("--batch", action="store_true", help="Use Anthropic Batch API for LLM calls (async, cheaper, for large backfills)")
+    ap.add_argument("--skills-only", action="store_true", help="Regex skill extraction only — skips Phase 2 entirely (no classify_role, no salary LLM, no scalar field updates)")
     args = ap.parse_args()
 
-    enrich_jobs(limit=args.limit, apply=args.apply, only_missing=args.only_missing, rescan_skills=args.rescan_skills, rescan_salary=args.rescan_salary, use_batch=args.batch)
+    enrich_jobs(limit=args.limit, apply=args.apply, only_missing=args.only_missing, rescan_skills=args.rescan_skills, rescan_salary=args.rescan_salary, use_batch=args.batch, skills_only=args.skills_only)
 
 
 if __name__ == "__main__":
