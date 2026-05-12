@@ -79,7 +79,7 @@ _NULL_BLOCKLIST: re.Pattern = re.compile(
     r"|\bsenior\s+counsel\b"
 
     # ── Biology / chemistry / wet lab ──────────────────────────────────────
-    r"|\bscientist\b.*(?:chemistry|biology|biological|protein|assay|fluidic|sequencing|wet\s+lab|microbio|biochem|molecular|cell|tissue|gene|genome|biolog|pharma)"
+    r"|\bscientist\b.*(?:chemistry|biology|biological|protein|assay|fluidic|sequencing|wet\s+lab|microbio|biochem|molecular|\bcell\b|tissue|\bgene\b|genome|biolog|pharma)"
     r"|\b(?:chemistry|biology|microbiology|biochemistry)\s+(?:scientist|researcher|engineer|director)\b"
     r"|\bbiologist\b"
     r"|\bbiochemist\b"
@@ -121,6 +121,20 @@ _SOFTWARE_CONTEXT_RE: re.Pattern = re.compile(
 # Strip parenthetical clarifiers before title classification so "(Tax & Accounting)"
 # in "CX/UX Designer (Tax & Accounting)" doesn't bleed into the finance scorer.
 _PAREN_RE: re.Pattern = re.compile(r"\s*\([^)]*\)", re.IGNORECASE)
+
+# Tiebreak order for title-stage ties: "software engineer" should beat "data platform",
+# "designer" should beat anything, data_ml is last because its patterns are generic
+# (e.g. "data platform" fires on SWE titles that happen to mention data infra).
+_TITLE_TIEBREAK: dict[str, int] = {
+    "engineering": 0,
+    "design":      1,
+    "product":     2,
+    "sales":       3,
+    "finance":     4,
+    "marketing":   5,
+    "ops":         6,
+    "data_ml":     7,
+}
 
 
 # ── Build alias map ────────────────────────────────────────────────────────────
@@ -169,9 +183,8 @@ def _classify_by_title(title: str) -> Tuple[Optional[str], List[str]]:
     if not scores:
         return None, []
 
-    ranked = sorted(scores.items(), key=lambda x: -x[1])
+    ranked = sorted(scores.items(), key=lambda x: (-x[1], _TITLE_TIEBREAK.get(x[0], 99)))
     primary = ranked[0][0]
-    primary_score = ranked[0][1]
     # Secondary: any other vertical that matched at all (title match = strong signal)
     secondary = [v for v, _ in ranked[1:]]
     return primary, secondary
