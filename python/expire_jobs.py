@@ -40,27 +40,59 @@ def main():
 
             print(f"✅ Ingest healthy — {todays_seen} jobs seen today. Running expiry...")
 
+            # Log disappeared events BEFORE marking expired (so we capture last_seen_at)
+            cur.execute("""
+                INSERT INTO job_posting_events (job_id, event_type, observed_at, source, posted_date)
+                SELECT jp.job_id, 'disappeared', jp.last_seen_at, jp.ingestion_source, jp.posted_date
+                FROM job_postings jp
+                WHERE jp.data_tier = 1
+                  AND jp.status != 'expired'
+                  AND jp.last_seen_at < now() - interval '1 day'
+                ON CONFLICT DO NOTHING
+            """)
+            disappeared_events = cur.rowcount
+
             # Mark expired — not seen in today's run (missed last_seen_at update)
             cur.execute("""
                 UPDATE job_postings
-                SET status = 'expired'
+                SET status = 'expired',
+                    expired_reason = 'natural_cron'
                 WHERE data_tier = 1
                 AND status != 'expired'
                 AND last_seen_at < now() - interval '1 day'
             """)
             expired = cur.rowcount
-            print(f"Marked expired: {expired}")
+            print(f"Marked expired: {expired}  (logged {disappeared_events} disappeared events)")
+
+            # Log reappeared events BEFORE reactivating (capture the gap)
+            cur.execute("""
+                INSERT INTO job_posting_events (job_id, event_type, observed_at, gap_days, source, posted_date)
+                SELECT
+                    jp.job_id,
+                    'reappeared',
+                    now(),
+                    EXTRACT(DAYS FROM (now() - jp.last_seen_at))::int,
+                    jp.ingestion_source,
+                    jp.posted_date
+                FROM job_postings jp
+                WHERE jp.data_tier = 1
+                  AND jp.status = 'expired'
+                  AND jp.last_seen_at >= now() - interval '1 day'
+                ON CONFLICT DO NOTHING
+            """)
+            reappeared_events = cur.rowcount
 
             # Reactivate — seen again after being marked expired
             cur.execute("""
                 UPDATE job_postings
-                SET status = 'raw'
+                SET status = 'raw',
+                    expired_reason = NULL
                 WHERE data_tier = 1
                 AND status = 'expired'
                 AND last_seen_at >= now() - interval '1 day'
             """)
             reactivated = cur.rowcount
-            print(f"Reactivated: {reactivated}")
+            print(f"Reactivated: {reactivated}  (logged {reappeared_events} reappeared events)")
 
         conn.commit()
         print("✅ expire_jobs complete")
