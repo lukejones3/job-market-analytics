@@ -122,6 +122,20 @@ _SOFTWARE_CONTEXT_RE: re.Pattern = re.compile(
 # in "CX/UX Designer (Tax & Accounting)" doesn't bleed into the finance scorer.
 _PAREN_RE: re.Pattern = re.compile(r"\s*\([^)]*\)", re.IGNORECASE)
 
+# Skill-stage penalty: if a title contains clear non-data role signals (marketing,
+# sales, GTM, fleet, tax) but NO data/analytics/engineering terms, we halve the
+# data_ml skill score. This prevents AI-heavy JDs at tech companies from pulling
+# marketing/sales/finance/ops titles into data_ml when title patterns fail to fire.
+_NON_DATA_TITLE_RE: re.Pattern = re.compile(
+    r"\bmarketing\b|\bsales\b|\bgtm\b|\bgo.to.market\b"
+    r"|\bfleet\b|\btax\b|\blegislation\b",
+    re.IGNORECASE,
+)
+_DATA_TITLE_RE: re.Pattern = re.compile(
+    r"\bdata\b|\banalytics\b|\bml\b|\bai\b|\bengineer\b|\bscientist\b|\banalyst\b",
+    re.IGNORECASE,
+)
+
 # Tiebreak order for title-stage ties: "software engineer" should beat "data platform",
 # "designer" should beat anything, data_ml is last because its patterns are generic
 # (e.g. "data platform" fires on SWE titles that happen to mention data infra).
@@ -193,7 +207,7 @@ def _classify_by_title(title: str) -> Tuple[Optional[str], List[str]]:
 # ── Stage 2: description skill aliases ────────────────────────────────────────
 
 def _classify_by_skills(
-    description: str, alias_map: Dict[str, Any]
+    description: str, alias_map: Dict[str, Any], title: str = ""
 ) -> Tuple[Optional[str], List[str]]:
     """
     Score verticals by counting alias matches in description.
@@ -204,6 +218,11 @@ def _classify_by_skills(
 
     Multi-vertical maps give each matched alias equal credit to every vertical
     it belongs to, preventing data_ml from dominating via its larger alias set.
+
+    title is used to apply a data_ml penalty: if the title contains clear non-data
+    signals (marketing, sales, GTM, fleet, tax) but no data/analytics terms, the
+    data_ml score is halved before ranking. This prevents AI-heavy JDs at tech
+    companies from pulling marketing/sales/finance/ops roles into data_ml.
     """
     if not description or not alias_map:
         return None, []
@@ -233,6 +252,17 @@ def _classify_by_skills(
             )
             for v in verticals:
                 scores[v] = scores.get(v, 0) + weight
+
+    # Penalty: halve data_ml score when title has non-data role signals but no
+    # data/analytics terms. Prevents AI-heavy JDs from pulling sales, marketing,
+    # finance, and ops titles into data_ml via incidental skill matches.
+    if (
+        "data_ml" in scores
+        and title
+        and _NON_DATA_TITLE_RE.search(title)
+        and not _DATA_TITLE_RE.search(title)
+    ):
+        scores["data_ml"] = scores["data_ml"] // 2
 
     if not scores or max(scores.values()) < MIN_SKILL_SCORE:
         return None, []
@@ -393,8 +423,8 @@ def _run_classify(title, description, alias_map, use_llm, llm_cache):
     if domain:
         return domain, secondary, "title"
 
-    # Stage 2: skills
-    domain, secondary = _classify_by_skills(description, alias_map)
+    # Stage 2: skills (pass title so data_ml penalty can fire on non-data titles)
+    domain, secondary = _classify_by_skills(description, alias_map, title=clean_title or "")
     if domain:
         return domain, secondary, "skills"
 

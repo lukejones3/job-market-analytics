@@ -462,7 +462,7 @@ if _page == "Insights":
                ROUND(100.0 * COUNT(*) FILTER (WHERE ghost_probability > 0.7) / NULLIF(COUNT(*), 0), 1) AS ghost_pct
         FROM analytics_analytics.mart_ghost_job_index
         GROUP BY company_name
-        HAVING COUNT(*) >= 10
+        HAVING COUNT(*) >= 20
         ORDER BY ghost_pct DESC, total_active DESC
         LIMIT 20
     """

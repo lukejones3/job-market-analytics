@@ -767,6 +767,11 @@ VERTICALS = {
             r"risk manager",
             r"\btax analyst",
             r"\btax manager",
+            r"\btax director",
+            r"director[\s,]+tax",   # "Director, Tax" or "Director Tax"
+            r"\bhead of tax\b",
+            r"\bvp[\s,]+tax\b",
+            r"\bfp&a director\b",
             r"\bactuary\b",
             r"\bactuarial\b",
             r"underwriter",
@@ -1045,6 +1050,13 @@ VERTICALS = {
             r"customer experience(?!\s+(?:manager|director)\b)",
             r"marketing scientist",
             r"growth scientist",
+            r"marketing lead",
+            r"growth marketer",
+            r"growth lead",
+            r"brand lead",
+            r"content lead",
+            r"marketing strategist",
+            r"demand gen lead",
         ],
         "subcategories": [
             "growth",
@@ -1269,6 +1281,8 @@ VERTICALS = {
             r"(?<!customer )experience manager",
             r"(?<!customer )experience director",
             r"platform manager",
+            r"\bproduct management\b",  # catches "Director Product Management", "VP Product Management"
+            r"director.*product",        # catches "Director of Product", "Director, Product"
         ],
         "subcategories": [
             "product_management",
@@ -1499,6 +1513,12 @@ VERTICALS = {
             r"sales comp\b",
             r"comp planning",
             r"compensation design",
+            r"\bgtm\b",
+            r"go.to.market",
+            r"gtm lead",
+            r"gtm director",
+            r"gtm program",
+            r"sales lead",
         ],
         "subcategories": [
             "account_executive",
@@ -1838,6 +1858,11 @@ VERTICALS = {
             r"director of operations",
             r"program manager",     # can overlap with product; ops is primary without "product" in title
             r"corporate development",
+            r"fleet planning",
+            r"fleet management",
+            r"regional operations",
+            r"operations director",
+            r"supply chain director",
         ],
         "subcategories": [
             "business_ops",

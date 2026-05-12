@@ -202,5 +202,6 @@ if __name__ == "__main__":
     parser.add_argument("--apply", action="store_true", help="Write to DB (default: dry-run)")
     parser.add_argument("--limit", type=int, metavar="N", help="Process N random jobs only")
     parser.add_argument("--since-hours", type=int, metavar="N", help="Only jobs ingested in last N hours")
+    parser.add_argument("--rescan-all", action="store_true", help="Reclassify every raw tier-1 job (default behavior; explicit flag for clarity)")
     args = parser.parse_args()
     run(apply=args.apply, limit=args.limit, since_hours=args.since_hours)
