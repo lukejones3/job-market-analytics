@@ -59,12 +59,50 @@ SECONDARY_RATIO = 0.4  # secondary vertical if its score >= this fraction of the
 # When a title matches here we return domain=NULL immediately — no skill scoring.
 # These roles appear in tech-company job feeds but belong to domains we don't cover.
 _NULL_BLOCKLIST: re.Pattern = re.compile(
+    # ── Medical / clinical ─────────────────────────────────────────────────
     r"\bclinical\b"          # clinical strategy, clinical lead, clinical director
     r"|\bphysician\b"
     r"|\bnurse\b"
     r"|\bsurgeon\b"
     r"|\bpharmacist\b"
-    r"|\bveterinari",        # veterinary, veterinarian
+    r"|\bveterinari"         # veterinary, veterinarian
+
+    # ── Legal ──────────────────────────────────────────────────────────────
+    r"|\blegal\s+(?:counsel|fellow|engineer|advisor|operations|technology)\b"
+    r"|\b(?:general|associate\s+general|commercial|corporate|regulatory|compliance|deputy|chief)\s+counsel\b"
+    r"|\bcounsel\s*[-,]?\s*(?:emea|americas|apac|gtm|platform|technology|channel|fintech)\b"
+    r"|\bparalegal\b"
+    r"|\bhead\s+of\s+legal\b"
+    r"|\bvp\s+legal\b"
+    r"|\bchief\s+legal\s+officer\b"
+    r"|\bdeputy\s+general\s+counsel\b"
+    r"|\bsenior\s+counsel\b"
+
+    # ── Biology / chemistry / wet lab ──────────────────────────────────────
+    r"|\bscientist\b.*(?:chemistry|biology|biological|protein|assay|fluidic|sequencing|wet\s+lab|microbio|biochem|molecular|cell|tissue|gene|genome|biolog|pharma)"
+    r"|\b(?:chemistry|biology|microbiology|biochemistry)\s+(?:scientist|researcher|engineer|director)\b"
+    r"|\bbiologist\b"
+    r"|\bbiochemist\b"
+    r"|\bpharmaceutical\s+scientist\b"
+    r"|\blab\s+manager\b"
+    r"|\bresearch\s+associate\b.*(?:biology|chemistry|pharma)"
+    r"|\bmedicinal\s+chemist\b"
+
+    # ── K-12 education ─────────────────────────────────────────────────────
+    r"|\b(?:elementary|middle|high)\s+school\s+teacher\b"
+    r"|\bk-12\s+teacher\b"
+    r"|\bschool\s+counselor\b"
+    r"|\bsubstitute\s+teacher\b"
+
+    # ── Construction / trades ──────────────────────────────────────────────
+    r"|\bconstruction\s+(?:worker|laborer|foreman)\b"
+    r"|\bcarpenter\b"
+    r"|\belectrician\b"
+    r"|\bplumber\b"
+    r"|\bwelder\b"
+    r"|\bhvac\s+technician\b"
+    r"|\bequipment\s+operator\b",
+
     re.IGNORECASE,
 )
 
