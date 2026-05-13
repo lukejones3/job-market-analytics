@@ -1380,11 +1380,13 @@ def infer_experience_level(
         return 'entry'
 
     # === TIER 2: Junior / explicit entry ===
-    if re.search(r'\b(junior|jr\.?|entry[\s-]?level|associate|new\s+grad|new\s+graduate|graduate\s+program|apprentice|trainee|early\s+career)\b', title_lower):
+    # jr./entry alone: \b fails after a dot (non-word), use lookahead for those
+    if re.search(r'\b(?:junior|entry[\s-]?level|entry|associate|new\s+grad|new\s+graduate|graduate\s+program|apprentice|trainee|early\s+career)\b|\bjr\.?(?=\W|$)', title_lower):
         return 'entry'
 
     # === TIER 3: Senior IC markers ===
-    if re.search(r'\b(senior|sr\.?|staff|principal|lead|distinguished|fellow)\b', title_lower):
+    # sr.: \b fails after dot, use lookahead
+    if re.search(r'\b(?:senior|staff|principal|lead|distinguished|fellow)\b|\bsr\.?(?=\W|$)', title_lower):
         return 'senior'
 
     # === TIER 4: Management / executive markers ===

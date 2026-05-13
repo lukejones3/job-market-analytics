@@ -34,8 +34,17 @@ load_dotenv(ROOT / ".env")
 
 BATCH_TAG = f"exp_backfill_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-SENIOR_RE = re.compile(r"\b(senior|sr\.?|staff|principal|lead|head\s+of|director|manager|vp|vice\s+president|chief|distinguished|fellow)\b", re.I)
-ENTRY_RE = re.compile(r"\b(intern|internship|entry[\s-]?level|junior|jr\.?|new\s+grad|graduate\s+program|apprentice|trainee|early\s+career)\b", re.I)
+# sr./jr. end with a non-word char (dot) so \b fails after them — use lookahead instead
+SENIOR_RE = re.compile(
+    r"\b(?:senior|staff|principal|lead|head\s+of|director|manager|vp|vice\s+president|chief|distinguished|fellow)\b"
+    r"|\bsr\.?(?=\W|$)",
+    re.I,
+)
+ENTRY_RE = re.compile(
+    r"\b(?:intern(?:ship)?|entry[\s-]?level|entry|junior|new\s+grad|graduate\s+program|apprentice|trainee|early\s+career)\b"
+    r"|\bjr\.?(?=\W|$)",
+    re.I,
+)
 ASSOC_RE = re.compile(r"\bassociate\b", re.I)
 
 
@@ -81,13 +90,14 @@ def classify(title: str) -> str | None:
     return None
 
 
-def fetch_candidates():
-    sql = """
+def fetch_candidates(rescan_all: bool = False):
+    tier_clause = "" if rescan_all else "AND COALESCE(jp.data_tier, 1) = 1"
+    sql = f"""
         SELECT jp.job_id, jp.experience_level, r.role_name
         FROM job_postings jp
         LEFT JOIN roles r ON r.role_id = jp.role_id
         WHERE jp.status = 'raw'
-          AND COALESCE(jp.data_tier, 1) = 1
+          {tier_clause}
           AND r.role_name IS NOT NULL
     """
     with get_conn() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -178,11 +188,13 @@ def real_run(jobs):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--dry-run", action="store_true", help="Show what would change without writing")
+    ap.add_argument("--apply", action="store_true", help="Write changes (default when --dry-run omitted)")
+    ap.add_argument("--rescan-all", action="store_true", help="Include all data_tiers, not just tier-1")
     args = ap.parse_args()
 
     ensure_schema()
-    jobs = fetch_candidates()
+    jobs = fetch_candidates(rescan_all=args.rescan_all)
 
     if not jobs:
         print("No candidates found.")
