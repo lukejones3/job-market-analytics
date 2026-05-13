@@ -714,6 +714,36 @@ def _try_min_max_labels(tline: str):
             p = _period_from_context(tline, lo)
             if _sanity(lo, hi, p):
                 return lo, hi, p
+
+    # "Minimum Salary: $X Maximum Salary: $Y" — word between keyword and value
+    # e.g. Barclays: "Minimum Salary: $155,000 Maximum Salary: $225,000"
+    m = re.search(
+        r"minimum\s+\w+[:\s]+\$?\s*([\d,\.]+[kKmM]?).{0,80}?maximum\s+\w+[:\s]+\$?\s*([\d,\.]+[kKmM]?)",
+        tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _to_dec(m.group(1)), _to_dec(m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1, v2), max(v1, v2)
+            p = _period_from_context(tline, lo)
+            if _sanity(lo, hi, p):
+                return lo, hi, p
+    return None
+
+
+def _try_between_range(tline: str):
+    """'between $X and $Y' or 'between $X to $Y' without dash separator.
+    e.g. 'between $193,930 and $319,720', 'between $80,000 and $125,000 annually'
+    """
+    m = re.search(
+        r"between\s+\$?\s*([\d,\.]+[kKmM]?)\s+(?:and|to)\s+\$?\s*([\d,\.]+[kKmM]?)",
+        tline, re.IGNORECASE)
+    if m:
+        v1, v2 = _scale_pair(m.group(1), m.group(2))
+        if v1 and v2:
+            lo, hi = min(v1, v2), max(v1, v2)
+            p = _period_from_context(tline, lo)
+            if _sanity(lo, hi, p):
+                return lo, hi, p
     return None
 
 
@@ -1031,9 +1061,30 @@ def _try_single_value(tline: str, low: str):
         if v and v >= 15000:
             return v, v, "year"
 
-    # Single labeled: Compensation: $X or Salary: $X (no range indicator)
+    # "salary/pay ... is around $X" — "around" makes the range exclusion wrong; handle separately
+    # e.g. "The full-time salary range for this role is around $180,000 + equity"
     m = re.search(
-        r"(?:compensation|salary)[:\s]+\$\s*([\d,\.]+[kKmM]?)(?:\s*(?:USD|per\s+year|annually|/yr))?\s*$",
+        r"(?:salary|pay|compensation)\b.{0,80}?\baround\s+\$\s*([\d,\.]+[kKmM]?)",
+        tline, re.IGNORECASE)
+    if m:
+        v = _to_dec(m.group(1))
+        if v and v >= 50000:
+            return v, v, "year"
+
+    # "base salary for this role is $X", "typical base pay ... is $X"
+    # Covers cases where intermediate words appear between label and value
+    m = re.search(
+        r"(?:base\s+)?(?:salary|pay|compensation)\b.{0,50}?\bis\b\s+\$\s*([\d,\.]+[kKmM]?)",
+        tline, re.IGNORECASE)
+    if m and not re.search(r"range|band\b", tline, re.IGNORECASE):
+        v = _to_dec(m.group(1))
+        if v and v >= 50000:
+            return v, v, "year"
+
+    # Single labeled: Compensation: $X or Salary: $X (no range indicator)
+    # Lookahead instead of \s*$ so mid-line values match: "Base Salary: $85,000. Benefits..."
+    m = re.search(
+        r"(?:compensation|salary)[:\s]+\$\s*([\d,\.]+[kKmM]?)(?:\s*(?:USD|per\s+year|annually|/yr))?(?=[\s.,+\-]|$)",
         tline, re.IGNORECASE)
     if m and not re.search(r"range|band|package", tline, re.IGNORECASE):
         v = _to_dec(m.group(1))
@@ -1095,6 +1146,7 @@ def parse_salary_range(text: str, *, skip_llm: bool = False) -> tuple:
             _try_min_max_pay_range(tline) or
             _try_targeted_pay_range(tline) or
             _try_annual_salary_range(tline) or
+            _try_between_range(tline) or
             _try_spaced_number_range(tline) or
             _try_salary_slash_annually(tline) or
             _try_salary_plus(tline) or

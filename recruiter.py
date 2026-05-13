@@ -1402,7 +1402,8 @@ else:
         _signal_score = 0
         _reasons_pos = []
         _reasons_neg = []
-        # TRAFFIC_LIGHT_RECAL_v1: weight tuned down +2 -> +1
+        # SIGNAL_RECAL_v2: remove no-contact penalty (coverage gap, not quality signal);
+        # extend neutral freshness zone to 13d; penalize >=14d staleness; Strong threshold->1
         if _has_salary:
             _signal_score += 1
             _reasons_pos.append("Salary disclosed")
@@ -1412,15 +1413,14 @@ else:
         if _has_contact:
             _signal_score += 1
             _reasons_pos.append("Hiring contact")
-        else:
-            _signal_score -= 1
-            _reasons_neg.append("No contact")
+        # No penalty for missing contact — data coverage gap, not job quality
         if _days_old_val <= 3:
             _signal_score += 1
             _reasons_pos.append(f"Posted {int(_days_old_val)}d ago" if _days_old_val >= 1 else "Posted today")
-        elif _days_old_val >= 7 and _days_old_val < 14:
+        elif _days_old_val >= 14:
             _signal_score -= 1
             _reasons_neg.append(f"Posted {int(_days_old_val)}d ago")
+        # 4–13d: neutral
         if _hscore is not None:
             try:
                 _hs = int(_hscore)
@@ -1436,7 +1436,7 @@ else:
             except (ValueError, TypeError):
                 pass
 
-        if _signal_score >= 3:
+        if _signal_score >= 1:
             _signal_emoji = "🟢"
             _signal_label = "Worth applying"
             _signal_color = "#22c55e"
