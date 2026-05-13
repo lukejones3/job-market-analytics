@@ -67,6 +67,8 @@ try:
 except ImportError:
     _DOMAIN_CLASSIFIER_AVAILABLE = False
 
+from company_blocklist import is_company_blocked
+
 _ALIAS_MAP: Optional[Dict] = None
 
 def _get_alias_map(connection):
@@ -1383,6 +1385,8 @@ def ingest_job(cur, job: RawJob) -> bool:
     Returns True if inserted, False if skipped (duplicate or non-KW title).
     Schema-matched to actual job_postings table definition.
     """
+    if is_company_blocked(job.company):
+        return False
     if not _is_knowledge_worker_title(job.title):
         return False
 
