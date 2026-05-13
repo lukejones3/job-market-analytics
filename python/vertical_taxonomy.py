@@ -1017,7 +1017,7 @@ VERTICALS = {
             r"paid social",
             r"\bseo\b",
             r"\bsem\b",
-            r"search engine",
+            r"\bsearch engine",      # word boundary required — prevents "reSearch Engine er" false match
             r"content marketing",
             r"content strategist",
             r"content manager",
@@ -1057,6 +1057,7 @@ VERTICALS = {
             r"content lead",
             r"marketing strategist",
             r"demand gen lead",
+            r"director.*marketing",  # catches "Director, Marketing", "Sr Director, Marketing"
         ],
         "subcategories": [
             "growth",
@@ -1282,7 +1283,6 @@ VERTICALS = {
             r"(?<!customer )experience director",
             r"platform manager",
             r"\bproduct management\b",  # catches "Director Product Management", "VP Product Management"
-            r"director.*product",        # catches "Director of Product", "Director, Product"
         ],
         "subcategories": [
             "product_management",
@@ -1513,11 +1513,14 @@ VERTICALS = {
             r"sales comp\b",
             r"comp planning",
             r"compensation design",
-            r"\bgtm\b",
-            r"go.to.market",
+            r"go[\-]to[\-]market",   # hyphens only — "go-to-market" role titles; "Go To Market" (org label) excluded
             r"gtm lead",
             r"gtm director",
             r"gtm program",
+            r"gtm strategy",
+            r"gtm manager",
+            r"gtm enablement",
+            r"gtm engineer",         # sales engineering in GTM org
             r"sales lead",
         ],
         "subcategories": [

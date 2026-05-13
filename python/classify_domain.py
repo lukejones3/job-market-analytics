@@ -106,6 +106,10 @@ _NULL_BLOCKLIST: re.Pattern = re.compile(
     re.IGNORECASE,
 )
 
+# "Data Scientist" is always data_ml regardless of surrounding domain context
+# ("Data Scientist, Pharma Domain" is a tech role, not a wet-lab scientist).
+_DATA_SCIENTIST_EXEMPT: re.Pattern = re.compile(r'\bdata\s+scientist\b', re.IGNORECASE)
+
 # Hardware engineering disciplines with no software/ML context → NULL.
 # These appear in aerospace/defense/manufacturing feeds and pull into finance
 # via incidental skill matches (Anaplan, financial modeling vocabulary).
@@ -405,7 +409,9 @@ def classify_domain(
 
 def _run_classify(title, description, alias_map, use_llm, llm_cache):
     # Stage 0: NULL blocklist — explicitly non-tech roles we never cover
-    if title and _NULL_BLOCKLIST.search(title):
+    # Exception: "data scientist" titles are never NULL-blocked — they are tech/ML
+    # roles even when working in pharma, bio, or clinical contexts.
+    if title and _NULL_BLOCKLIST.search(title) and not _DATA_SCIENTIST_EXEMPT.search(title):
         return None, [], "null_blocked"
 
     # Stage 0b: Hardware engineering without software context → NULL
