@@ -132,7 +132,8 @@ _PAREN_RE: re.Pattern = re.compile(r"\s*\([^)]*\)", re.IGNORECASE)
 # marketing/sales/finance/ops titles into data_ml when title patterns fail to fire.
 _NON_DATA_TITLE_RE: re.Pattern = re.compile(
     r"\bmarketing\b|\bsales\b|\bgtm\b|\bgo.to.market\b"
-    r"|\bfleet\b|\btax\b|\blegislation\b",
+    r"|\bfleet\b|\btax\b|\blegislation\b"
+    r"|\bpricing\b|\bmonetization\b",   # pricing/monetization roles that escape title-pass patterns
     re.IGNORECASE,
 )
 _DATA_TITLE_RE: re.Pattern = re.compile(

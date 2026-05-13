@@ -785,6 +785,24 @@ VERTICALS = {
             r"\bcpa\b",
             r"\bcfa\b",
             r"wealth management",
+            # ── Pricing / Monetization (strategy/finance roles, not data roles) ──
+            # Note: "Pricing Data Scientist", "Sr. Data Analyst, Pricing" are data_ml
+            # because data_ml title patterns fire first (data scientist / data analyst).
+            # These patterns only catch titles where pricing IS the role, not a qualifier.
+            r"pricing.*analyst",    # Pricing Analyst, Pricing & Monetization Analyst
+            r"pricing.*manager",    # Pricing Manager, Senior Manager Pricing Strategy
+            r"pricing.*director",   # Pricing Director, Director of Pricing
+            r"pricing.*strategy",   # Pricing Strategy Manager, Head of Pricing Strategy
+            r"pricing.*specialist",
+            r"pricing.*operations",
+            r"director.*pricing",   # Director of Pricing & Monetization
+            r"head.*pricing",       # Head of Pricing
+            r"vp.*pricing",
+            r"monetization.*analyst",
+            r"monetization.*manager",
+            r"monetization.*strategy",
+            r"price analyst",
+            r"price manager",
         ],
         "subcategories": [
             "fpa",
@@ -1657,6 +1675,8 @@ VERTICALS = {
             r"visual designer",
             r"brand designer",
             r"graphic designer",
+            r"graphic design",      # catches "Manager Graphic Design" (no -er)
+            r"\bdesigner\b",        # catches content designer, AI designer, solution designer, etc.
             r"motion designer",
             r"creative director",
             r"design director",
@@ -1866,6 +1886,8 @@ VERTICALS = {
             r"regional operations",
             r"operations director",
             r"supply chain director",
+            r"strategy.*operations",  # Strategy Operations Manager, Strategy & Ops Lead
+            r"operations manager",    # general ops manager; tiebreak ensures specific verticals win
         ],
         "subcategories": [
             "business_ops",
