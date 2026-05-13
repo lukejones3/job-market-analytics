@@ -80,11 +80,14 @@ def ensure_schema():
 
 
 def classify(title: str) -> str | None:
-    """Return target level if title has clear signal, else None."""
-    if SENIOR_RE.search(title):
-        return "senior"
+    """Return target level if title has clear signal, else None.
+
+    Entry beats senior — 'Jr. Manager' and 'Product Manager Intern' are entry.
+    """
     if ENTRY_RE.search(title):
         return "entry"
+    if SENIOR_RE.search(title):
+        return "senior"
     if ASSOC_RE.search(title):
         return "associate"
     return None
