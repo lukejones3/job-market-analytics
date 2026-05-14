@@ -124,6 +124,17 @@ def build_report() -> str:
     """)
     enrich = cur.fetchone()
 
+    # ── 24h salary coverage by source ────────────────────────────────────────
+    cur.execute("""
+        SELECT source,
+            COUNT(*) as new_24h,
+            COUNT(*) FILTER (WHERE salary_max_annual IS NOT NULL) as with_salary_24h
+        FROM job_postings
+        WHERE data_tier=1 AND ingested_at >= now() - interval '24 hours'
+        GROUP BY source ORDER BY new_24h DESC
+    """)
+    salary_24h_rows = cur.fetchall()
+
     # ── Freemium metrics ──────────────────────────────────────────────────────
     cur.execute("""
         SELECT
@@ -147,8 +158,39 @@ def build_report() -> str:
 
     conn.close()
 
+    # ── Salary gap day-over-day delta ─────────────────────────────────────────
+    salary_gap_today = enrich[2]
+    salary_gap_file = Path("/opt/job-market-analytics/logs/salary_gap_yesterday.txt")
+    salary_gap_yesterday = None
+    try:
+        if salary_gap_file.exists():
+            salary_gap_yesterday = int(salary_gap_file.read_text().strip())
+    except Exception:
+        pass
+    try:
+        salary_gap_file.write_text(str(salary_gap_today))
+    except Exception:
+        pass
+
     # ── Build HTML email ──────────────────────────────────────────────────────
     date_str = now.strftime("%A, %B %d %Y")
+
+    salary_24h_html_rows = ""
+    for src, n24, s24 in salary_24h_rows:
+        pct = round(s24 / n24 * 100) if n24 else 0
+        color = "#d4edda" if pct >= 50 else "#fff3cd" if pct >= 20 else "#f8d7da"
+        salary_24h_html_rows += (
+            f"<tr style='background:{color}'>"
+            f"<td>{src}</td><td>{n24:,}</td>"
+            f"<td><b>{s24:,}</b> ({pct}%)</td></tr>"
+        )
+
+    if salary_gap_yesterday is not None:
+        trend_arrow = "↑" if salary_gap_today > salary_gap_yesterday else "↓" if salary_gap_today < salary_gap_yesterday else "→"
+        trend_color = "red" if salary_gap_today > salary_gap_yesterday * 1.2 else "green" if salary_gap_today < salary_gap_yesterday else "#888"
+        gap_trend_str = f'<span style="color:{trend_color}"> {trend_arrow} {abs(salary_gap_today - salary_gap_yesterday):,} vs yesterday</span>'
+    else:
+        gap_trend_str = "<span style='color:#888'>(no prior baseline)</span>"
 
     source_rows = ""
     for source, active, with_sal, last_seen in sources:
@@ -179,6 +221,14 @@ def build_report() -> str:
         alerts.append(f"⚠️ <b>{expired_today:,} jobs expired</b> in last 24h — possible ingestion issue")
     if enrich[0] > 200:
         alerts.append(f"🎓 <b>{enrich[0]:,} jobs</b> missing experience level")
+    if salary_gap_yesterday is not None and salary_gap_yesterday > 0:
+        gap_delta_pct = (salary_gap_today - salary_gap_yesterday) / salary_gap_yesterday * 100
+        if gap_delta_pct > 20:
+            alerts.append(
+                f"⚠️ <b>Salary gap rose {gap_delta_pct:.0f}%</b> "
+                f"({salary_gap_yesterday:,} → {salary_gap_today:,} jobs with $-but-no-salary) "
+                f"— possible new ATS format not handled"
+            )
     if not alerts:
         alerts.append("✅ No anomalies detected")
 
@@ -225,8 +275,18 @@ def build_report() -> str:
 <p style="font-size: 14px;">
     Missing experience level: <b>{enrich[0]:,}</b> &nbsp;|&nbsp;
     Missing workplace type: <b>{enrich[1]:,}</b> &nbsp;|&nbsp;
-    Salary language but null: <b>{enrich[2]:,}</b>
+    Salary language but null: <b>{salary_gap_today:,}</b> {gap_trend_str}
 </p>
+
+<h3>Salary Coverage — Last 24h by Source</h3>
+<table style="width:100%; border-collapse: collapse; font-size: 13px;">
+    <tr style="background: #6C3CE1; color: white;">
+        <th style="padding: 6px; text-align:left;">Source</th>
+        <th style="padding: 6px;">New Jobs</th>
+        <th style="padding: 6px;">With Salary</th>
+    </tr>
+    {salary_24h_html_rows if salary_24h_html_rows else '<tr><td colspan=3 style="padding:6px;color:#888">No jobs ingested in last 24h</td></tr>'}
+</table>
 
 <h3>Freemium</h3>
 <div style="background: #f0f8e8; border-left: 4px solid #6fb83a; padding: 10px 14px; margin-bottom: 14px; font-size: 14px;">

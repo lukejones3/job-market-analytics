@@ -844,9 +844,13 @@ except ImportError:
 
 _LLM_CAP = int(os.environ["ENRICH_MAX_LLM_CALLS"]) if os.environ.get("ENRICH_MAX_LLM_CALLS") else None
 _llm_state = {"calls": 0, "cap_warned": False}
+# Set True via --no-llm flag; overrides _LLM_CAP and skips all LLM queuing
+_NO_LLM: bool = False
 
 
 def _llm_allowed() -> bool:
+    if _NO_LLM:
+        return False
     if _LLM_CAP is None:
         return True
     if _llm_state["calls"] >= _LLM_CAP:
@@ -1073,23 +1077,41 @@ def _try_single_value(tline: str, low: str):
 
     # "base salary for this role is $X", "typical base pay ... is $X"
     # Covers cases where intermediate words appear between label and value
+    # Guard checks only the 40-char vicinity of the match, not the full paragraph,
+    # so "salary range" appearing 100+ chars later doesn't block a valid single value.
     m = re.search(
         r"(?:base\s+)?(?:salary|pay|compensation)\b.{0,50}?\bis\b\s+\$\s*([\d,\.]+[kKmM]?)",
         tline, re.IGNORECASE)
-    if m and not re.search(r"range|band\b", tline, re.IGNORECASE):
-        v = _to_dec(m.group(1))
-        if v and v >= 50000:
-            return v, v, "year"
+    if m:
+        vicinity = tline[max(0, m.start() - 10):m.end() + 40]
+        if not re.search(r"range|band\b", vicinity, re.IGNORECASE):
+            v = _to_dec(m.group(1))
+            if v and v >= 50000:
+                return v, v, "year"
 
     # Single labeled: Compensation: $X or Salary: $X (no range indicator)
     # Lookahead instead of \s*$ so mid-line values match: "Base Salary: $85,000. Benefits..."
+    # Guard scoped to 40-char vicinity of the match so distant "salary range" text doesn't block it.
     m = re.search(
         r"(?:compensation|salary)[:\s]+\$\s*([\d,\.]+[kKmM]?)(?:\s*(?:USD|per\s+year|annually|/yr))?(?=[\s.,+\-]|$)",
         tline, re.IGNORECASE)
-    if m and not re.search(r"range|band|package", tline, re.IGNORECASE):
+    if m:
+        vicinity = tline[max(0, m.start() - 10):m.end() + 40]
+        if not re.search(r"range|band|package", vicinity, re.IGNORECASE):
+            v = _to_dec(m.group(1))
+            if v and v >= 50000:
+                return v, v, "year"
+
+    # "Base Pay: $X" or "Pay Rate: $X" — single labeled hourly or annual
+    m = re.search(
+        r"(?:base\s+pay|pay\s+rate)[:\s]+\$\s*([\d,\.]+[kKmM]?)(?:\s*(?:USD|per\s+year|annually|/yr|/hr|/hour|per\s+hour))?(?=[\s.,+\-]|$)",
+        tline, re.IGNORECASE)
+    if m:
         v = _to_dec(m.group(1))
-        if v and v >= 50000:
-            return v, v, "year"
+        if v:
+            p = _period_from_context(tline, v)
+            if p and _sanity(v, v, p):
+                return v, v, p
 
     # $X/hour single
     m = re.search(r"\$\s*([\d,\.]+)\s*/\s*hou", tline, re.IGNORECASE)
@@ -2475,13 +2497,13 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
 
         # Salary LLM: needed when regex found nothing and job has no salary yet
         salary_snippet = None
-        if pj.salary_min is None and job["salary_min"] is None:
+        if not _NO_LLM and pj.salary_min is None and job["salary_min"] is None:
             raw_stripped = strip_linkedin_chrome(desc)
             salary_snippet = _salary_llm_snippet(raw_stripped)
             if salary_snippet:
                 pending_salary_llm.append((job_id, salary_snippet))
 
-        # Role category: check memory cache first, queue LLM if miss
+        # Role category: cache lookup always runs; LLM queue only when enabled
         cat_from_cache = None
         needs_classify = False
         role_name_for_cls = ""
@@ -2489,7 +2511,7 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
         company_lower = ""
         role_lower = ""
 
-        if _LLM_AVAILABLE and only_missing and job_domain is not None:
+        if only_missing and job_domain is not None:
             existing_cat = job["role_category"] if "role_category" in job.keys() else None
             if existing_cat is None:
                 role_name_for_cls = (job["role_name"] if "role_name" in job.keys() else None) or pj.title or ""
@@ -2499,7 +2521,7 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                     role_lower = role_name_for_cls.strip().lower()
                     ck = (company_lower, role_lower)
                     cat_from_cache = cat_cache.get(ck)
-                    if not cat_from_cache:
+                    if not cat_from_cache and _LLM_AVAILABLE and not _NO_LLM:
                         needs_classify = True
                         pending_classify.append((job_id, role_name_for_cls, desc, job_domain, company_for_cls))
 
@@ -2522,7 +2544,7 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
     llm_classify_results = {}  # job_id -> category str or None
     llm_salary_results = {}    # job_id -> (lo, hi, period) or None
 
-    if _LLM_AVAILABLE and (pending_classify or pending_salary_llm):
+    if _LLM_AVAILABLE and not _NO_LLM and (pending_classify or pending_salary_llm):
         budget = (_LLM_CAP - _llm_state["calls"]) if _LLM_CAP is not None else (len(pending_classify) + len(pending_salary_llm))
         classify_to_run = pending_classify[:max(0, budget)]
         salary_budget = max(0, budget - len(classify_to_run))
@@ -2684,7 +2706,12 @@ def main():
     ap.add_argument("--rescan-salary", action="store_true", help="Re-scan salary for jobs with no salary but salary text in description")
     ap.add_argument("--batch", action="store_true", help="Use Anthropic Batch API for LLM calls (async, cheaper, for large backfills)")
     ap.add_argument("--skills-only", action="store_true", help="Regex skill extraction only — skips Phase 2 entirely (no classify_role, no salary LLM, no scalar field updates)")
+    ap.add_argument("--no-llm", action="store_true", help="Disable all LLM calls; regex + heuristics only. Role classification falls back to cache/heuristics.")
     args = ap.parse_args()
+
+    if args.no_llm:
+        global _NO_LLM
+        _NO_LLM = True
 
     enrich_jobs(limit=args.limit, apply=args.apply, only_missing=args.only_missing, rescan_skills=args.rescan_skills, rescan_salary=args.rescan_salary, use_batch=args.batch, skills_only=args.skills_only)
 

@@ -51,6 +51,32 @@ Public freemium launch: **May 2, 2026.**
 
 Built solo by [Luke Jones](https://linkedin.com/in/luke-j-78a02121b) — finance major who learned Python, SQL, and infrastructure from scratch in 4 months specifically to build this. The product itself is a system improvement on the broken job search experience.
 
+## Ops Notes
+
+### Enrichment pipeline
+
+The enrichment cron (`enrich_job_postings.py`) runs **daily at 06:30 UTC** with `--no-llm --limit 5000`.
+LLM role classification is disabled. The pipeline uses regex + heuristics + the `cat_cache` (46k+ entries) for classification.
+
+**To re-enable LLM** (when Anthropic credits are restored):
+1. Remove `--no-llm` from the cron line in `crontab.txt`
+2. Add `ENRICH_MAX_LLM_CALLS=10000` before the command, or export it in the environment
+3. Install new crontab on the droplet: `crontab crontab.txt`
+
+### Salary fixtures
+
+Salary parser regression tests live in `python/test_salary_parser.py`. Run locally with:
+
+```
+python python/test_salary_parser.py
+```
+
+CI runs these automatically (via `.github/workflows/test-salary-parser.yml`) on every push or PR that touches `enrich_job_postings.py` or the test file. To add a new fixture, append a `(name, text, exp_min, exp_max, exp_period)` tuple to the `TESTS` list in `test_salary_parser.py`.
+
+### Morning report
+
+Sent daily at 08:30 UTC via Resend. Includes a "Salary Coverage — Last 24h by Source" table and a day-over-day delta on the salary-gap indicator (jobs with `$` in description but no salary parsed). A >20% rise in that indicator is flagged as a likely new ATS format or regex gap.
+
 ## Contact
 
 [jones31luke@gmail.com](mailto:jones31luke@gmail.com)
