@@ -2037,18 +2037,212 @@ def parse_dimensions(desc: str, *, skip_salary_llm: bool = False) -> ParsedJob:
 # ASYNC LLM HELPERS
 # ============================================================
 
-def _load_cat_cache(cur) -> dict:
-    """Pre-load role_category_cache into memory: {(company_lower, role_lower): category}."""
+def _load_cat_cache(cur) -> tuple[dict, dict]:
+    """Pre-load role_category_cache into memory.
+
+    Returns:
+        company_role_cache: {(company_lower, role_lower): category}
+        role_name_cache:    {role_lower: category} — majority-vote fallback (>=5 samples, >=85% agreement)
+    """
     try:
         cur.execute("""
             SELECT company_lower, role_lower, role_category
             FROM role_category_cache
             WHERE cached_at > NOW() - INTERVAL '30 days'
         """)
-        return {(r[0], r[1]): r[2] for r in cur.fetchall()}
+        rows = cur.fetchall()
     except Exception as e:
         log.warning(f"Failed to load role_category_cache: {e}")
-        return {}
+        return {}, {}
+
+    company_role_cache = {(r[0], r[1]): r[2] for r in rows}
+
+    # Build role-name-only majority vote from the same data
+    from collections import Counter
+    role_counts: dict[str, Counter] = {}
+    for _, role_lower, category in rows:
+        role_counts.setdefault(role_lower, Counter())[category] += 1
+
+    role_name_cache: dict[str, str] = {}
+    for role_lower, counter in role_counts.items():
+        total = sum(counter.values())
+        if total < 5:
+            continue
+        top_cat, top_n = counter.most_common(1)[0]
+        if top_n / total >= 0.85:
+            role_name_cache[role_lower] = top_cat
+
+    return company_role_cache, role_name_cache
+
+
+# ── Title normalisation helpers ───────────────────────────────────────────────
+
+_RE_SENIORITY_PREFIX = re.compile(
+    r"^(?:sr\.?|junior|jr\.?|lead|staff|principal|head\s+of|director\s+of"
+    r"|vp\s+of|vice\s+president\s+of|managing|associate|mid[- ]?level"
+    r"|founding|experienced|distinguished|senior)\s+",
+    re.IGNORECASE,
+)
+_RE_SEGMENT_SUFFIX = re.compile(
+    r"[\s,\-–]+(?:enterprise|smb|mid[- ]?market|commercial|strategic"
+    r"|federal|sled|public\s+sector|emea|apj|latam|amer|global"
+    r"|online|remote|digital|i{1,3}|ii+)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _strip_seniority(s: str) -> str:
+    return _RE_SENIORITY_PREFIX.sub("", s).strip()
+
+
+def _strip_segment(s: str) -> str:
+    return _RE_SEGMENT_SUFFIX.sub("", s.split(",")[0]).strip()
+
+
+# ── Title-based heuristic classifier ─────────────────────────────────────────
+# Ordered most-specific → least-specific within each domain.
+# Domain is used to prevent cross-domain false positives.
+# Returns None when confidence is too low to commit.
+
+_TITLE_RULES: dict[str, list[tuple[re.Pattern, str]]] = {}
+
+
+def _build_title_rules() -> dict[str, list[tuple[re.Pattern, str]]]:
+    def p(pattern: str) -> re.Pattern:
+        return re.compile(pattern, re.IGNORECASE)
+
+    return {
+        "engineering": [
+            (p(r"(engineering|software|technical)\s+manager\b|director\s+of\s+(engineering|software)\b"
+               r"|head\s+of\s+(engineering|software)\b|(vp|vice\s+president)\s+of?\s+(engineering|software)\b"),
+             "engineering_manager"),
+            (p(r"\bsre\b|site\s+reliability"), "sre"),
+            (p(r"\bdevops\b|dev\s*ops\b|ci/?cd\b|release\s+engineer\b|build\s+engineer\b"), "devops"),
+            (p(r"\bplatform\s+engineer|\binfra(?:structure)?\s+engineer|\bcloud\s+engineer\b"
+               r"|internal\s+tools?\s+engineer"), "platform"),
+            (p(r"\bios\s+(?:engineer|dev)\b|\bandroid\s+(?:engineer|dev)\b"
+               r"|\breact\s+native\b|\bmobile\s+(?:engineer|developer)\b"), "mobile"),
+            (p(r"\bsecurity\s+engineer\b|\bappsec\b|\bapplication\s+security\b"
+               r"|\bpen\s+test|\bpenetration\b|\bcybersecurity\s+engineer\b"), "security"),
+            (p(r"\bembedded\b|\bfirmware\b|\brtos\b|\bhardware.{0,5}software\b"), "embedded"),
+            (p(r"\bqa\s+(?:engineer|analyst)\b|\bsdet\b|\bquality\s+(?:assurance|engineer)\b"
+               r"|\btest\s+engineer\b|\bautomation\s+engineer\b"), "qa"),
+            (p(r"\bfrontend\b|\bfront[- ]end\b|\bui\s+engineer\b"
+               r"|\breact\s+engineer\b|\bjavascript\s+engineer\b|\bweb\s+developer\b"), "frontend"),
+            (p(r"\bfullstack\b|\bfull[- ]stack\b"), "fullstack"),
+            (p(r"\bbackend\b|\bback[- ]end\b|\bapi\s+engineer\b|\bserver[- ]side\b"), "backend"),
+            (p(r"\bsoftware\s+(?:engineer|developer|architect)\b|\bswe\b|\bsde\b"
+               r"|\bsystems?\s+engineer\b|\btechnical\s+lead\b|\btech\s+lead\b"), "general"),
+        ],
+        "sales": [
+            (p(r"vp\s+(?:of\s+)?sales\b|head\s+of\s+sales\b|chief\s+revenue\b"
+               r"|director\s+of\s+sales\b|sales\s+director\b"
+               r"|(?:regional|area|district|national)\s+(?:sales\s+)?manager\b"), "sales_leadership"),
+            (p(r"(?:revenue|sales)\s+op(?:eration)?s?\b|\brevops\b|sales\s+enablement\b"), "sales_ops"),
+            (p(r"(?:sales|solutions?|pre[- ]?sales)\s+engineer\b|solutions?\s+architect\b"), "sales_engineering"),
+            (p(r"\bsdr\b|\bbdr\b|sales\s+development\b|business\s+development\s+rep"
+               r"|outbound\s+(?:sales|rep)\b"), "bdr_sdr"),
+            (p(r"customer\s+success\b|\bcsm\b|client\s+success\b"
+               r"|implementation\s+(?:manager|specialist)|onboarding\s+manager\b"), "customer_success"),
+            (p(r"(?:key\s+)?account\s+manager\b|renewals?\s+manager\b|client\s+relationship"), "account_management"),
+            (p(r"account\s+executive\b|territory\s+(?:executive|rep|manager)\b"
+               r"|enterprise\s+(?:executive|representative)\b"), "account_executive"),
+            # Generic sales reps — quota-carrying individual contributors
+            (p(r"sales\s+representative\b|sales\s+rep\b|field\s+sales\b|outside\s+sales\b"
+               r"|inside\s+sales\b|venue\s+sales\b|roofing\s+sales\b|insurance\s+(?:sales|agent)"
+               r"|outside\s+account\b"), "account_executive"),
+        ],
+        "data_ml": [
+            (p(r"(?:ai|ml|machine\s+learning|deep\s+learning)\s+research(?:er|scientist)?\b"
+               r"|research\s+scientist\b"), "ai_research"),
+            (p(r"analytics\s+engineer(?:ing)?\b"), "analytics_engineering"),
+            (p(r"(?:machine\s+learning|ml|ai)\s+engineer(?:ing)?\b"
+               r"|\bapplied\s+(?:ml|machine\s+learning|scientist)\b"
+               r"|\bai\s+engineer\b"), "ml_engineering"),
+            (p(r"data\s+engineer(?:ing)?\b|\betl\s+engineer\b"
+               r"|data\s+(?:platform|pipeline|infrastructure)\s+engineer"), "data_engineering"),
+            (p(r"data\s+scien(?:tist|ce)\b|quantitative\s+(?:analyst|researcher)\b"), "data_science"),
+            (p(r"data\s+anal(?:yst|ytics)\b|analytics\s+anal(?:yst|ytics)\b"
+               r"|\bbi\s+(?:analyst|developer|engineer)\b|\bbusiness\s+intelligence\b"
+               r"|business\s+anal(?:yst|ytics)\b"), "data_analytics"),
+        ],
+        "finance": [
+            (p(r"\btax\b"), "tax"),
+            (p(r"\btreasury\b|cash\s+management\b|\baudit\b|\bauditor\b"), "accounting"),
+            (p(r"\baccountan\w+\b|\baccounting\b|\bcpa\b|\bcontroller\b|\bbookkeeper\b"
+               r"|\bstaff\s+accountant\b"), "accounting"),
+            (p(r"financial\s+anal(?:yst|ysis)\b|fp\s*[&a]+\b|financial\s+planning\b"
+               r"|finance\s+(?:manager|analyst)\b|financial\s+manager\b"), "fpa"),
+            (p(r"investment\b|portfolio\s+manager\b|asset\s+manager\b"), "fpa"),
+        ],
+        "marketing": [
+            (p(r"product\s+market(?:ing|er)\b|\bpmm\b"), "product_marketing"),
+            (p(r"performance\s+market(?:ing|er)\b|paid\s+(?:search|social|media)\b"
+               r"|\bsem\b|\bppc\b|search\s+engine\s+market"), "performance"),
+            (p(r"lifecycle\s+market(?:ing|er)\b|email\s+market(?:ing|er)\b"
+               r"|crm\s+manager\b|retention\s+market(?:ing|er)\b"), "lifecycle"),
+            (p(r"content\s+(?:market(?:ing|er)|manager|strategist|writer)\b|\bcopywriter\b"), "content"),
+            (p(r"marketing\s+op(?:eration)?s?\b|\bmartech\b|marketing\s+technolog"), "marketing_ops"),
+            (p(r"communications?\s+(?:manager|director|specialist)\b"
+               r"|public\s+relations\b|\bpr\s+manager\b|corporate\s+communications?"), "communications"),
+            (p(r"brand\s+(?:manager|director|market(?:ing|er))\b"), "brand_design"),
+            (p(r"influencer\s+market|social\s+media\s+manager\b|digital\s+market(?:ing|er)\b"
+               r"|field\s+market(?:ing|er)\b|growth\s+market(?:ing|er)\b"
+               r"|head\s+of\s+market|vp\s+of\s+market|director\s+of\s+market"
+               r"|market(?:ing)?\s+manager\b"), "growth"),
+        ],
+        "product": [
+            (p(r"(?:technical|engineering|platform)\s+program\s+manager\b|\btpm\b"), "technical_pm"),
+            (p(r"product\s+manager\b|director\s+of\s+product\b|head\s+of\s+product\b"
+               r"|vp\s+of\s+product\b|product\s+(?:lead|director|owner)\b"), "product_management"),
+            (p(r"program\s+manager\b|project\s+manager\b"), "technical_pm"),
+        ],
+        "design": [
+            (p(r"(?:ux|user(?:\s+experience)?|usability)\s+research(?:er)?\b"), "ux_research"),
+            (p(r"(?:graphic|visual|brand|creative)\s+design(?:er)?\b"
+               r"|creative\s+director\b|art\s+director\b"), "brand_design"),
+            (p(r"(?:product|ux|ui|interaction|user\s+experience)\s+design(?:er)?\b"), "product_design"),
+        ],
+        "ops": [
+            (p(r"executive\s+assistant\b|chief\s+of\s+staff\b|administrative\s+assistant\b"), "executive_support"),
+            (p(r"\brecruiter\b|talent\s+acqui(?:sition|re)\w*\b|\bsourcer\b|talent\s+partner\b"
+               r"|(?:recruiting|talent)\s+coordinator\b|(?:gtm|technical|senior)\s+recruiter\b"), "talent_acquisition"),
+            (p(r"people\s+ops?\b|hr\s+(?:manager|business\s+partner|director)\b|\bhrbp\b"
+               r"|human\s+resources\b|people\s+(?:partner|team|lead)\b"), "people_ops"),
+            (p(r"program\s+manager\b|project\s+manager\b"), "business_ops"),
+            (p(r"operations?\s+manager\b|biz\s*ops?\b|business\s+operations?\b"
+               r"|strategy\s+(?:and|&)\s+operations?\b|general\s+manager\b"), "business_ops"),
+        ],
+    }
+
+
+def _classify_by_title_heuristic(role_lower: str, domain) -> "str | None":
+    """Return a role_category from title + domain using ordered regex rules.
+
+    Only called when both cache lookups (company+role, role-only) miss.
+    Returns None when no pattern matches — better to leave NULL than misclassify.
+    """
+    global _TITLE_RULES
+    if not _TITLE_RULES:
+        _TITLE_RULES = _build_title_rules()
+
+    rules = _TITLE_RULES.get(domain or "", [])
+    for pattern, category in rules:
+        if pattern.search(role_lower):
+            return category
+
+    # Cross-domain catch for very obvious patterns that domain classifier may have
+    # assigned slightly wrong (e.g. 'ai engineer' landing in engineering domain)
+    if re.search(r"\bai\s+engineer\b|\bml\s+engineer\b|\bmachine\s+learning\s+engineer\b", role_lower, re.IGNORECASE):
+        return "ml_engineering"
+    if re.search(r"\bdata\s+engineer\b", role_lower, re.IGNORECASE):
+        return "data_engineering"
+    if re.search(r"\bdata\s+scientist\b", role_lower, re.IGNORECASE):
+        return "data_science"
+    if re.search(r"\bdata\s+analyst\b", role_lower, re.IGNORECASE):
+        return "data_analytics"
+
+    return None
 
 
 async def _one_classify(job_id, role_name, desc, domain, company, client, sem):
@@ -2299,7 +2493,10 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
     skill_aliases = load_skill_aliases_from_db(cur)
 
     # Pre-load role_category cache into memory (eliminates per-job DB round-trips)
-    cat_cache = _load_cat_cache(cur) if only_missing else {}
+    if only_missing:
+        cat_cache, role_name_cache = _load_cat_cache(cur)
+    else:
+        cat_cache, role_name_cache = {}, {}
 
     # ── Select jobs ────────────────────────────────────────────────────────────
     if rescan_salary:
@@ -2406,7 +2603,7 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
         )
         jobs = cur.fetchall()
 
-    print(f"Fetched {len(jobs):,} jobs. cat_cache={len(cat_cache):,} entries.")
+    print(f"Fetched {len(jobs):,} jobs. cat_cache={len(cat_cache):,} entries, role_name_cache={len(role_name_cache):,} titles.")
 
     # ── Pre-pass: classify NULL-domain jobs before Phase 1 skill gate ─────────
     # Jobs that arrived with domain=NULL skip skill extraction and LLM role_category.
@@ -2521,6 +2718,20 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                     role_lower = role_name_for_cls.strip().lower()
                     ck = (company_lower, role_lower)
                     cat_from_cache = cat_cache.get(ck)
+                    if not cat_from_cache:
+                        # Role-name-only: exact, then seniority-stripped, then segment-stripped, then both
+                        stripped_sen = _strip_seniority(role_lower)
+                        stripped_seg = _strip_segment(role_lower)
+                        stripped_both = _strip_seniority(stripped_seg)
+                        cat_from_cache = (
+                            role_name_cache.get(role_lower)
+                            or role_name_cache.get(stripped_sen)
+                            or role_name_cache.get(stripped_seg)
+                            or role_name_cache.get(stripped_both)
+                            or _classify_by_title_heuristic(role_lower, job_domain)
+                            or _classify_by_title_heuristic(stripped_sen, job_domain)
+                            or _classify_by_title_heuristic(stripped_both, job_domain)
+                        )
                     if not cat_from_cache and _LLM_AVAILABLE and not _NO_LLM:
                         needs_classify = True
                         pending_classify.append((job_id, role_name_for_cls, desc, job_domain, company_for_cls))
@@ -2610,6 +2821,18 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
             if sr["cat_from_cache"]:
                 fields.extend(["role_category=%s", "role_classified_at=NOW()"])
                 params.append(sr["cat_from_cache"])
+                # If this hit came from the role-name fallback, prime the company+role key
+                # so future lookups use the faster specific path.
+                if apply and sr["company_lower"] and sr["role_lower"] and \
+                        (sr["company_lower"], sr["role_lower"]) not in cat_cache:
+                    try:
+                        cur.execute("""
+                            INSERT INTO role_category_cache (company_lower, role_lower, role_category, cached_at)
+                            VALUES (%s, %s, %s, NOW())
+                            ON CONFLICT (company_lower, role_lower) DO NOTHING
+                        """, (sr["company_lower"], sr["role_lower"], sr["cat_from_cache"]))
+                    except Exception as _e:
+                        log.warning(f"role_category_cache prime failed: {_e}")
             elif job_id in llm_classify_results and llm_classify_results[job_id]:
                 cat_val = llm_classify_results[job_id]
                 fields.extend(["role_category=%s", "role_classified_at=NOW()"])
