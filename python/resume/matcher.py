@@ -19,6 +19,17 @@ Returns top N jobs with breakdown.
 from typing import Dict, List, Set, Optional, Any
 from datetime import datetime, timedelta
 
+try:
+    from company_blocklist import ABSOLUTE_BLOCK as _ABSOLUTE_BLOCK
+except ImportError:
+    import os as _os, sys as _sys
+    _parent = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    if _parent not in _sys.path:
+        _sys.path.insert(0, _parent)
+    from company_blocklist import ABSOLUTE_BLOCK as _ABSOLUTE_BLOCK
+
+_BLOCKED_LOWER = [name.lower() for name in _ABSOLUTE_BLOCK]
+
 
 EXP_ORDER = {"entry": 0, "associate": 1, "mid": 2, "senior": 3}
 
@@ -162,13 +173,14 @@ def match_jobs(
           AND COALESCE(jp.data_tier, 1) = 1
           AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
           AND (jp.role_category IS NULL OR jp.role_category != 'non_data')
+          AND LOWER(c.company_name) != ALL(%s)
         GROUP BY
             jp.job_id, jp.experience_level, jp.salary_min_annual, jp.salary_max_annual,
             jp.workplace_type, jp.ingested_at, jp.job_url,
             jp.loc_city, jp.loc_state, jp.loc_country,
             r.role_name, c.company_name, c.sector, jh.honesty_score
         HAVING COUNT(DISTINCT js.skill_id) > 0
-    """)
+    """, (_BLOCKED_LOWER,))
 
     rows = db_cursor.fetchall()
     matches = []
@@ -298,14 +310,16 @@ def find_skill_gaps(
                 '{}'::text[]
             ) AS skill_ids
         FROM job_postings jp
+        LEFT JOIN companies c ON c.company_id = jp.company_id
         LEFT JOIN job_skills js ON js.job_id = jp.job_id
         WHERE jp.status = 'raw'
           AND COALESCE(jp.data_tier, 1) = 1
           AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
           AND (jp.role_category IS NULL OR jp.role_category != 'non_data')
+          AND LOWER(c.company_name) != ALL(%s)
         GROUP BY jp.job_id, jp.experience_level, jp.salary_min_annual, jp.salary_max_annual
         HAVING COUNT(DISTINCT js.skill_id) > 0
-    """)
+    """, (_BLOCKED_LOWER,))
 
     rows = db_cursor.fetchall()
 

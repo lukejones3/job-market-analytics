@@ -124,9 +124,7 @@ FOREIGN_COUNTRY_RE = re.compile(
     r"cairo|"  # Egypt (already in list but ensure)
     # Workday-style foreign country codes
     r"in-[a-z]{2}|"  # India regions like IN-MH (Maharashtra)
-    r"de-[a-z]{2}|fr-[a-z]{2}|uk-[a-z]{2}|ie-[a-z]{2}|"
-    # Explicit international markers
-    r"international|remote - international|remote international"
+    r"de-[a-z]{2}|fr-[a-z]{2}|uk-[a-z]{2}|ie-[a-z]{2}"
     r")\b",
     re.IGNORECASE,
 )
@@ -168,7 +166,7 @@ FOREIGN_ISO_CODES = _FOREIGN_ISO_CANDIDATES - _US_STATE_CODES_LOWER
 
 # "in" (India) and "ca" (Canada) were removed from FOREIGN_ISO_CODES because they collide
 # with US state codes IN (Indiana) and CA (California). Keep them here for context-sensitive checks.
-_COLLIDING_COUNTRY_ISO = frozenset({"in", "ca"})
+_COLLIDING_COUNTRY_ISO = frozenset({"in", "ca", "id"})
 
 # Workday office code suffix: "Mountain View (US-MTV-EMF680)"
 WORKDAY_OFFICE_SUFFIX_RE = re.compile(r"\s*\((?:US-)[A-Z]{2,4}-?[A-Z0-9-]+\)\s*$")
@@ -415,6 +413,8 @@ def normalize_location(
         rest = raw_clean[6:].strip(" -()")
         if not rest or US_EXPLICIT_RE.search(rest.lower()):
             return NormalizedLocation(None, None, "US", True)
+        if re.match(r"^international$", rest, re.IGNORECASE):
+            return NormalizedLocation(None, None, "unknown", True)
         if FOREIGN_COUNTRY_RE.search(rest.lower()):
             return NormalizedLocation(None, None, "foreign", True)
         # Generic "Remote - <something>" — assume US-remote
@@ -422,6 +422,14 @@ def normalize_location(
 
     # "N Locations" placeholder
     if N_LOCATIONS_RE.match(raw_clean):
+        return NormalizedLocation(None, None, "unknown", is_remote)
+
+    # "Anywhere in United States" → US, no specific city
+    if re.match(r"^anywhere\s+in\s+(?:the\s+)?(?:united states(?: of america)?|usa?)\b", raw_clean, re.IGNORECASE):
+        return NormalizedLocation(None, None, "US", is_remote)
+
+    # "International" / "Remote - International" = global scope, not a specific foreign country
+    if re.match(r"^(?:remote\s*[-–]\s*)?international$", raw_clean.strip(), re.IGNORECASE):
         return NormalizedLocation(None, None, "unknown", is_remote)
 
     # ---- Remote shortcut ----
@@ -678,7 +686,10 @@ def _run_tests():
         # Remote
         ("Remote", "remote", None, None, "US", True, False),
         ("Remote - US", "remote", None, None, "US", True, False),
-        ("Remote - International", "remote", None, None, "foreign", True, True),
+        ("Remote - International", "remote", None, None, "unknown", True, False),
+        ("International", None, None, None, "unknown", False, False),
+        ("International", "remote", None, None, "unknown", True, False),
+        ("Remote - International", None, None, None, "unknown", True, False),
         ("", "remote", None, None, "US", True, False),
         (None, "remote", None, None, "US", True, False),
         ("Remote (United States)", None, None, None, "US", True, False),  # parser correctly infers remote
@@ -751,7 +762,9 @@ def _run_tests():
         # New York variants in different orders
         ("New York, NEW YORK, us", None, "New York", "NY", "US", False, False),
         ("New York, New York, United States of America", None, "New York", "NY", "US", False, False),
-        # Junk
+        # Junk / scope placeholders
+        ("Anywhere in United States", None, None, None, "US", False, False),
+        ("Anywhere in the United States", None, None, None, "US", False, False),
         ("2 Locations", None, None, None, "unknown", False, False),
         ("3 locations", None, None, None, "unknown", False, False),
         ("Headquarters", None, None, None, "unknown", False, False),
@@ -779,6 +792,7 @@ def _run_tests():
         ("Tel Aviv", None, None, None, "foreign", False, True),
         # Indonesia still caught via city name
         ("Jakarta", None, None, None, "foreign", False, True),
+        ("Jakarta, ID", None, None, None, "foreign", False, True),  # Bug 2 regression: 'ID' was Idaho-colliding
         # Tunisia/Morocco caught via country name (need to add)
         # Inverse-bucket patterns (US jobs that were getting tagged unknown)
         ("Austin- TX", None, "Austin", "TX", "US", False, False),

@@ -3049,6 +3049,8 @@ def run_ingestion(source: str, apply: bool) -> None:
     _seen_job_ids = set()  # job_ids to touch last_seen_at in batch
 
     for job in deduped:
+        if is_company_blocked(job.company):
+            continue
         loc_key = _norm_location(job)
         cross_key = (
             job.company.lower().strip(),

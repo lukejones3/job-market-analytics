@@ -61,6 +61,38 @@ ABSOLUTE_BLOCK: set[str] = {
 
     # German fintech (Scalable Capital) — 41.4% non-US city, same normalizer bug. Wrong market.
     "Scalablegmbh",
+
+    # French mobile game developer (Paris) — 96.6% foreign, 57/59 active rows loc_country='foreign'.
+    "Voodoo",
+
+    # Philippines IT outsourcing firm — 93.1% foreign, 54/58 rows loc_country='foreign'.
+    "Truelogic",
+
+    # UK fintech (London) — 89.2% foreign, 33/37 rows loc_country='foreign'. No US presence.
+    "Lendable",
+
+    # Canadian POS/commerce platform (Montreal) — 88.6% foreign, 78/88 rows loc_country='foreign'.
+    "Lightspeedhq",
+
+    # UK food delivery (London) — 88.1% foreign, 37/42 rows loc_country='foreign'. No US presence.
+    "Deliveroo",
+
+    # Dutch bank (Amsterdam) — 86.8% foreign, 46/53 rows loc_country='foreign'. Wrong market.
+    "ING",
+
+    # Canadian travel company (Montreal) — 73.3% foreign, 44/60 rows loc_country='foreign'.
+    "Hopper",
+
+    # UK blockchain analytics (London) — 72.2% foreign, 26/36 rows loc_country='foreign'.
+    "Elliptic",
+
+    # Italian LMS company (Milan/Montreal) — 93.3% foreign, 28/30 rows loc_country='foreign'.
+    # Only 1 US-city row (Indianapolis, loc_country='unknown'). DACH-titled roles throughout.
+    "Docebo",
+
+    # Australian telehealth company — company name literally contains '.au' domain.
+    # 67.2% foreign, 39/58 rows loc_country='foreign'. Wrong market entirely.
+    "Heidihealth.Com.Au",
 }
 
 # Lowercased version for fast case-insensitive lookup.
