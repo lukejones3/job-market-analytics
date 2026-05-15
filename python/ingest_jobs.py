@@ -1438,7 +1438,11 @@ def ingest_job(cur, job: RawJob) -> bool:
         ) VALUES (
             %s, %s, %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s, %s
         )
-        ON CONFLICT (job_id) DO UPDATE SET last_seen_at = now()
+        ON CONFLICT (job_id) DO UPDATE SET
+            last_seen_at = now(),
+            loc_country  = COALESCE(job_postings.loc_country, EXCLUDED.loc_country),
+            loc_city     = COALESCE(job_postings.loc_city,    EXCLUDED.loc_city),
+            loc_state    = COALESCE(job_postings.loc_state,   EXCLUDED.loc_state)
         """,
         (
             job_id,
