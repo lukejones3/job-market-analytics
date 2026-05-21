@@ -116,6 +116,7 @@ def match_jobs(
     salary_floor: Optional[float],
     db_cursor,
     top_n: int = 50,
+    resume_embedding: Optional[List[float]] = None,
 ) -> List[Dict[str, Any]]:
     """Rank active jobs by match score against the resume.
 
@@ -125,6 +126,10 @@ def match_jobs(
         salary_floor: User's salary floor in USD (None = no preference)
         db_cursor: Active psycopg2 cursor
         top_n: How many top matches to return
+        resume_embedding: 384-dim sentence-transformer vector. When provided,
+            pre-ranks via pgvector cosine distance and blends semantic similarity
+            into the score (0.60 * semantic + 0.15 * skill + 0.15 * exp + 0.10 * salary).
+            Falls back to skill-overlap-only scoring when None.
 
     Returns:
         List of dicts, sorted by match_score desc:
@@ -133,66 +138,105 @@ def match_jobs(
             loc_city, loc_state, workplace_type,
             salary_min, salary_max, experience_level,
             quality_score, ingested_at, job_url,
-            match_score, skill_overlap_pct, matched_skills, missing_skills,
-            score_breakdown
+            semantic_similarity, match_score, skill_overlap_pct,
+            matched_skills, missing_skills, score_breakdown
         }
     """
     resume_skill_ids = set(resume_skills.keys())
+    use_embedding = resume_embedding is not None
 
-    # Single query — pull all active tier-1 jobs with their required skills
-    # Filters:
-    #   - foreign drop (loc_country)
-    #   - non_data role categories (excluded; analytics-adjacent stay)
-    #   - jobs with at least 1 skill in our DB (no-skill jobs get filtered by HAVING)
-    db_cursor.execute("""
-        SELECT
-            jp.job_id,
-            jp.experience_level,
-            jp.salary_min_annual,
-            jp.salary_max_annual,
-            jp.workplace_type,
-            jp.ingested_at,
-            jp.job_url,
-            jp.loc_city,
-            jp.loc_state,
-            jp.loc_country,
-            r.role_name,
-            c.company_name,
-            c.sector,
-            jh.honesty_score AS quality_score,
-            COALESCE(
-                ARRAY_AGG(DISTINCT js.skill_id) FILTER (WHERE js.skill_id IS NOT NULL),
-                '{}'::text[]
-            ) AS skill_ids
-        FROM job_postings jp
-        JOIN roles r ON r.role_id = jp.role_id
-        LEFT JOIN companies c ON c.company_id = jp.company_id
-        LEFT JOIN job_skills js ON js.job_id = jp.job_id
-        LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
-        WHERE jp.status = 'raw'
-          AND COALESCE(jp.data_tier, 1) = 1
-          AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
-          AND (jp.role_category IS NULL OR jp.role_category != 'non_data')
-          AND LOWER(c.company_name) != ALL(%s)
-        GROUP BY
-            jp.job_id, jp.experience_level, jp.salary_min_annual, jp.salary_max_annual,
-            jp.workplace_type, jp.ingested_at, jp.job_url,
-            jp.loc_city, jp.loc_state, jp.loc_country,
-            r.role_name, c.company_name, c.sector, jh.honesty_score
-        HAVING COUNT(DISTINCT js.skill_id) > 0
-    """, (_BLOCKED_LOWER,))
+    if use_embedding:
+        emb_str = '[' + ','.join(str(x) for x in resume_embedding) + ']'
+        db_cursor.execute("""
+            SELECT
+                jp.job_id,
+                jp.experience_level,
+                jp.salary_min_annual,
+                jp.salary_max_annual,
+                jp.workplace_type,
+                jp.ingested_at,
+                jp.job_url,
+                jp.loc_city,
+                jp.loc_state,
+                jp.loc_country,
+                r.role_name,
+                c.company_name,
+                c.sector,
+                jh.honesty_score AS quality_score,
+                1 - (jp.embedding <=> %s::vector) AS semantic_similarity,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT js.skill_id) FILTER (WHERE js.skill_id IS NOT NULL),
+                    '{}'::text[]
+                ) AS skill_ids
+            FROM job_postings jp
+            JOIN roles r ON r.role_id = jp.role_id
+            LEFT JOIN companies c ON c.company_id = jp.company_id
+            LEFT JOIN job_skills js ON js.job_id = jp.job_id
+            LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
+            WHERE jp.status = 'raw'
+              AND COALESCE(jp.data_tier, 1) = 1
+              AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
+              AND (jp.role_category IS NULL OR jp.role_category != 'non_data')
+              AND jp.embedding IS NOT NULL
+              AND LOWER(c.company_name) != ALL(%s)
+            GROUP BY
+                jp.job_id, jp.experience_level, jp.salary_min_annual, jp.salary_max_annual,
+                jp.workplace_type, jp.ingested_at, jp.job_url,
+                jp.loc_city, jp.loc_state, jp.loc_country,
+                r.role_name, c.company_name, c.sector, jh.honesty_score, jp.embedding
+            ORDER BY jp.embedding <=> %s::vector
+            LIMIT 200
+        """, (emb_str, _BLOCKED_LOWER, emb_str))
+    else:
+        # Fallback: skill-overlap-only path (no embedding required)
+        db_cursor.execute("""
+            SELECT
+                jp.job_id,
+                jp.experience_level,
+                jp.salary_min_annual,
+                jp.salary_max_annual,
+                jp.workplace_type,
+                jp.ingested_at,
+                jp.job_url,
+                jp.loc_city,
+                jp.loc_state,
+                jp.loc_country,
+                r.role_name,
+                c.company_name,
+                c.sector,
+                jh.honesty_score AS quality_score,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT js.skill_id) FILTER (WHERE js.skill_id IS NOT NULL),
+                    '{}'::text[]
+                ) AS skill_ids
+            FROM job_postings jp
+            JOIN roles r ON r.role_id = jp.role_id
+            LEFT JOIN companies c ON c.company_id = jp.company_id
+            LEFT JOIN job_skills js ON js.job_id = jp.job_id
+            LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
+            WHERE jp.status = 'raw'
+              AND COALESCE(jp.data_tier, 1) = 1
+              AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
+              AND (jp.role_category IS NULL OR jp.role_category != 'non_data')
+              AND LOWER(c.company_name) != ALL(%s)
+            GROUP BY
+                jp.job_id, jp.experience_level, jp.salary_min_annual, jp.salary_max_annual,
+                jp.workplace_type, jp.ingested_at, jp.job_url,
+                jp.loc_city, jp.loc_state, jp.loc_country,
+                r.role_name, c.company_name, c.sector, jh.honesty_score
+            HAVING COUNT(DISTINCT js.skill_id) > 0
+        """, (_BLOCKED_LOWER,))
 
     rows = db_cursor.fetchall()
     matches = []
 
-    # Need a quick lookup for skill names so we can show matched/missing
+    # Bulk fetch skill names for all skills involved (resume + jobs)
     all_job_skill_ids = set()
     for r in rows:
         sids = r["skill_ids"] if isinstance(r, dict) else r["skill_ids"]
         if sids:
             all_job_skill_ids.update(sids)
 
-    # Bulk fetch skill names for all skills involved (resume + jobs)
     needed_ids = list(all_job_skill_ids | resume_skill_ids)
     skill_name_map = {}
     if needed_ids:
@@ -206,22 +250,42 @@ def match_jobs(
             skill_name_map[sid] = sname
 
     for r in rows:
-        # psycopg2 RealDictCursor returns dicts
         get = (lambda k: r[k]) if isinstance(r, dict) else (lambda k: r[k])
 
         job_skill_ids = set(get("skill_ids") or [])
-
         overlap_pct = _skill_overlap_pct(resume_skill_ids, job_skill_ids)
         exp_fit = _exp_level_fit(exp_level, get("experience_level"))
         sal_fit = _salary_fit(salary_floor, get("salary_min_annual"), get("salary_max_annual"))
         fresh_q = _freshness_quality(get("quality_score"), get("ingested_at"))
 
-        score = (
-            0.50 * overlap_pct
-            + 0.20 * exp_fit
-            + 0.20 * sal_fit
-            + 0.10 * fresh_q
-        )
+        if use_embedding:
+            semantic_sim = float(get("semantic_similarity") or 0.0)
+            score = (
+                0.60 * semantic_sim
+                + 0.15 * overlap_pct
+                + 0.15 * exp_fit
+                + 0.10 * sal_fit
+            )
+            breakdown = {
+                "semantic": round(semantic_sim, 3),
+                "skill_overlap": round(overlap_pct, 3),
+                "exp_fit": round(exp_fit, 3),
+                "salary_fit": round(sal_fit, 3),
+            }
+        else:
+            semantic_sim = 0.0
+            score = (
+                0.50 * overlap_pct
+                + 0.20 * exp_fit
+                + 0.20 * sal_fit
+                + 0.10 * fresh_q
+            )
+            breakdown = {
+                "skill_overlap": round(overlap_pct, 3),
+                "exp_fit": round(exp_fit, 3),
+                "salary_fit": round(sal_fit, 3),
+                "freshness_quality": round(fresh_q, 3),
+            }
 
         matched = sorted([skill_name_map.get(s, s) for s in (resume_skill_ids & job_skill_ids)])
         missing = sorted([skill_name_map.get(s, s) for s in (job_skill_ids - resume_skill_ids)])
@@ -241,26 +305,24 @@ def match_jobs(
             "quality_score": get("quality_score"),
             "ingested_at": get("ingested_at"),
             "job_url": get("job_url"),
+            "semantic_similarity": round(semantic_sim, 4),
             "match_score": round(score, 4),
             "skill_overlap_pct": round(overlap_pct, 4),
             "matched_skills": matched,
             "missing_skills": missing,
-            "score_breakdown": {
-                "skill_overlap": round(overlap_pct, 3),
-                "exp_fit": round(exp_fit, 3),
-                "salary_fit": round(sal_fit, 3),
-                "freshness_quality": round(fresh_q, 3),
-            },
+            "score_breakdown": breakdown,
         })
 
-    # Sort by score desc, then by overlap (tiebreak), then freshness
-    matches.sort(
-        key=lambda m: (
-            -m["match_score"],
-            -m["skill_overlap_pct"],
-            -(m["score_breakdown"]["freshness_quality"]),
+    if use_embedding:
+        matches.sort(key=lambda m: -m["match_score"])
+    else:
+        matches.sort(
+            key=lambda m: (
+                -m["match_score"],
+                -m["skill_overlap_pct"],
+                -(m["score_breakdown"]["freshness_quality"]),
+            )
         )
-    )
     return matches[:top_n]
 
 
