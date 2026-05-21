@@ -2221,8 +2221,8 @@ _WD_USER_AGENTS = [
 _WD_UA_CYCLE = itertools.cycle(_WD_USER_AGENTS)
 
 _WD_GLOBAL_CONCURRENCY  = 50    # max in-flight requests across all tenants
-_WD_PER_HOST            = 3     # max concurrent requests per {tenant}.wdN.myworkdayjobs.com
-_WD_TIMEOUT             = aiohttp.ClientTimeout(connect=10, sock_read=20)
+_WD_PER_HOST            = 8     # max concurrent requests per {tenant}.wdN.myworkdayjobs.com
+_WD_TIMEOUT             = aiohttp.ClientTimeout(sock_connect=10, sock_read=20)
 _WD_GLOBAL_429_THRESH   = 5     # pause entire harvester after this many global 429s
 _WD_GLOBAL_PAUSE_SECS   = 300   # 5 minutes
 
