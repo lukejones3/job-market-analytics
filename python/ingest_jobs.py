@@ -1402,6 +1402,17 @@ def ingest_job(cur, job: RawJob) -> bool:
     clean_description = _strip_html(job.description or "")
     desc_hash = hashlib.md5(clean_description.encode("utf-8")).hexdigest()
 
+    # Workday stub rows emitted when detail fetch fails have no description.
+    # Never insert a new empty-description Workday row. For existing rows not
+    # caught by cross-source dedup, touch last_seen_at so expire_jobs.py
+    # doesn't expire a healthy job due to a transient fetch failure.
+    if not clean_description and job.source == "workday":
+        cur.execute(
+            "UPDATE job_postings SET last_seen_at = now() WHERE job_id = %s",
+            (job_id,)
+        )
+        return False
+
     # data_tier: 1=full signal (GH/Lever/manual), 2=market coverage (Adzuna)
     data_tier = 2 if job.source == "adzuna" else 1
     adzuna_exp_level = _infer_exp_from_title(job.title) if job.source == "adzuna" else None
@@ -2211,7 +2222,7 @@ _WD_UA_CYCLE = itertools.cycle(_WD_USER_AGENTS)
 
 _WD_GLOBAL_CONCURRENCY  = 50    # max in-flight requests across all tenants
 _WD_PER_HOST            = 3     # max concurrent requests per {tenant}.wdN.myworkdayjobs.com
-_WD_TIMEOUT             = aiohttp.ClientTimeout(total=30)
+_WD_TIMEOUT             = aiohttp.ClientTimeout(connect=10, sock_read=20)
 _WD_GLOBAL_429_THRESH   = 5     # pause entire harvester after this many global 429s
 _WD_GLOBAL_PAUSE_SECS   = 300   # 5 minutes
 
@@ -2260,15 +2271,16 @@ async def _wd_detail(
     session: aiohttp.ClientSession,
     detail_url: str,
     detail_headers: dict,
-) -> Tuple[str, str, Optional[str], Optional[str]]:
-    """Fetch job detail page. Returns (desc, location, posted_date, remote_type)."""
+) -> Optional[Tuple[str, str, Optional[str], Optional[str]]]:
+    """Fetch job detail page. Returns (desc, location, posted_date, remote_type) or None on failure."""
     if not detail_url:
-        return "", "", None, None
+        return None
     await _wd_check_pause()
     try:
         async with session.get(detail_url, headers=detail_headers) as r:
             if r.status != 200:
-                return "", "", None, None
+                log.warning(f"Workday detail non-200 ({r.status}): {detail_url}")
+                return None
             detail = await r.json(content_type=None)
             info = detail.get("jobPostingInfo", {})
             desc = (info.get("jobDescription", "")
@@ -2281,8 +2293,12 @@ async def _wd_detail(
             sd = _parse_workday_start_date(info.get("startDate", ""))
             posted_date = str(sd) if sd else None
             return desc, location, posted_date, remote_type
-    except Exception:
-        return "", "", None, None
+    except asyncio.TimeoutError:
+        log.warning(f"Workday detail timeout: {detail_url}")
+        return None
+    except Exception as exc:
+        log.warning(f"Workday detail error ({type(exc).__name__}): {detail_url}")
+        return None
 
 
 async def _fetch_workday_tenant_async(
@@ -2382,9 +2398,35 @@ async def _fetch_workday_tenant_async(
     detail_results = await asyncio.gather(*detail_coros, return_exceptions=True)
 
     jobs: List[RawJob] = []
+    detail_failures = 0
     for (title, ext_path, job_id, location, workplace_type), dr in zip(posting_meta, detail_results):
         if isinstance(dr, Exception):
-            dr = ("", "", None, None)
+            log.warning(f"  Workday [{name}] unexpected gather exception for {title!r}: {dr}")
+            detail_failures += 1
+            dr = None
+        if dr is None:
+            # Detail fetch failed (failure already logged in _wd_detail).
+            # Emit a stub RawJob so the cross-source dedup pipeline can still
+            # refresh last_seen_at for this job if it already exists in the DB —
+            # preventing expire_jobs.py from wrongly expiring a healthy live job
+            # due to a transient fetch failure.  ingest_job() gates out any new
+            # INSERT for empty-description Workday rows.
+            detail_failures += 1
+            jobs.append(RawJob(
+                source="workday",
+                source_id=job_id,
+                company=name,
+                title=title,
+                location=location,
+                description="",
+                job_url=f"{base}/en-US/{board}/{ext_path.lstrip('/')}",
+                salary_min=None,
+                salary_max=None,
+                salary_period=None,
+                workplace_type=workplace_type,
+                posted_date=None,
+            ))
+            continue
         desc, detail_loc, posted_date, detail_remote = dr
 
         if detail_loc and (not location or "location" in location.lower()):
@@ -2421,6 +2463,11 @@ async def _fetch_workday_tenant_async(
             posted_date=posted_date,
         ))
 
+    if detail_failures:
+        log.warning(
+            f"  Workday [{name}]: {detail_failures}/{len(posting_meta)} jobs skipped "
+            f"— detail fetch failed (will retry on next ingest)"
+        )
     return jobs
 
 
