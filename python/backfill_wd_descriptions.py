@@ -51,7 +51,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # ── Concurrency / retry config ────────────────────────────────────────────────
-CONCURRENT_TENANTS = 12      # tenants in-flight simultaneously
+CONCURRENT_TENANTS = 5       # tenants in-flight simultaneously
 JITTER_MIN         = 0.5     # seconds between requests within a tenant
 JITTER_MAX         = 1.5
 RETRY_DELAYS       = [5, 15, 30]  # backoff seconds after each 403 (3 retries)
@@ -91,22 +91,24 @@ def get_conn():
 
 def load_target_rows(conn, limit: Optional[int]) -> List[Tuple[str, str]]:
     """Return [(job_id, job_url)] for all empty-desc Workday rows in scope."""
-    exclusions = " AND ".join(
-        f"job_url NOT LIKE '{p}'" for p in EXCLUDED_URL_PATTERNS
-    )
-    sql = f"""
+    sql = """
         SELECT job_id, job_url
         FROM job_postings
         WHERE source = 'workday'
           AND status = 'raw'
           AND data_tier = 1
           AND (description_text = '' OR description_text IS NULL)
-          AND {exclusions}
+          AND job_url NOT LIKE %s
+          AND job_url NOT LIKE %s
+          AND job_url NOT LIKE %s
         ORDER BY ingested_at ASC
-        {"LIMIT %s" if limit else ""}
     """
+    params: list = list(EXCLUDED_URL_PATTERNS)
+    if limit:
+        sql += " LIMIT %s"
+        params.append(limit)
     with conn.cursor() as cur:
-        cur.execute(sql, (limit,) if limit else ())
+        cur.execute(sql, params)
         return cur.fetchall()
 
 
@@ -276,6 +278,8 @@ async def process_tenant(
                     stats['empty_200'] += 1
             else:
                 stats['failed'] += 1
+                log.warning("FAILED | tenant=%-30s | %s", tenant, job_url)
+                stats['failures'].append((tenant, job_url))
 
             if stats['done'] % PROGRESS_EVERY == 0:
                 total = stats['total']
@@ -316,6 +320,7 @@ async def run_backfill(
         'succeeded': 0,
         'failed': 0,
         'empty_200': 0,
+        'failures': [],   # list of (tenant, job_url) for all failed rows
     }
     pending_updates: List[Tuple] = []
     pending_lock = asyncio.Lock()
@@ -394,6 +399,16 @@ def main():
     log.info(f"  Failed          : {stats['failed']:,}")
     log.info(f"  Empty on 200    : {stats['empty_200']:,}")
     log.info("=" * 60)
+
+    if stats['failures']:
+        from collections import Counter
+        by_tenant = Counter(tenant for tenant, _ in stats['failures'])
+        log.info("FAILURES BY TENANT (%d tenants, %d rows):", len(by_tenant), stats['failed'])
+        for tenant, count in sorted(by_tenant.items(), key=lambda x: -x[1]):
+            log.info("  %-40s %d rows", tenant, count)
+            for t, url in stats['failures']:
+                if t == tenant:
+                    log.info("    %s", url)
 
     conn.close()
 
