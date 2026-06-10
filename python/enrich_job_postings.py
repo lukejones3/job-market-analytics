@@ -20,7 +20,6 @@ from psycopg2.extras import DictCursor, execute_batch
 
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parent))
-from vertical_taxonomy import VERTICALS
 from classify_domain import build_alias_map as _build_domain_alias_map, classify_domain as _classify_domain_fn
 
 # Always load .env from repo root (safe in heredocs / python -c)

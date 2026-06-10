@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from vertical_taxonomy import VERTICALS
+import domain_taxonomy
 from enrich_job_postings import (
     FALLBACK_ALIASES,
     SKILL_DENYLIST,
@@ -74,7 +74,7 @@ def build_domain_alias_temp_table(cur, canon_to_skill_id: dict, skill_aliases: d
 
     rows: list[tuple] = []  # (domain, skill_id, alias_pattern)
 
-    for domain in VERTICALS:
+    for domain in domain_taxonomy.domains():
         relevant = _relevant_skills_for_domain(domain)
         for skill_name in sorted(relevant):
             canon = _canon_key(skill_name)
@@ -223,7 +223,7 @@ def main():
 
     # Build domain→alias temp table
     n_patterns, n_deny = build_domain_alias_temp_table(cur, canon_to_skill_id, skill_aliases)
-    log.info(f"Domain-alias table: {n_patterns} patterns across {len(VERTICALS)} domains "
+    log.info(f"Domain-alias table: {n_patterns} patterns across {len(domain_taxonomy.domains())} domains "
              f"({n_deny} denylist skills excluded, AI excluded)")
 
     # Run extraction

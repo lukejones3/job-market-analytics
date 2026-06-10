@@ -15,7 +15,6 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
-from vertical_taxonomy import VERTICALS
 
 
 def get_conn():

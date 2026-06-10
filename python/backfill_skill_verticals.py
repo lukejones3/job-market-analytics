@@ -27,9 +27,9 @@ from psycopg2.extras import DictCursor, execute_values
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from vertical_taxonomy import VERTICALS
+import domain_taxonomy
 
-VALID_VERTICALS = set(VERTICALS.keys())
+VALID_VERTICALS = set(domain_taxonomy.domains())
 
 
 # ── Build taxonomy reverse-lookup ────────────────────────────────────────────

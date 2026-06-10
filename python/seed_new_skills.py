@@ -28,9 +28,9 @@ from psycopg2.extras import DictCursor
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from vertical_taxonomy import VERTICALS
+import domain_taxonomy
 
-VALID_VERTICALS = set(VERTICALS.keys())
+VALID_VERTICALS = set(domain_taxonomy.domains())
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -150,7 +150,7 @@ def main():
         by_vertical[s["vertical"]].append(s)
 
     total_aliases = 0
-    for vkey in VERTICALS:
+    for vkey in domain_taxonomy.domains():
         skills_in_v = by_vertical.get(vkey, [])
         if not skills_in_v:
             continue

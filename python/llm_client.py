@@ -16,7 +16,6 @@ from collections import deque
 from anthropic import Anthropic, AsyncAnthropic, APIError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from vertical_taxonomy import VERTICALS
 import role_taxonomy
 
 log = logging.getLogger(__name__)

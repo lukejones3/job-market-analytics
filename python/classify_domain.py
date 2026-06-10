@@ -28,22 +28,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from vertical_taxonomy import VERTICALS
+import domain_taxonomy
 
 log = logging.getLogger(__name__)
 
-VALID_VERTICALS: frozenset[str] = frozenset(VERTICALS.keys())
+VALID_VERTICALS: frozenset[str] = frozenset(domain_taxonomy.domains())
 
-# ── Compile title patterns at import time ──────────────────────────────────────
-
-def _compile_patterns() -> dict[str, re.Pattern]:
-    compiled: dict[str, re.Pattern] = {}
-    for vkey, vdata in VERTICALS.items():
-        parts = [f"(?:{p})" for p in vdata["patterns"]]
-        compiled[vkey] = re.compile("|".join(parts), re.IGNORECASE)
-    return compiled
-
-_PATTERN_MAP: dict[str, re.Pattern] = _compile_patterns()
+# ── Title patterns — single source of truth: config/domain_taxonomy.json ───────
+_PATTERN_MAP: dict[str, re.Pattern] = domain_taxonomy.compiled_patterns()
 
 # Skills pass: aliases score weight-2 (core tools) or weight-1 (soft/generic terms).
 # Soft aliases are short/common words that appear in many non-data JDs.  The weighted
