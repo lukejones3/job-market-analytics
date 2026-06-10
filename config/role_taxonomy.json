@@ -1,0 +1,780 @@
+{
+  "_note": "Canonical role_category taxonomy. Single source of truth. Generated once by scripts/build_role_taxonomy_json.py; hand-maintained thereafter. title_rules: ordered regex->slug for the no-LLM heuristic. llm_subcategories: ordered slug+hint for the LLM prompt. title_precheck (data_ml): unambiguous data-title LLM bypass. roles: slug->display label (frontend + UI).",
+  "domains": {
+    "data_ml": {
+      "label": "Data & AI",
+      "description": "Roles focused on data pipelines, analytics, machine learning, and AI systems.",
+      "roles": {
+        "ai_research": {
+          "label": "AI Research"
+        },
+        "analytics_engineering": {
+          "label": "Analytics Engineer"
+        },
+        "ml_engineering": {
+          "label": "ML Engineer"
+        },
+        "data_engineering": {
+          "label": "Data Engineer"
+        },
+        "data_science": {
+          "label": "Data Scientist"
+        },
+        "data_analytics": {
+          "label": "Data Analyst / BI"
+        }
+      },
+      "title_rules": [
+        {
+          "slug": "ai_research",
+          "pattern": "(?:ai|ml|machine\\s+learning|deep\\s+learning)\\s+research(?:er|scientist)?\\b|research\\s+scientist\\b"
+        },
+        {
+          "slug": "analytics_engineering",
+          "pattern": "analytics\\s+engineer(?:ing)?\\b"
+        },
+        {
+          "slug": "ml_engineering",
+          "pattern": "(?:machine\\s+learning|ml|ai)\\s+engineer(?:ing)?\\b|\\bapplied\\s+(?:ml|machine\\s+learning|scientist)\\b|\\bai\\s+engineer\\b"
+        },
+        {
+          "slug": "data_engineering",
+          "pattern": "data\\s+engineer(?:ing)?\\b|\\betl\\s+engineer\\b|data\\s+(?:platform|pipeline|infrastructure)\\s+engineer"
+        },
+        {
+          "slug": "data_science",
+          "pattern": "data\\s+scien(?:tist|ce)\\b|quantitative\\s+(?:analyst|researcher)\\b"
+        },
+        {
+          "slug": "data_analytics",
+          "pattern": "data\\s+anal(?:yst|ytics)\\b|analytics\\s+anal(?:yst|ytics)\\b|\\bbi\\s+(?:analyst|developer|engineer)\\b|\\bbusiness\\s+intelligence\\b|business\\s+anal(?:yst|ytics)\\b"
+        }
+      ],
+      "llm_subcategories": [
+        {
+          "slug": "data_analytics",
+          "hint": "data analyst, BI analyst, business analyst doing SQL/dashboards, marketing analyst, product analyst, financial analyst (modeling focus), risk analyst, fraud analyst, pricing analyst (uses Python/SQL)"
+        },
+        {
+          "slug": "data_engineering",
+          "hint": "data engineer, ETL developer, data architect, data platform engineer, data quality engineer (automated pipelines), data ops"
+        },
+        {
+          "slug": "analytics_engineering",
+          "hint": "analytics engineer (dbt-style), data modeler, semantic layer engineer"
+        },
+        {
+          "slug": "data_science",
+          "hint": "data scientist, statistician, quant researcher, actuarial (ML-heavy)"
+        },
+        {
+          "slug": "ml_engineering",
+          "hint": "ML engineer, MLOps, applied ML, AI engineer building production systems, LLM engineer, AI platform engineer"
+        },
+        {
+          "slug": "ai_research",
+          "hint": "research scientist, applied scientist (ML/AI focus), NLP/CV researcher"
+        }
+      ],
+      "title_precheck": [
+        {
+          "slug": "ml_engineering",
+          "pattern": "\\bml\\s+ops\\b|\\bmlops\\b"
+        },
+        {
+          "slug": "ml_engineering",
+          "pattern": "\\b(machine\\s+learning|ml)\\s+(engineer|scientist|developer)\\b"
+        },
+        {
+          "slug": "ml_engineering",
+          "pattern": "\\bapplied\\s+(ml|machine\\s+learning|ai)\\b"
+        },
+        {
+          "slug": "ml_engineering",
+          "pattern": "\\b(deep\\s+learning|dl)\\s+engineer\\b"
+        },
+        {
+          "slug": "ai_research",
+          "pattern": "\\bai\\s+(engineer|scientist|researcher)\\b"
+        },
+        {
+          "slug": "ai_research",
+          "pattern": "\\b(nlp|natural\\s+language)\\s+(engineer|scientist|researcher)\\b"
+        },
+        {
+          "slug": "ai_research",
+          "pattern": "\\b(computer\\s+vision|cv)\\s+(engineer|scientist|researcher)\\b"
+        },
+        {
+          "slug": "analytics_engineering",
+          "pattern": "\\banalytics\\s+engineer\\b"
+        },
+        {
+          "slug": "data_science",
+          "pattern": "\\bdata\\s+scientist\\b"
+        },
+        {
+          "slug": "data_engineering",
+          "pattern": "\\bdata\\s+(architect|engineer|developer)\\b"
+        },
+        {
+          "slug": "data_engineering",
+          "pattern": "\\bdata\\s+(quality|governance|operations|ops)\\s+(analyst|engineer|specialist|manager)\\b"
+        },
+        {
+          "slug": "data_engineering",
+          "pattern": "\\betl\\s+(developer|engineer)\\b"
+        },
+        {
+          "slug": "data_engineering",
+          "pattern": "\\bdata\\s+platform\\s+(engineer|developer)\\b"
+        },
+        {
+          "slug": "data_analytics",
+          "pattern": "\\bdata\\s+(analyst|manager)\\b"
+        },
+        {
+          "slug": "data_analytics",
+          "pattern": "\\b(business\\s+intelligence|bi)\\s+(analyst|developer|engineer)\\b"
+        },
+        {
+          "slug": "data_analytics",
+          "pattern": "\\banalytics\\s+(analyst|manager|lead|director)\\b"
+        },
+        {
+          "slug": "data_science",
+          "pattern": "\\bquantitative\\s+(analyst|researcher)\\b"
+        },
+        {
+          "slug": "auto_subcat",
+          "pattern": "\\b(senior|sr\\.?|principal|staff|lead|manager,?)\\s+(of\\s+)?data\\s+(analyst|engineer|scientist|architect)\\b"
+        },
+        {
+          "slug": "ml_engineering",
+          "pattern": "\\b(senior|sr\\.?|principal|staff|lead)\\s+ml\\s+engineer\\b"
+        },
+        {
+          "slug": "analytics_engineering",
+          "pattern": "\\b(senior|sr\\.?|principal|staff|lead)\\s+analytics\\s+engineer\\b"
+        }
+      ]
+    },
+    "engineering": {
+      "label": "Engineering",
+      "description": "Software, infrastructure, hardware, and quality engineering roles.",
+      "roles": {
+        "engineering_manager": {
+          "label": "Engineering Manager"
+        },
+        "sre": {
+          "label": "SRE"
+        },
+        "devops": {
+          "label": "DevOps"
+        },
+        "platform": {
+          "label": "Platform"
+        },
+        "mobile": {
+          "label": "Mobile"
+        },
+        "security": {
+          "label": "Security"
+        },
+        "embedded": {
+          "label": "Embedded / Firmware"
+        },
+        "qa": {
+          "label": "QA / SDET"
+        },
+        "frontend": {
+          "label": "Frontend"
+        },
+        "fullstack": {
+          "label": "Full-stack"
+        },
+        "backend": {
+          "label": "Backend"
+        },
+        "general": {
+          "label": "General"
+        }
+      },
+      "title_rules": [
+        {
+          "slug": "engineering_manager",
+          "pattern": "(engineering|software|technical)\\s+manager\\b|director\\s+of\\s+(engineering|software)\\b|head\\s+of\\s+(engineering|software)\\b|(vp|vice\\s+president)\\s+of?\\s+(engineering|software)\\b"
+        },
+        {
+          "slug": "sre",
+          "pattern": "\\bsre\\b|site\\s+reliability"
+        },
+        {
+          "slug": "devops",
+          "pattern": "\\bdevops\\b|dev\\s*ops\\b|ci/?cd\\b|release\\s+engineer\\b|build\\s+engineer\\b"
+        },
+        {
+          "slug": "platform",
+          "pattern": "\\bplatform\\s+engineer|\\binfra(?:structure)?\\s+engineer|\\bcloud\\s+engineer\\b|internal\\s+tools?\\s+engineer"
+        },
+        {
+          "slug": "mobile",
+          "pattern": "\\bios\\s+(?:engineer|dev)\\b|\\bandroid\\s+(?:engineer|dev)\\b|\\breact\\s+native\\b|\\bmobile\\s+(?:engineer|developer)\\b"
+        },
+        {
+          "slug": "security",
+          "pattern": "\\bsecurity\\s+engineer\\b|\\bappsec\\b|\\bapplication\\s+security\\b|\\bpen\\s+test|\\bpenetration\\b|\\bcybersecurity\\s+engineer\\b"
+        },
+        {
+          "slug": "embedded",
+          "pattern": "\\bembedded\\b|\\bfirmware\\b|\\brtos\\b|\\bhardware.{0,5}software\\b"
+        },
+        {
+          "slug": "qa",
+          "pattern": "\\bqa\\s+(?:engineer|analyst)\\b|\\bsdet\\b|\\bquality\\s+(?:assurance|engineer)\\b|\\btest\\s+engineer\\b|\\bautomation\\s+engineer\\b"
+        },
+        {
+          "slug": "frontend",
+          "pattern": "\\bfrontend\\b|\\bfront[- ]end\\b|\\bui\\s+engineer\\b|\\breact\\s+engineer\\b|\\bjavascript\\s+engineer\\b|\\bweb\\s+developer\\b"
+        },
+        {
+          "slug": "fullstack",
+          "pattern": "\\bfullstack\\b|\\bfull[- ]stack\\b"
+        },
+        {
+          "slug": "backend",
+          "pattern": "\\bbackend\\b|\\bback[- ]end\\b|\\bapi\\s+engineer\\b|\\bserver[- ]side\\b"
+        },
+        {
+          "slug": "general",
+          "pattern": "\\bsoftware\\s+(?:engineer|developer|architect)\\b|\\bswe\\b|\\bsde\\b|\\bsystems?\\s+engineer\\b|\\btechnical\\s+lead\\b|\\btech\\s+lead\\b"
+        }
+      ],
+      "llm_subcategories": [
+        {
+          "slug": "backend",
+          "hint": "backend engineer, server-side developer, API engineer, systems programmer"
+        },
+        {
+          "slug": "frontend",
+          "hint": "frontend engineer, UI engineer, web developer (client-side focus)"
+        },
+        {
+          "slug": "fullstack",
+          "hint": "fullstack / full-stack engineer or developer"
+        },
+        {
+          "slug": "devops",
+          "hint": "DevOps engineer, CI/CD engineer, release engineering, build systems"
+        },
+        {
+          "slug": "sre",
+          "hint": "site reliability engineer, SRE, platform reliability, on-call infra"
+        },
+        {
+          "slug": "platform",
+          "hint": "platform engineer, infrastructure engineer, cloud infra, internal tooling"
+        },
+        {
+          "slug": "mobile",
+          "hint": "iOS engineer, Android engineer, React Native, mobile developer"
+        },
+        {
+          "slug": "security",
+          "hint": "security engineer, AppSec, application security, penetration tester"
+        },
+        {
+          "slug": "embedded",
+          "hint": "embedded engineer, firmware engineer, RTOS, hardware/software interface"
+        },
+        {
+          "slug": "qa",
+          "hint": "QA engineer, SDET, test engineer, automation engineer (test focus)"
+        },
+        {
+          "slug": "engineering_manager",
+          "hint": "engineering manager, director of engineering, VP Engineering"
+        },
+        {
+          "slug": "general",
+          "hint": "staff / principal / distinguished engineer, or genuinely ambiguous subtype"
+        }
+      ]
+    },
+    "finance": {
+      "label": "Finance",
+      "description": "Financial planning, accounting, investment, risk, and treasury roles.",
+      "roles": {
+        "tax": {
+          "label": "Tax"
+        },
+        "accounting": {
+          "label": "Accounting"
+        },
+        "fpa": {
+          "label": "FP&A"
+        },
+        "treasury": {
+          "label": "Treasury"
+        },
+        "audit": {
+          "label": "Audit"
+        },
+        "investment": {
+          "label": "Investment / Research"
+        },
+        "risk": {
+          "label": "Risk"
+        }
+      },
+      "title_rules": [
+        {
+          "slug": "tax",
+          "pattern": "\\btax\\b"
+        },
+        {
+          "slug": "accounting",
+          "pattern": "\\btreasury\\b|cash\\s+management\\b|\\baudit\\b|\\bauditor\\b"
+        },
+        {
+          "slug": "accounting",
+          "pattern": "\\baccountan\\w+\\b|\\baccounting\\b|\\bcpa\\b|\\bcontroller\\b|\\bbookkeeper\\b|\\bstaff\\s+accountant\\b"
+        },
+        {
+          "slug": "fpa",
+          "pattern": "financial\\s+anal(?:yst|ysis)\\b|fp\\s*[&a]+\\b|financial\\s+planning\\b|finance\\s+(?:manager|analyst)\\b|financial\\s+manager\\b"
+        },
+        {
+          "slug": "fpa",
+          "pattern": "investment\\b|portfolio\\s+manager\\b|asset\\s+manager\\b"
+        }
+      ],
+      "llm_subcategories": [
+        {
+          "slug": "fpa",
+          "hint": ""
+        },
+        {
+          "slug": "accounting",
+          "hint": ""
+        },
+        {
+          "slug": "treasury",
+          "hint": ""
+        },
+        {
+          "slug": "audit",
+          "hint": ""
+        },
+        {
+          "slug": "investment",
+          "hint": ""
+        },
+        {
+          "slug": "risk",
+          "hint": ""
+        },
+        {
+          "slug": "tax",
+          "hint": ""
+        }
+      ]
+    },
+    "marketing": {
+      "label": "Marketing",
+      "description": "Growth, performance, content, brand, and marketing operations roles.",
+      "roles": {
+        "product_marketing": {
+          "label": "Product Marketing"
+        },
+        "performance": {
+          "label": "Performance / Paid"
+        },
+        "lifecycle": {
+          "label": "Lifecycle"
+        },
+        "content": {
+          "label": "Content"
+        },
+        "marketing_ops": {
+          "label": "Marketing Ops"
+        },
+        "communications": {
+          "label": "Communications"
+        },
+        "brand_design": {
+          "label": "Brand Design"
+        },
+        "growth": {
+          "label": "Growth"
+        },
+        "brand": {
+          "label": "Brand"
+        }
+      },
+      "title_rules": [
+        {
+          "slug": "product_marketing",
+          "pattern": "product\\s+market(?:ing|er)\\b|\\bpmm\\b"
+        },
+        {
+          "slug": "performance",
+          "pattern": "performance\\s+market(?:ing|er)\\b|paid\\s+(?:search|social|media)\\b|\\bsem\\b|\\bppc\\b|search\\s+engine\\s+market"
+        },
+        {
+          "slug": "lifecycle",
+          "pattern": "lifecycle\\s+market(?:ing|er)\\b|email\\s+market(?:ing|er)\\b|crm\\s+manager\\b|retention\\s+market(?:ing|er)\\b"
+        },
+        {
+          "slug": "content",
+          "pattern": "content\\s+(?:market(?:ing|er)|manager|strategist|writer)\\b|\\bcopywriter\\b"
+        },
+        {
+          "slug": "marketing_ops",
+          "pattern": "marketing\\s+op(?:eration)?s?\\b|\\bmartech\\b|marketing\\s+technolog"
+        },
+        {
+          "slug": "communications",
+          "pattern": "communications?\\s+(?:manager|director|specialist)\\b|public\\s+relations\\b|\\bpr\\s+manager\\b|corporate\\s+communications?"
+        },
+        {
+          "slug": "brand_design",
+          "pattern": "brand\\s+(?:manager|director|market(?:ing|er))\\b"
+        },
+        {
+          "slug": "growth",
+          "pattern": "influencer\\s+market|social\\s+media\\s+manager\\b|digital\\s+market(?:ing|er)\\b|field\\s+market(?:ing|er)\\b|growth\\s+market(?:ing|er)\\b|head\\s+of\\s+market|vp\\s+of\\s+market|director\\s+of\\s+market|market(?:ing)?\\s+manager\\b"
+        }
+      ],
+      "llm_subcategories": [
+        {
+          "slug": "growth",
+          "hint": ""
+        },
+        {
+          "slug": "performance",
+          "hint": ""
+        },
+        {
+          "slug": "content",
+          "hint": ""
+        },
+        {
+          "slug": "brand",
+          "hint": ""
+        },
+        {
+          "slug": "communications",
+          "hint": ""
+        },
+        {
+          "slug": "lifecycle",
+          "hint": ""
+        },
+        {
+          "slug": "marketing_ops",
+          "hint": ""
+        },
+        {
+          "slug": "product_marketing",
+          "hint": ""
+        }
+      ]
+    },
+    "product": {
+      "label": "Product",
+      "description": "Product management, product operations, and product analytics roles.",
+      "roles": {
+        "technical_pm": {
+          "label": "Technical PM"
+        },
+        "product_management": {
+          "label": "Product Management"
+        },
+        "product_ops": {
+          "label": "Product Ops"
+        },
+        "product_analytics": {
+          "label": "Product Analytics"
+        }
+      },
+      "title_rules": [
+        {
+          "slug": "technical_pm",
+          "pattern": "(?:technical|engineering|platform)\\s+program\\s+manager\\b|\\btpm\\b"
+        },
+        {
+          "slug": "product_management",
+          "pattern": "product\\s+manager\\b|director\\s+of\\s+product\\b|head\\s+of\\s+product\\b|vp\\s+of\\s+product\\b|product\\s+(?:lead|director|owner)\\b"
+        },
+        {
+          "slug": "technical_pm",
+          "pattern": "program\\s+manager\\b|project\\s+manager\\b"
+        }
+      ],
+      "llm_subcategories": [
+        {
+          "slug": "product_management",
+          "hint": ""
+        },
+        {
+          "slug": "product_ops",
+          "hint": ""
+        },
+        {
+          "slug": "product_analytics",
+          "hint": ""
+        },
+        {
+          "slug": "technical_pm",
+          "hint": ""
+        }
+      ]
+    },
+    "sales": {
+      "label": "Sales",
+      "description": "Account executives, SDRs, customer success, revenue ops, and sales engineering roles.",
+      "roles": {
+        "sales_leadership": {
+          "label": "Sales Leadership"
+        },
+        "sales_ops": {
+          "label": "Sales / RevOps"
+        },
+        "sales_engineering": {
+          "label": "Sales Engineering"
+        },
+        "bdr_sdr": {
+          "label": "SDR / BDR"
+        },
+        "customer_success": {
+          "label": "Customer Success"
+        },
+        "account_management": {
+          "label": "Account Management"
+        },
+        "account_executive": {
+          "label": "Account Executive"
+        }
+      },
+      "title_rules": [
+        {
+          "slug": "sales_leadership",
+          "pattern": "vp\\s+(?:of\\s+)?sales\\b|head\\s+of\\s+sales\\b|chief\\s+revenue\\b|director\\s+of\\s+sales\\b|sales\\s+director\\b|(?:regional|area|district|national)\\s+(?:sales\\s+)?manager\\b"
+        },
+        {
+          "slug": "sales_ops",
+          "pattern": "(?:revenue|sales)\\s+op(?:eration)?s?\\b|\\brevops\\b|sales\\s+enablement\\b"
+        },
+        {
+          "slug": "sales_engineering",
+          "pattern": "(?:sales|solutions?|pre[- ]?sales)\\s+engineer\\b|solutions?\\s+architect\\b"
+        },
+        {
+          "slug": "bdr_sdr",
+          "pattern": "\\bsdr\\b|\\bbdr\\b|sales\\s+development\\b|business\\s+development\\s+rep|outbound\\s+(?:sales|rep)\\b"
+        },
+        {
+          "slug": "customer_success",
+          "pattern": "customer\\s+success\\b|\\bcsm\\b|client\\s+success\\b|implementation\\s+(?:manager|specialist)|onboarding\\s+manager\\b"
+        },
+        {
+          "slug": "account_management",
+          "pattern": "(?:key\\s+)?account\\s+manager\\b|renewals?\\s+manager\\b|client\\s+relationship"
+        },
+        {
+          "slug": "account_executive",
+          "pattern": "account\\s+executive\\b|territory\\s+(?:executive|rep|manager)\\b|enterprise\\s+(?:executive|representative)\\b"
+        },
+        {
+          "slug": "account_executive",
+          "pattern": "sales\\s+representative\\b|sales\\s+rep\\b|field\\s+sales\\b|outside\\s+sales\\b|inside\\s+sales\\b|venue\\s+sales\\b|roofing\\s+sales\\b|insurance\\s+(?:sales|agent)|outside\\s+account\\b"
+        }
+      ],
+      "llm_subcategories": [
+        {
+          "slug": "account_executive",
+          "hint": "AE, closing role, quota-carrying individual contributor"
+        },
+        {
+          "slug": "bdr_sdr",
+          "hint": "SDR, BDR, outbound prospecting, business development representative"
+        },
+        {
+          "slug": "customer_success",
+          "hint": "CSM, customer success manager, implementation manager, onboarding"
+        },
+        {
+          "slug": "sales_engineering",
+          "hint": "sales engineer, solutions engineer, solutions architect (pre-sales technical)"
+        },
+        {
+          "slug": "sales_ops",
+          "hint": "sales operations, revenue operations, RevOps, sales enablement"
+        },
+        {
+          "slug": "account_management",
+          "hint": "account manager, renewals manager, client success (post-sales expansion focus)"
+        },
+        {
+          "slug": "sales_leadership",
+          "hint": "VP Sales, CRO, head of sales, sales director, sales manager (team lead)"
+        }
+      ]
+    },
+    "design": {
+      "label": "Design",
+      "description": "Product design, UX research, brand, motion, and design operations roles.",
+      "roles": {
+        "ux_research": {
+          "label": "UX Research"
+        },
+        "brand_design": {
+          "label": "Brand Design"
+        },
+        "product_design": {
+          "label": "Product Design"
+        },
+        "motion": {
+          "label": "Motion"
+        },
+        "design_ops": {
+          "label": "Design Ops"
+        },
+        "interaction": {
+          "label": "Interaction Design"
+        }
+      },
+      "title_rules": [
+        {
+          "slug": "ux_research",
+          "pattern": "(?:ux|user(?:\\s+experience)?|usability)\\s+research(?:er)?\\b"
+        },
+        {
+          "slug": "brand_design",
+          "pattern": "(?:graphic|visual|brand|creative)\\s+design(?:er)?\\b|creative\\s+director\\b|art\\s+director\\b"
+        },
+        {
+          "slug": "product_design",
+          "pattern": "(?:product|ux|ui|interaction|user\\s+experience)\\s+design(?:er)?\\b"
+        }
+      ],
+      "llm_subcategories": [
+        {
+          "slug": "product_design",
+          "hint": ""
+        },
+        {
+          "slug": "ux_research",
+          "hint": ""
+        },
+        {
+          "slug": "brand_design",
+          "hint": ""
+        },
+        {
+          "slug": "motion",
+          "hint": ""
+        },
+        {
+          "slug": "design_ops",
+          "hint": ""
+        },
+        {
+          "slug": "interaction",
+          "hint": ""
+        }
+      ]
+    },
+    "ops": {
+      "label": "Operations",
+      "description": "Business operations, supply chain, people ops, talent acquisition, and executive support roles.",
+      "roles": {
+        "executive_support": {
+          "label": "Executive Support"
+        },
+        "talent_acquisition": {
+          "label": "Talent Acquisition"
+        },
+        "people_ops": {
+          "label": "People Ops"
+        },
+        "business_ops": {
+          "label": "Business Ops"
+        },
+        "supply_chain": {
+          "label": "Supply Chain"
+        },
+        "facilities": {
+          "label": "Facilities"
+        }
+      },
+      "title_rules": [
+        {
+          "slug": "executive_support",
+          "pattern": "executive\\s+assistant\\b|chief\\s+of\\s+staff\\b|administrative\\s+assistant\\b"
+        },
+        {
+          "slug": "talent_acquisition",
+          "pattern": "\\brecruiter\\b|talent\\s+acqui(?:sition|re)\\w*\\b|\\bsourcer\\b|talent\\s+partner\\b|(?:recruiting|talent)\\s+coordinator\\b|(?:gtm|technical|senior)\\s+recruiter\\b"
+        },
+        {
+          "slug": "people_ops",
+          "pattern": "people\\s+ops?\\b|hr\\s+(?:manager|business\\s+partner|director)\\b|\\bhrbp\\b|human\\s+resources\\b|people\\s+(?:partner|team|lead)\\b"
+        },
+        {
+          "slug": "business_ops",
+          "pattern": "program\\s+manager\\b|project\\s+manager\\b"
+        },
+        {
+          "slug": "business_ops",
+          "pattern": "operations?\\s+manager\\b|biz\\s*ops?\\b|business\\s+operations?\\b|strategy\\s+(?:and|&)\\s+operations?\\b|general\\s+manager\\b"
+        }
+      ],
+      "llm_subcategories": [
+        {
+          "slug": "business_ops",
+          "hint": ""
+        },
+        {
+          "slug": "supply_chain",
+          "hint": ""
+        },
+        {
+          "slug": "people_ops",
+          "hint": ""
+        },
+        {
+          "slug": "talent_acquisition",
+          "hint": ""
+        },
+        {
+          "slug": "executive_support",
+          "hint": ""
+        },
+        {
+          "slug": "facilities",
+          "hint": ""
+        }
+      ]
+    }
+  },
+  "cross_domain_fallbacks": [
+    {
+      "slug": "ml_engineering",
+      "pattern": "\\bai\\s+engineer\\b|\\bml\\s+engineer\\b|\\bmachine\\s+learning\\s+engineer\\b"
+    },
+    {
+      "slug": "data_engineering",
+      "pattern": "\\bdata\\s+engineer\\b"
+    },
+    {
+      "slug": "data_science",
+      "pattern": "\\bdata\\s+scientist\\b"
+    },
+    {
+      "slug": "data_analytics",
+      "pattern": "\\bdata\\s+analyst\\b"
+    }
+  ]
+}

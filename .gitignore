@@ -40,3 +40,6 @@ p*.py
 # Local DB dumps
 *.sql
 job_analytics_*.sql
+
+# local provenance input for role taxonomy fixture regen
+python/_role_corpus.tsv

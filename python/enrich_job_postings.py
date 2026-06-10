@@ -2108,113 +2108,13 @@ _TITLE_RULES: dict[str, list[tuple[re.Pattern, str]]] = {}
 
 
 def _build_title_rules() -> dict[str, list[tuple[re.Pattern, str]]]:
-    def p(pattern: str) -> re.Pattern:
-        return re.compile(pattern, re.IGNORECASE)
+    """Per-domain ordered [(compiled_pattern, role_category)] title rules.
 
-    return {
-        "engineering": [
-            (p(r"(engineering|software|technical)\s+manager\b|director\s+of\s+(engineering|software)\b"
-               r"|head\s+of\s+(engineering|software)\b|(vp|vice\s+president)\s+of?\s+(engineering|software)\b"),
-             "engineering_manager"),
-            (p(r"\bsre\b|site\s+reliability"), "sre"),
-            (p(r"\bdevops\b|dev\s*ops\b|ci/?cd\b|release\s+engineer\b|build\s+engineer\b"), "devops"),
-            (p(r"\bplatform\s+engineer|\binfra(?:structure)?\s+engineer|\bcloud\s+engineer\b"
-               r"|internal\s+tools?\s+engineer"), "platform"),
-            (p(r"\bios\s+(?:engineer|dev)\b|\bandroid\s+(?:engineer|dev)\b"
-               r"|\breact\s+native\b|\bmobile\s+(?:engineer|developer)\b"), "mobile"),
-            (p(r"\bsecurity\s+engineer\b|\bappsec\b|\bapplication\s+security\b"
-               r"|\bpen\s+test|\bpenetration\b|\bcybersecurity\s+engineer\b"), "security"),
-            (p(r"\bembedded\b|\bfirmware\b|\brtos\b|\bhardware.{0,5}software\b"), "embedded"),
-            (p(r"\bqa\s+(?:engineer|analyst)\b|\bsdet\b|\bquality\s+(?:assurance|engineer)\b"
-               r"|\btest\s+engineer\b|\bautomation\s+engineer\b"), "qa"),
-            (p(r"\bfrontend\b|\bfront[- ]end\b|\bui\s+engineer\b"
-               r"|\breact\s+engineer\b|\bjavascript\s+engineer\b|\bweb\s+developer\b"), "frontend"),
-            (p(r"\bfullstack\b|\bfull[- ]stack\b"), "fullstack"),
-            (p(r"\bbackend\b|\bback[- ]end\b|\bapi\s+engineer\b|\bserver[- ]side\b"), "backend"),
-            (p(r"\bsoftware\s+(?:engineer|developer|architect)\b|\bswe\b|\bsde\b"
-               r"|\bsystems?\s+engineer\b|\btechnical\s+lead\b|\btech\s+lead\b"), "general"),
-        ],
-        "sales": [
-            (p(r"vp\s+(?:of\s+)?sales\b|head\s+of\s+sales\b|chief\s+revenue\b"
-               r"|director\s+of\s+sales\b|sales\s+director\b"
-               r"|(?:regional|area|district|national)\s+(?:sales\s+)?manager\b"), "sales_leadership"),
-            (p(r"(?:revenue|sales)\s+op(?:eration)?s?\b|\brevops\b|sales\s+enablement\b"), "sales_ops"),
-            (p(r"(?:sales|solutions?|pre[- ]?sales)\s+engineer\b|solutions?\s+architect\b"), "sales_engineering"),
-            (p(r"\bsdr\b|\bbdr\b|sales\s+development\b|business\s+development\s+rep"
-               r"|outbound\s+(?:sales|rep)\b"), "bdr_sdr"),
-            (p(r"customer\s+success\b|\bcsm\b|client\s+success\b"
-               r"|implementation\s+(?:manager|specialist)|onboarding\s+manager\b"), "customer_success"),
-            (p(r"(?:key\s+)?account\s+manager\b|renewals?\s+manager\b|client\s+relationship"), "account_management"),
-            (p(r"account\s+executive\b|territory\s+(?:executive|rep|manager)\b"
-               r"|enterprise\s+(?:executive|representative)\b"), "account_executive"),
-            # Generic sales reps — quota-carrying individual contributors
-            (p(r"sales\s+representative\b|sales\s+rep\b|field\s+sales\b|outside\s+sales\b"
-               r"|inside\s+sales\b|venue\s+sales\b|roofing\s+sales\b|insurance\s+(?:sales|agent)"
-               r"|outside\s+account\b"), "account_executive"),
-        ],
-        "data_ml": [
-            (p(r"(?:ai|ml|machine\s+learning|deep\s+learning)\s+research(?:er|scientist)?\b"
-               r"|research\s+scientist\b"), "ai_research"),
-            (p(r"analytics\s+engineer(?:ing)?\b"), "analytics_engineering"),
-            (p(r"(?:machine\s+learning|ml|ai)\s+engineer(?:ing)?\b"
-               r"|\bapplied\s+(?:ml|machine\s+learning|scientist)\b"
-               r"|\bai\s+engineer\b"), "ml_engineering"),
-            (p(r"data\s+engineer(?:ing)?\b|\betl\s+engineer\b"
-               r"|data\s+(?:platform|pipeline|infrastructure)\s+engineer"), "data_engineering"),
-            (p(r"data\s+scien(?:tist|ce)\b|quantitative\s+(?:analyst|researcher)\b"), "data_science"),
-            (p(r"data\s+anal(?:yst|ytics)\b|analytics\s+anal(?:yst|ytics)\b"
-               r"|\bbi\s+(?:analyst|developer|engineer)\b|\bbusiness\s+intelligence\b"
-               r"|business\s+anal(?:yst|ytics)\b"), "data_analytics"),
-        ],
-        "finance": [
-            (p(r"\btax\b"), "tax"),
-            (p(r"\btreasury\b|cash\s+management\b|\baudit\b|\bauditor\b"), "accounting"),
-            (p(r"\baccountan\w+\b|\baccounting\b|\bcpa\b|\bcontroller\b|\bbookkeeper\b"
-               r"|\bstaff\s+accountant\b"), "accounting"),
-            (p(r"financial\s+anal(?:yst|ysis)\b|fp\s*[&a]+\b|financial\s+planning\b"
-               r"|finance\s+(?:manager|analyst)\b|financial\s+manager\b"), "fpa"),
-            (p(r"investment\b|portfolio\s+manager\b|asset\s+manager\b"), "fpa"),
-        ],
-        "marketing": [
-            (p(r"product\s+market(?:ing|er)\b|\bpmm\b"), "product_marketing"),
-            (p(r"performance\s+market(?:ing|er)\b|paid\s+(?:search|social|media)\b"
-               r"|\bsem\b|\bppc\b|search\s+engine\s+market"), "performance"),
-            (p(r"lifecycle\s+market(?:ing|er)\b|email\s+market(?:ing|er)\b"
-               r"|crm\s+manager\b|retention\s+market(?:ing|er)\b"), "lifecycle"),
-            (p(r"content\s+(?:market(?:ing|er)|manager|strategist|writer)\b|\bcopywriter\b"), "content"),
-            (p(r"marketing\s+op(?:eration)?s?\b|\bmartech\b|marketing\s+technolog"), "marketing_ops"),
-            (p(r"communications?\s+(?:manager|director|specialist)\b"
-               r"|public\s+relations\b|\bpr\s+manager\b|corporate\s+communications?"), "communications"),
-            (p(r"brand\s+(?:manager|director|market(?:ing|er))\b"), "brand_design"),
-            (p(r"influencer\s+market|social\s+media\s+manager\b|digital\s+market(?:ing|er)\b"
-               r"|field\s+market(?:ing|er)\b|growth\s+market(?:ing|er)\b"
-               r"|head\s+of\s+market|vp\s+of\s+market|director\s+of\s+market"
-               r"|market(?:ing)?\s+manager\b"), "growth"),
-        ],
-        "product": [
-            (p(r"(?:technical|engineering|platform)\s+program\s+manager\b|\btpm\b"), "technical_pm"),
-            (p(r"product\s+manager\b|director\s+of\s+product\b|head\s+of\s+product\b"
-               r"|vp\s+of\s+product\b|product\s+(?:lead|director|owner)\b"), "product_management"),
-            (p(r"program\s+manager\b|project\s+manager\b"), "technical_pm"),
-        ],
-        "design": [
-            (p(r"(?:ux|user(?:\s+experience)?|usability)\s+research(?:er)?\b"), "ux_research"),
-            (p(r"(?:graphic|visual|brand|creative)\s+design(?:er)?\b"
-               r"|creative\s+director\b|art\s+director\b"), "brand_design"),
-            (p(r"(?:product|ux|ui|interaction|user\s+experience)\s+design(?:er)?\b"), "product_design"),
-        ],
-        "ops": [
-            (p(r"executive\s+assistant\b|chief\s+of\s+staff\b|administrative\s+assistant\b"), "executive_support"),
-            (p(r"\brecruiter\b|talent\s+acqui(?:sition|re)\w*\b|\bsourcer\b|talent\s+partner\b"
-               r"|(?:recruiting|talent)\s+coordinator\b|(?:gtm|technical|senior)\s+recruiter\b"), "talent_acquisition"),
-            (p(r"people\s+ops?\b|hr\s+(?:manager|business\s+partner|director)\b|\bhrbp\b"
-               r"|human\s+resources\b|people\s+(?:partner|team|lead)\b"), "people_ops"),
-            (p(r"program\s+manager\b|project\s+manager\b"), "business_ops"),
-            (p(r"operations?\s+manager\b|biz\s*ops?\b|business\s+operations?\b"
-               r"|strategy\s+(?:and|&)\s+operations?\b|general\s+manager\b"), "business_ops"),
-        ],
-    }
-
+    Single source of truth: config/role_taxonomy.json (loaded via role_taxonomy.py).
+    To add/rename a role, edit that JSON — not this file.
+    """
+    import role_taxonomy
+    return role_taxonomy.build_title_rules()
 
 def _classify_by_title_heuristic(role_lower: str, domain) -> "str | None":
     """Return a role_category from title + domain using ordered regex rules.
@@ -2231,16 +2131,13 @@ def _classify_by_title_heuristic(role_lower: str, domain) -> "str | None":
         if pattern.search(role_lower):
             return category
 
-    # Cross-domain catch for very obvious patterns that domain classifier may have
-    # assigned slightly wrong (e.g. 'ai engineer' landing in engineering domain)
-    if re.search(r"\bai\s+engineer\b|\bml\s+engineer\b|\bmachine\s+learning\s+engineer\b", role_lower, re.IGNORECASE):
-        return "ml_engineering"
-    if re.search(r"\bdata\s+engineer\b", role_lower, re.IGNORECASE):
-        return "data_engineering"
-    if re.search(r"\bdata\s+scientist\b", role_lower, re.IGNORECASE):
-        return "data_science"
-    if re.search(r"\bdata\s+analyst\b", role_lower, re.IGNORECASE):
-        return "data_analytics"
+    # Cross-domain catch for very obvious patterns that the domain classifier may have
+    # assigned slightly wrong (e.g. 'ai engineer' landing in the engineering domain).
+    # Sourced from role_taxonomy.json cross_domain_fallbacks.
+    import role_taxonomy
+    for pattern, category in role_taxonomy.cross_domain_fallbacks():
+        if pattern.search(role_lower):
+            return category
 
     return None
 
@@ -2483,7 +2380,7 @@ def _run_llm_batch(classify_jobs, salary_jobs):
 COMMIT_INTERVAL = 500  # intermediate commit every N jobs written
 
 
-def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool, rescan_salary: bool = False, use_batch: bool = False, skills_only: bool = False) -> None:
+def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool, rescan_salary: bool = False, use_batch: bool = False, skills_only: bool = False, job_ids=None) -> None:
     conn = get_conn()
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=DictCursor)
@@ -2499,7 +2396,30 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
         cat_cache, role_name_cache = {}, {}
 
     # ── Select jobs ────────────────────────────────────────────────────────────
-    if rescan_salary:
+    if job_ids:
+        cur.execute(
+            """
+            SELECT jp.job_id, jp.description_text,
+                   jp.company_id, jp.role_id, jp.location_id,
+                   jp.workplace_type, jp.employment_type, jp.experience_level,
+                   jp.salary_min, jp.salary_max, jp.salary_period,
+                   jp.domain,
+                   COALESCE(jp.data_tier, 1) AS data_tier,
+                   jp.role_category,
+                   r.role_name,
+                   c.company_name,
+                   EXISTS (SELECT 1 FROM job_skills js WHERE js.job_id = jp.job_id) AS has_skills
+            FROM job_postings jp
+            LEFT JOIN roles r ON r.role_id = jp.role_id
+            LEFT JOIN companies c ON c.company_id = jp.company_id
+            WHERE jp.job_id = ANY(%s)
+              AND jp.description_text IS NOT NULL AND length(jp.description_text) > 0
+              AND jp.status = 'raw'
+            """,
+            (job_ids,),
+        )
+        jobs = cur.fetchall()
+    elif rescan_salary:
         cur.execute(
             """
             SELECT jp.job_id, jp.description_text,
@@ -2930,13 +2850,19 @@ def main():
     ap.add_argument("--batch", action="store_true", help="Use Anthropic Batch API for LLM calls (async, cheaper, for large backfills)")
     ap.add_argument("--skills-only", action="store_true", help="Regex skill extraction only — skips Phase 2 entirely (no classify_role, no salary LLM, no scalar field updates)")
     ap.add_argument("--no-llm", action="store_true", help="Disable all LLM calls; regex + heuristics only. Role classification falls back to cache/heuristics.")
+    ap.add_argument("--job-ids-file", metavar="FILE", help="Newline-delimited file of job_ids; targets those jobs exclusively, ignores --limit")
     args = ap.parse_args()
 
     if args.no_llm:
         global _NO_LLM
         _NO_LLM = True
 
-    enrich_jobs(limit=args.limit, apply=args.apply, only_missing=args.only_missing, rescan_skills=args.rescan_skills, rescan_salary=args.rescan_salary, use_batch=args.batch, skills_only=args.skills_only)
+    job_ids = None
+    if args.job_ids_file:
+        with open(args.job_ids_file) as f:
+            job_ids = [line.strip() for line in f if line.strip()]
+
+    enrich_jobs(limit=args.limit, apply=args.apply, only_missing=args.only_missing, rescan_skills=args.rescan_skills, rescan_salary=args.rescan_salary, use_batch=args.batch, skills_only=args.skills_only, job_ids=job_ids)
 
 
 if __name__ == "__main__":

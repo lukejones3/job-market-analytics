@@ -17,6 +17,7 @@ from anthropic import Anthropic, AsyncAnthropic, APIError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from vertical_taxonomy import VERTICALS
+import role_taxonomy
 
 log = logging.getLogger(__name__)
 
@@ -295,30 +296,9 @@ def _federal_staffing_verdict():
 # Order matters within each entry — we use re.search with re.IGNORECASE.
 import re as _re
 
-DATA_TITLE_PATTERNS = [
-    # Most specific first
-    (r"\bml\s+ops\b|\bmlops\b", "ml_engineering"),
-    (r"\b(machine\s+learning|ml)\s+(engineer|scientist|developer)\b", "ml_engineering"),
-    (r"\bapplied\s+(ml|machine\s+learning|ai)\b", "ml_engineering"),
-    (r"\b(deep\s+learning|dl)\s+engineer\b", "ml_engineering"),
-    (r"\bai\s+(engineer|scientist|researcher)\b", "ai_research"),
-    (r"\b(nlp|natural\s+language)\s+(engineer|scientist|researcher)\b", "ai_research"),
-    (r"\b(computer\s+vision|cv)\s+(engineer|scientist|researcher)\b", "ai_research"),
-    (r"\banalytics\s+engineer\b", "analytics_engineering"),
-    (r"\bdata\s+scientist\b", "data_science"),
-    (r"\bdata\s+(architect|engineer|developer)\b", "data_engineering"),
-    (r"\bdata\s+(quality|governance|operations|ops)\s+(analyst|engineer|specialist|manager)\b", "data_engineering"),
-    (r"\betl\s+(developer|engineer)\b", "data_engineering"),
-    (r"\bdata\s+platform\s+(engineer|developer)\b", "data_engineering"),
-    (r"\bdata\s+(analyst|manager)\b", "data_analytics"),
-    (r"\b(business\s+intelligence|bi)\s+(analyst|developer|engineer)\b", "data_analytics"),
-    (r"\banalytics\s+(analyst|manager|lead|director)\b", "data_analytics"),
-    (r"\bquantitative\s+(analyst|researcher)\b", "data_science"),
-    # Senior/lead/staff/principal versions of the above (catches "Sr Data Engineer" etc)
-    (r"\b(senior|sr\.?|principal|staff|lead|manager,?)\s+(of\s+)?data\s+(analyst|engineer|scientist|architect)\b", "auto_subcat"),
-    (r"\b(senior|sr\.?|principal|staff|lead)\s+ml\s+engineer\b", "ml_engineering"),
-    (r"\b(senior|sr\.?|principal|staff|lead)\s+analytics\s+engineer\b", "analytics_engineering"),
-]
+# Sourced from config/role_taxonomy.json (domains.data_ml.title_precheck) via the loader.
+# Ordered [(pattern_str, slug)]; slug 'auto_subcat' is resolved in _data_title_subcategory.
+DATA_TITLE_PATTERNS = role_taxonomy.data_title_patterns()
 
 def _data_title_subcategory(title):
     """Return data subcategory if title matches an unambiguous pattern, else None."""
@@ -382,17 +362,7 @@ _PROMPT_DATA_ML = """\
 You are classifying a data/analytics/ML job posting into its precise subcategory.
 
 SUBCATEGORIES — return exactly one:
-- "data_analytics":        data analyst, BI analyst, business analyst doing SQL/dashboards,
-                           marketing analyst, product analyst, financial analyst (modeling focus),
-                           risk analyst, fraud analyst, pricing analyst (uses Python/SQL)
-- "data_engineering":      data engineer, ETL developer, data architect, data platform engineer,
-                           data quality engineer (automated pipelines), data ops
-- "analytics_engineering": analytics engineer (dbt-style), data modeler, semantic layer engineer
-- "data_science":          data scientist, statistician, quant researcher, actuarial (ML-heavy)
-- "ml_engineering":        ML engineer, MLOps, applied ML, AI engineer building production systems,
-                           LLM engineer, AI platform engineer
-- "ai_research":           research scientist, applied scientist (ML/AI focus), NLP/CV researcher
-
+{subcat_lines}
 RULES:
 - TITLE-FIRST: trust a clear title. "Data Engineer" → data_engineering regardless of description.
 - "Analytics Engineer" → analytics_engineering (not data_analytics).
@@ -416,19 +386,7 @@ _PROMPT_ENGINEERING = """\
 You are classifying a software/systems engineering job posting into its precise subcategory.
 
 SUBCATEGORIES — return exactly one:
-- "backend":              backend engineer, server-side developer, API engineer, systems programmer
-- "frontend":             frontend engineer, UI engineer, web developer (client-side focus)
-- "fullstack":            fullstack / full-stack engineer or developer
-- "devops":               DevOps engineer, CI/CD engineer, release engineering, build systems
-- "sre":                  site reliability engineer, SRE, platform reliability, on-call infra
-- "platform":             platform engineer, infrastructure engineer, cloud infra, internal tooling
-- "mobile":               iOS engineer, Android engineer, React Native, mobile developer
-- "security":             security engineer, AppSec, application security, penetration tester
-- "embedded":             embedded engineer, firmware engineer, RTOS, hardware/software interface
-- "qa":                   QA engineer, SDET, test engineer, automation engineer (test focus)
-- "engineering_manager":  engineering manager, director of engineering, VP Engineering
-- "general":              staff / principal / distinguished engineer, or genuinely ambiguous subtype
-
+{subcat_lines}
 RULES:
 - TITLE-FIRST: "Backend Engineer" → backend. "iOS Developer" → mobile. "QA Engineer" → qa.
 - "Software Engineer" with no qualifying context → general.
@@ -446,14 +404,7 @@ _PROMPT_SALES = """\
 You are classifying a sales/revenue job posting into its precise subcategory.
 
 SUBCATEGORIES — return exactly one:
-- "account_executive":   AE, closing role, quota-carrying individual contributor
-- "bdr_sdr":             SDR, BDR, outbound prospecting, business development representative
-- "customer_success":    CSM, customer success manager, implementation manager, onboarding
-- "sales_engineering":   sales engineer, solutions engineer, solutions architect (pre-sales technical)
-- "sales_ops":           sales operations, revenue operations, RevOps, sales enablement
-- "account_management":  account manager, renewals manager, client success (post-sales expansion focus)
-- "sales_leadership":    VP Sales, CRO, head of sales, sales director, sales manager (team lead)
-
+{subcat_lines}
 RULES:
 - TITLE-FIRST: "Account Executive" → account_executive. "SDR" or "BDR" → bdr_sdr.
 - Customer Success vs Account Management:
@@ -490,17 +441,18 @@ _HAND_WRITTEN = {"data_ml", "engineering", "sales"}
 
 
 def _build_domain_prompt(domain: str, role_title: str, snippet: str) -> str:
+    # Subcategory vocabulary for every domain comes from config/role_taxonomy.json
+    # (single source of truth). The per-domain RULES text below stays here — it is
+    # disambiguation guidance, not vocabulary.
+    subcat_lines = role_taxonomy.llm_subcategory_block(domain)
     if domain == "data_ml":
-        return _PROMPT_DATA_ML.format(role_title=role_title, snippet=snippet)
+        return _PROMPT_DATA_ML.format(subcat_lines=subcat_lines, role_title=role_title, snippet=snippet)
     if domain == "engineering":
-        return _PROMPT_ENGINEERING.format(role_title=role_title, snippet=snippet)
+        return _PROMPT_ENGINEERING.format(subcat_lines=subcat_lines, role_title=role_title, snippet=snippet)
     if domain == "sales":
-        return _PROMPT_SALES.format(role_title=role_title, snippet=snippet)
+        return _PROMPT_SALES.format(subcat_lines=subcat_lines, role_title=role_title, snippet=snippet)
     # Generic template for finance, marketing, product, design, ops
-    vdata = VERTICALS.get(domain, {})
-    display_name = vdata.get("display_name", domain)
-    subcats = vdata.get("subcategories", [])
-    subcat_lines = "\n".join(f'- "{s}"' for s in subcats)
+    display_name = role_taxonomy.domain_label(domain)
     return _PROMPT_GENERIC_TMPL.format(
         display_name=display_name,
         subcat_lines=subcat_lines,
