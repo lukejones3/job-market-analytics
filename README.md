@@ -1,81 +1,116 @@
-# DataHiringIQ
+# Lander
 
-**Job intelligence platform built for seekers, not employers.**
+**Job intelligence built for seekers, not employers.**
 
-🌐 [datahiringiq.com](https://datahiringiq.com)
+🌐 [landerjob.com](https://landerjob.com)
 
 ---
 
-DataHiringIQ pulls job postings directly from company applicant tracking systems — Greenhouse, Lever, Workday, Ashby, SmartRecruiters, Eightfold, and Amazon's hiring API — and layers structured intelligence on top of the raw data. Built for the seeker, not the recruiter.
+Lander pulls job postings directly from company applicant tracking systems — Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Eightfold, Workable, iCIMS, and Amazon's hiring API — and layers structured intelligence on top of the raw data. No LinkedIn, no aggregator spam, no scraping grey area.
 
-Every job platform today (LinkedIn, Indeed, ZipRecruiter) makes money from employers. The seeker is the product. DataHiringIQ inverts that: free for casual browsers, $19/mo for active job hunters, with the entire product designed around the person looking for work.
+Every mainstream job platform (LinkedIn, Indeed, ZipRecruiter) makes its money from employers — the seeker is the product. Lander inverts that: free for casual browsers, paid for active job hunters, with the entire product designed around the person looking for work.
+
+**This repository is the backend / data layer** — ingestion, enrichment, classification, the analytics warehouse, and the FastAPI service. The user-facing Next.js frontend lives in a separate repo (`lander`).
 
 ---
 
 ## What it does
 
-- **Scrapes 7 ATS systems nightly** — bypasses LinkedIn entirely, no scraping legal grey area
-- **Flags ghost jobs** — currently 22% of active data/ML postings flagged at >70% probability based on time-to-close patterns and re-post frequency
-- **Maps hiring manager LinkedIn for every role** — skip the resume black hole, reach the actual person hiring
-- **Traffic-light signal on every posting** — green/yellow/red based on freshness, salary disclosure, contact availability, ghost probability, and lifecycle patterns
-- **Resume-to-job match scoring** — top-50 matches with skill-gap analysis (Pro)
+- **Harvests 9 ATS systems nightly** — Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Eightfold, Workable, iCIMS, and Amazon, deduped across sources
+- **Ghost Job Index** — scores every posting on ghost-job probability from time-to-close patterns, re-post frequency, and lifecycle signals, then buckets it fresh / low / medium / high
+- **Honesty scores** — a per-posting signal built from freshness, salary disclosure, and posting behavior
+- **Semantic resume → job matching** — upload a resume, get top matches by meaning (not keywords) with skill-gap analysis, powered by pgvector + sentence-transformers
+- **Salary intelligence** — parses, annualizes, and benchmarks pay across roles, sectors, and companies; tracks salary-transparency coverage by source
+- **Company & role intelligence** — scorecards, hiring difficulty, skill demand, and sector benchmarks
 
 ## Current scale
 
+Live figures from the production warehouse (US-focused, multi-vertical):
+
 | Metric | Value |
 |---|---|
-| Active job postings | 5,400+ |
-| US companies tracked | 1,200+ |
-| ATS sources | 7 |
-| Salary transparency | 64% |
-| Hiring contact coverage | 77% |
-| Ghost jobs flagged | 22% of active |
+| Active roles (US) | 54,000+ |
+| Roles scored & indexed | 82,000+ |
+| Companies tracked | 8,000+ |
+| Companies hiring now | 2,800+ |
+| ATS sources | 9 |
+| Salary transparency | ~45% |
+| Ghost Index | ~36% flagged high-risk |
 | Refresh cadence | Nightly |
 
-Currently focused on data and ML roles. Multi-vertical expansion (finance, marketing, engineering, ops) on the roadmap.
+Began with data & ML roles; now spans multiple verticals (engineering, finance, marketing, ops) via a shared skill/role taxonomy.
 
 ## Stack
 
-- **Backend:** Python 3.12, PostgreSQL 16, FastAPI
-- **Data layer:** dbt with 18+ transformation models, ~60 tables
-- **Ingestion:** Custom harvesters for 7 ATS APIs, cron-scheduled with cross-source dedup
-- **NLP:** Salary parsing, experience inference, role classification, skills extraction, hiring contact mapping
-- **AI:** Claude Haiku 4.5 for role categorization (cached, ~80% LLM call reduction)
-- **Frontend:** Streamlit Cloud (interim — full Next.js rebuild planned)
-- **Infrastructure:** DigitalOcean, nginx + Let's Encrypt, Cloudflare edge protection
-- **Billing:** Stripe live subscriptions, Resend transactional email
+- **Backend:** Python 3.12, FastAPI, PostgreSQL 16
+- **Data layer:** dbt — ~18 transformation models (staging → core marts), ~60 tables in the `analytics_analytics` schema
+- **Ingestion:** custom async harvesters for 9 ATS APIs, cron-scheduled with cross-source dedup and a company blocklist
+- **Enrichment (LLM-free in the cron path):** regex/heuristic salary parsing & annualization, experience inference, role classification, SQL-based skill extraction, location normalization, hiring-contact mapping
+- **ML:** `all-MiniLM-L6-v2` (384-dim) sentence embeddings with per-company boilerplate stripping; pgvector + HNSW indexes for semantic resume→job matching, live in production
+- **Frontend:** Next.js on Vercel (separate `lander` repo)
+- **Infrastructure:** DigitalOcean droplet, nginx + Let's Encrypt, Cloudflare edge, `jma-api.service` (systemd) on port 8000
+- **Billing & email:** Stripe live subscriptions, Resend transactional email
 
-## Status
+## Repository layout
 
-Public freemium launch: **May 2, 2026.**
+| Path | Contents |
+|---|---|
+| `python/` | Ingestion harvesters, enrichment, classifiers, discovery, the FastAPI app (`api.py`), and the resume matcher (`python/resume/`) |
+| `dbt/job_analytics_dbt/` | dbt project — staging models + core marts (ghost index, honesty, salary/sector benchmarks, scorecards, skill demand) |
+| `sql/` | Standalone SQL: salary annualization, honesty refresh, dedup, discovery sync |
+| `models/` | ML model artifacts and experiment status notes |
+| `scripts/` | Operational and one-off maintenance scripts |
+| `eval/` | Classifier / parser evaluation harnesses |
+| `crontab.txt` | The full production cron schedule |
 
-Built solo by [Luke Jones](https://linkedin.com/in/luke-j-78a02121b) — finance major who learned Python, SQL, and infrastructure from scratch in 4 months specifically to build this. The product itself is a system improvement on the broken job search experience.
+## Daily pipeline (UTC)
 
-## Ops Notes
+| Time | Step |
+|---|---|
+| 05:00 | `pg_dump` backup + prune backups older than 7 days |
+| 06:00 | Ingest — 9 ATS sources launch simultaneously |
+| 06:15 | Domain reclassification (last 24h) |
+| 06:20 | Enforce company blocklist |
+| 06:30 | Annualize salaries + enrich (`--no-llm`, regex/heuristics) + SQL skill extraction |
+| 06:45 | Embed new jobs |
+| 06:55 | Experience-level v2 classifier |
+| 07:20 | Refresh honesty scores + company discovery |
+| 07:30 | Cross-source dedup |
+| 07:40 | Expire stale jobs |
+| 07:50 | Sync discovered companies |
+| 08:00 | `dbt run` — ~18 models |
+| 08:30 | Morning report (email via Resend) |
+| every 5 min | Embed new resumes |
 
-### Enrichment pipeline
+The daily cron path is intentionally **LLM-free** — classification runs on regex, heuristics, and a cached label store.
 
-The enrichment cron (`enrich_job_postings.py`) runs **daily at 06:30 UTC** with `--no-llm --limit 5000`.
-LLM role classification is disabled. The pipeline uses regex + heuristics + the `cat_cache` (46k+ entries) for classification.
+## API
 
-**To re-enable LLM** (when Anthropic credits are restored):
-1. Remove `--no-llm` from the cron line in `crontab.txt`
-2. Add `ENRICH_MAX_LLM_CALLS=10000` before the command, or export it in the environment
-3. Install new crontab on the droplet: `crontab crontab.txt`
+The FastAPI service (`python/api.py`) exposes a versioned `/v1` REST API behind API-key auth and rate limiting. Highlights:
 
-### Salary fixtures
+- `GET /v1/market/overview` · `/market/roles` · `/market/skills` · `/market/sectors` · `/market/ghost-index`
+- `GET /v1/companies` · `/companies/{slug}` (+ `/roles`, `/skills`)
+- `GET /v1/roles` · `/roles/{job_id}`
+- `POST /v1/resume/upload` — resume parse + semantic match
+- Stripe checkout / portal / webhook + magic-link auth flow
 
-Salary parser regression tests live in `python/test_salary_parser.py`. Run locally with:
+Interactive docs at `/docs` when the service is running.
+
+## Tests
+
+Salary-parser regression fixtures live in `python/test_salary_parser.py`:
 
 ```
 python python/test_salary_parser.py
 ```
 
-CI runs these automatically (via `.github/workflows/test-salary-parser.yml`) on every push or PR that touches `enrich_job_postings.py` or the test file. To add a new fixture, append a `(name, text, exp_min, exp_max, exp_period)` tuple to the `TESTS` list in `test_salary_parser.py`.
+CI runs them automatically (`.github/workflows/test-salary-parser.yml`) on any push or PR touching `enrich_job_postings.py` or the test file. Add a fixture by appending a `(name, text, exp_min, exp_max, exp_period)` tuple to the `TESTS` list.
 
-### Morning report
+## Status
 
-Sent daily at 08:30 UTC via Resend. Includes a "Salary Coverage — Last 24h by Source" table and a day-over-day delta on the salary-gap indicator (jobs with `$` in description but no salary parsed). A >20% rise in that indicator is flagged as a likely new ATS format or regex gap.
+Public freemium launch: **May 2, 2026.**
+
+Built solo by [Luke Jones](https://linkedin.com/in/luke-j-78a02121b) — a finance major who learned Python, SQL, and infrastructure from scratch to build it. The product is a deliberate correction to a job-search experience that's optimized for everyone except the person looking for work.
 
 ## Contact
 
