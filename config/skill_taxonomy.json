@@ -1,0 +1,4868 @@
+{
+  "_note": "Canonical skills taxonomy — single source of truth. Generated once by scripts/build_skill_taxonomy_json.py from the live DB + VERTICALS + FALLBACK_ALIASES; hand-maintained thereafter. discover_skills.py may still add skills to the DB at runtime (dynamic); this JSON is the seed/floor. 'aliases' folds DB + FALLBACK + VERTICALS seed aliases. 'denylist' = generic terms never extracted.",
+  "denylist": [
+    "business analysis",
+    "collaborate",
+    "consulting",
+    "data analysis",
+    "detail-oriented",
+    "insights",
+    "marketing",
+    "modeling",
+    "presentation",
+    "reporting",
+    "sales"
+  ],
+  "skills": [
+    {
+      "skill_id": "S028",
+      "skill_name": "A/B Testing",
+      "skill_slug": "a-b-testing",
+      "vertical": "data_ml",
+      "also_in": [
+        "marketing",
+        "product"
+      ],
+      "category": "statistics",
+      "skill_group": "Strategy",
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "A/B Testing",
+        "ab testing",
+        "a/b test",
+        "ab test",
+        "experimentation",
+        "hypothesis testing",
+        "split testing",
+        "a/b experiments"
+      ]
+    },
+    {
+      "skill_id": "Se288ec651a",
+      "skill_name": "Agentic Systems",
+      "skill_slug": "agentic-systems",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Agentic Systems",
+        "agentic ai",
+        "ai agents",
+        "autonomous agents",
+        "multi-agent"
+      ]
+    },
+    {
+      "skill_id": "S026",
+      "skill_name": "AI",
+      "skill_slug": "ai",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Tools",
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "AI"
+      ]
+    },
+    {
+      "skill_id": "Sd1662521e6",
+      "skill_name": "Airflow",
+      "skill_slug": "airflow",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "orchestration",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Airflow",
+        "apache airflow",
+        "astronomer"
+      ]
+    },
+    {
+      "skill_id": "S015",
+      "skill_name": "Alteryx",
+      "skill_slug": "alteryx",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Analytics",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Alteryx"
+      ]
+    },
+    {
+      "skill_id": "Sb8665822b7",
+      "skill_name": "Anaplan",
+      "skill_slug": "anaplan",
+      "vertical": "finance",
+      "also_in": [
+        "ops"
+      ],
+      "category": "fpa_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Anaplan"
+      ]
+    },
+    {
+      "skill_id": "Sd18b8624a0",
+      "skill_name": "Angular",
+      "skill_slug": "angular",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "frontend_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Angular",
+        "angularjs",
+        "angular.js"
+      ]
+    },
+    {
+      "skill_id": "S640c8a5376",
+      "skill_name": "Ansible",
+      "skill_slug": "ansible",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "devops",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Ansible",
+        "ansible playbook"
+      ]
+    },
+    {
+      "skill_id": "S5cf9abccf",
+      "skill_name": "Apache Superset",
+      "skill_slug": "apache-superset",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Apache Superset",
+        "superset"
+      ]
+    },
+    {
+      "skill_id": "S019",
+      "skill_name": "Attentive",
+      "skill_slug": "attentive",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "lifecycle_tool",
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 2,
+      "aliases": [
+        "Attentive",
+        "attentive mobile"
+      ]
+    },
+    {
+      "skill_id": "Sc6a538ac5",
+      "skill_name": "AWS Athena",
+      "skill_slug": "aws-athena",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "AWS Athena",
+        "athena",
+        "amazon athena"
+      ]
+    },
+    {
+      "skill_id": "Sc78e1b2397",
+      "skill_name": "AWS Developer",
+      "skill_slug": "aws-developer",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "AWS Developer",
+        "aws certified developer",
+        "aws developer associate"
+      ]
+    },
+    {
+      "skill_id": "Sd27c79824",
+      "skill_name": "AWS Glue",
+      "skill_slug": "aws-glue",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "AWS Glue",
+        "glue",
+        "amazon glue"
+      ]
+    },
+    {
+      "skill_id": "Se677325b6e",
+      "skill_name": "AWS Solutions Architect",
+      "skill_slug": "aws-solutions-architect",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "AWS Solutions Architect",
+        "aws certified solutions architect",
+        "aws sa"
+      ]
+    },
+    {
+      "skill_id": "S97b3e650d3",
+      "skill_name": "AWS SysOps",
+      "skill_slug": "aws-sysops",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "AWS SysOps",
+        "aws certified sysops",
+        "aws sysops administrator"
+      ]
+    },
+    {
+      "skill_id": "S3dd8d33a8b",
+      "skill_name": "AZ-104",
+      "skill_slug": "az-104",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "AZ-104",
+        "azure administrator",
+        "microsoft azure administrator"
+      ]
+    },
+    {
+      "skill_id": "S6f3c04fc29",
+      "skill_name": "AZ-204",
+      "skill_slug": "az-204",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "AZ-204",
+        "azure developer associate",
+        "microsoft azure developer"
+      ]
+    },
+    {
+      "skill_id": "S25bf6fde30",
+      "skill_name": "AZ-400",
+      "skill_slug": "az-400",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "AZ-400",
+        "azure devops engineer",
+        "microsoft devops engineer"
+      ]
+    },
+    {
+      "skill_id": "S0fcfe3a313",
+      "skill_name": "AZ-900",
+      "skill_slug": "az-900",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "AZ-900",
+        "azure fundamentals",
+        "microsoft azure fundamentals"
+      ]
+    },
+    {
+      "skill_id": "S3a580f1422",
+      "skill_name": "Azure",
+      "skill_slug": "azure",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "cloud",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Azure",
+        "microsoft azure",
+        "azure cloud",
+        "azure data factory",
+        "azure synapse",
+        "azure ml",
+        "azure devops"
+      ]
+    },
+    {
+      "skill_id": "S7024ff0860",
+      "skill_name": "Bash",
+      "skill_slug": "bash",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "devops",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Bash",
+        "shell scripting",
+        "shell script",
+        "unix",
+        "linux",
+        "ubuntu",
+        "debian",
+        "centos",
+        "rhel"
+      ]
+    },
+    {
+      "skill_id": "S7c7cec5ba2",
+      "skill_name": "Blender",
+      "skill_slug": "blender",
+      "vertical": "design",
+      "also_in": [],
+      "category": "motion_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Blender",
+        "blender 3d"
+      ]
+    },
+    {
+      "skill_id": "Sa59548a636",
+      "skill_name": "Bloomberg Terminal",
+      "skill_slug": "bloomberg-terminal",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "investment_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Bloomberg Terminal",
+        "bloomberg",
+        "bloomberg professional"
+      ]
+    },
+    {
+      "skill_id": "S272b9f5409",
+      "skill_name": "Braze",
+      "skill_slug": "braze",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "lifecycle_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Braze"
+      ]
+    },
+    {
+      "skill_id": "S240aa2cec4",
+      "skill_name": "C#",
+      "skill_slug": "c",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "language",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "C#",
+        "csharp",
+        "c sharp",
+        ".net",
+        "dotnet",
+        "asp.net"
+      ]
+    },
+    {
+      "skill_id": "S6ce809eacf",
+      "skill_name": "C++",
+      "skill_slug": "c-2",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "language",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "C++",
+        "cpp",
+        "c plus plus"
+      ]
+    },
+    {
+      "skill_id": "S5edc96d709",
+      "skill_name": "Capital IQ",
+      "skill_slug": "capital-iq",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "investment_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Capital IQ",
+        "capiq",
+        "s&p capital iq"
+      ]
+    },
+    {
+      "skill_id": "Sfd676a2022",
+      "skill_name": "CAPM",
+      "skill_slug": "capm",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "CAPM",
+        "certified associate in project management"
+      ]
+    },
+    {
+      "skill_id": "S029",
+      "skill_name": "Case Modeling",
+      "skill_slug": "case-modeling",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Analytics",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Case Modeling"
+      ]
+    },
+    {
+      "skill_id": "S3351237e85",
+      "skill_name": "Causal Inference",
+      "skill_slug": "causal-inference",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Causal Inference",
+        "causal analysis",
+        "causal modeling",
+        "causal research"
+      ]
+    },
+    {
+      "skill_id": "S975e89cd02",
+      "skill_name": "CEH",
+      "skill_slug": "ceh",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "CEH",
+        "certified ethical hacker"
+      ]
+    },
+    {
+      "skill_id": "S1fdf93b56e",
+      "skill_name": "CFA",
+      "skill_slug": "cfa",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "CFA",
+        "chartered financial analyst"
+      ]
+    },
+    {
+      "skill_id": "S76285df8cb",
+      "skill_name": "CFP",
+      "skill_slug": "cfp",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "CFP",
+        "certified financial planner"
+      ]
+    },
+    {
+      "skill_id": "S2bf76f8747",
+      "skill_name": "Challenger",
+      "skill_slug": "challenger",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "sales_methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Challenger",
+        "challenger sale",
+        "challenger selling"
+      ]
+    },
+    {
+      "skill_id": "S37098dfa7e",
+      "skill_name": "Change Management",
+      "skill_slug": "change-management",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Change Management",
+        "organizational change",
+        "itil change management",
+        "organizational change management"
+      ]
+    },
+    {
+      "skill_id": "S970ae9dcbe",
+      "skill_name": "Chorus",
+      "skill_slug": "chorus",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "call_intelligence",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Chorus",
+        "chorus.ai",
+        "zoominfo chorus"
+      ]
+    },
+    {
+      "skill_id": "S6a620f5af7",
+      "skill_name": "CI/CD",
+      "skill_slug": "ci-cd",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "devops",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "CI/CD",
+        "cicd",
+        "github actions",
+        "gitlab ci",
+        "jenkins",
+        "circleci",
+        "travis ci",
+        "buildkite",
+        "argocd",
+        "tekton"
+      ]
+    },
+    {
+      "skill_id": "S1f6fda8063",
+      "skill_name": "CIA",
+      "skill_slug": "cia",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "CIA",
+        "certified internal auditor"
+      ]
+    },
+    {
+      "skill_id": "S261b56d697",
+      "skill_name": "Cinema 4D",
+      "skill_slug": "cinema-4d",
+      "vertical": "design",
+      "also_in": [],
+      "category": "motion_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Cinema 4D",
+        "c4d"
+      ]
+    },
+    {
+      "skill_id": "S037",
+      "skill_name": "Circana",
+      "skill_slug": "circana",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Circana"
+      ]
+    },
+    {
+      "skill_id": "S08dd72636b",
+      "skill_name": "CISA",
+      "skill_slug": "cisa",
+      "vertical": "finance",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "CISA",
+        "certified information systems auditor"
+      ]
+    },
+    {
+      "skill_id": "S627ccfaddf",
+      "skill_name": "CISSP",
+      "skill_slug": "cissp",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "CISSP",
+        "certified information systems security professional"
+      ]
+    },
+    {
+      "skill_id": "S73857270a4",
+      "skill_name": "CKA",
+      "skill_slug": "cka",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "CKA",
+        "certified kubernetes administrator"
+      ]
+    },
+    {
+      "skill_id": "S0928db5377",
+      "skill_name": "CKAD",
+      "skill_slug": "ckad",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "CKAD",
+        "certified kubernetes application developer"
+      ]
+    },
+    {
+      "skill_id": "S8bf72f3753",
+      "skill_name": "CKS",
+      "skill_slug": "cks",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "CKS",
+        "certified kubernetes security specialist"
+      ]
+    },
+    {
+      "skill_id": "S431fce03c",
+      "skill_name": "ClickHouse",
+      "skill_slug": "clickhouse",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "ClickHouse"
+      ]
+    },
+    {
+      "skill_id": "Sa1f64bc3be",
+      "skill_name": "CMA",
+      "skill_slug": "cma",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "CMA",
+        "certified management accountant"
+      ]
+    },
+    {
+      "skill_id": "S753a222580",
+      "skill_name": "Computer Vision",
+      "skill_slug": "computer-vision",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Computer Vision",
+        "cv",
+        "image recognition",
+        "object detection",
+        "image processing"
+      ]
+    },
+    {
+      "skill_id": "Sa2c18f37c2",
+      "skill_name": "Confluence",
+      "skill_slug": "confluence",
+      "vertical": "product",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "pm_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Confluence",
+        "atlassian confluence"
+      ]
+    },
+    {
+      "skill_id": "S8c4b4ad3a3",
+      "skill_name": "Copywriting",
+      "skill_slug": "copywriting",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "soft_skill",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Copywriting",
+        "copy writing",
+        "content writing",
+        "ux writing"
+      ]
+    },
+    {
+      "skill_id": "Se695be6d72",
+      "skill_name": "Coupa",
+      "skill_slug": "coupa",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "procurement_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Coupa",
+        "coupa software"
+      ]
+    },
+    {
+      "skill_id": "Sf114427f29",
+      "skill_name": "CPA",
+      "skill_slug": "cpa",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "CPA",
+        "certified public accountant",
+        "cpa license",
+        "cpa certification",
+        "cpa required"
+      ]
+    },
+    {
+      "skill_id": "Sb4f8b02787",
+      "skill_name": "CSM",
+      "skill_slug": "csm",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "CSM",
+        "certified scrum master",
+        "scrum master certified"
+      ]
+    },
+    {
+      "skill_id": "Sa296104f0",
+      "skill_name": "Cube",
+      "skill_slug": "cube",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Cube",
+        "cube.js",
+        "cubejs"
+      ]
+    },
+    {
+      "skill_id": "Sc6b22db07b",
+      "skill_name": "Customer.io",
+      "skill_slug": "customer-io",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "lifecycle_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Customer.io",
+        "customerio"
+      ]
+    },
+    {
+      "skill_id": "S8413e2ee8",
+      "skill_name": "Dataiku",
+      "skill_slug": "dataiku",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Dataiku"
+      ]
+    },
+    {
+      "skill_id": "S19861d3ac6",
+      "skill_name": "Design Systems",
+      "skill_slug": "design-systems",
+      "vertical": "design",
+      "also_in": [],
+      "category": "design_skill",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Design Systems",
+        "design system",
+        "component library",
+        "style guide",
+        "token system"
+      ]
+    },
+    {
+      "skill_id": "S2b9afb89a6",
+      "skill_name": "Django",
+      "skill_slug": "django",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "backend_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Django",
+        "django rest framework",
+        "drf"
+      ]
+    },
+    {
+      "skill_id": "Sc5fd214cdd",
+      "skill_name": "Docker",
+      "skill_slug": "docker",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "devops",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Docker",
+        "containerization",
+        "containers",
+        "docker compose",
+        "dockerfile"
+      ]
+    },
+    {
+      "skill_id": "S5b344ac52a",
+      "skill_name": "EA",
+      "skill_slug": "ea",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "EA",
+        "enrolled agent",
+        "ea tax"
+      ]
+    },
+    {
+      "skill_id": "S18897dcfce",
+      "skill_name": "Elasticsearch",
+      "skill_slug": "elasticsearch",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "database",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Elasticsearch",
+        "elastic search",
+        "opensearch",
+        "elk stack"
+      ]
+    },
+    {
+      "skill_id": "S043",
+      "skill_name": "ERP Systems",
+      "skill_slug": "erp-systems",
+      "vertical": "ops",
+      "also_in": [
+        "finance"
+      ],
+      "category": "erp",
+      "skill_group": "Ops",
+      "difficulty_relevant": false,
+      "weight": 2,
+      "aliases": [
+        "ERP Systems",
+        "erp"
+      ]
+    },
+    {
+      "skill_id": "S002",
+      "skill_name": "Excel",
+      "skill_slug": "excel",
+      "vertical": "finance",
+      "also_in": [
+        "marketing",
+        "ops",
+        "sales"
+      ],
+      "category": "tool",
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 4,
+      "aliases": [
+        "Excel",
+        "vlookup",
+        "vlookups",
+        "xlookup",
+        "powerpivot",
+        "power pivot",
+        "microsoft excel"
+      ]
+    },
+    {
+      "skill_id": "Sd2d1334a06",
+      "skill_name": "Facebook Blueprint",
+      "skill_slug": "facebook-blueprint",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Facebook Blueprint",
+        "meta blueprint",
+        "meta certified",
+        "facebook certified"
+      ]
+    },
+    {
+      "skill_id": "S378c7ea18c",
+      "skill_name": "FactSet",
+      "skill_slug": "factset",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "investment_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "FactSet"
+      ]
+    },
+    {
+      "skill_id": "Sf275f2a55",
+      "skill_name": "FastAPI",
+      "skill_slug": "fastapi",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "backend_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "FastAPI",
+        "fast api"
+      ]
+    },
+    {
+      "skill_id": "S7254fac47e",
+      "skill_name": "Figma",
+      "skill_slug": "figma",
+      "vertical": "marketing",
+      "also_in": [
+        "design",
+        "product"
+      ],
+      "category": "design_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 5,
+      "aliases": [
+        "Figma",
+        "figma components",
+        "figma prototyping"
+      ]
+    },
+    {
+      "skill_id": "S030",
+      "skill_name": "Financial Modeling",
+      "skill_slug": "financial-modeling",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "finance_skill",
+      "skill_group": "Analytics",
+      "difficulty_relevant": false,
+      "weight": 5,
+      "aliases": [
+        "Financial Modeling",
+        "financial models",
+        "financial analysis",
+        "financial planning",
+        "fp&a",
+        "financial modelling",
+        "dcf",
+        "lbo",
+        "m&a modeling",
+        "three-statement model"
+      ]
+    },
+    {
+      "skill_id": "S319c3206a7",
+      "skill_name": "Flask",
+      "skill_slug": "flask",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "backend_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Flask"
+      ]
+    },
+    {
+      "skill_id": "S1febfac03e",
+      "skill_name": "Framer",
+      "skill_slug": "framer",
+      "vertical": "design",
+      "also_in": [],
+      "category": "prototyping_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Framer",
+        "framer motion"
+      ]
+    },
+    {
+      "skill_id": "S2609344fa7",
+      "skill_name": "FRM",
+      "skill_slug": "frm",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "FRM",
+        "financial risk manager",
+        "garp frm"
+      ]
+    },
+    {
+      "skill_id": "Sa6a93d95ed",
+      "skill_name": "GAAP",
+      "skill_slug": "gaap",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "standard",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "GAAP",
+        "us gaap",
+        "generally accepted accounting principles"
+      ]
+    },
+    {
+      "skill_id": "Sc731f72e1d",
+      "skill_name": "GCP",
+      "skill_slug": "gcp",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "cloud",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "GCP",
+        "google cloud",
+        "google cloud platform",
+        "vertex ai",
+        "google vertex ai",
+        "google bigquery",
+        "dataflow",
+        "google cloud storage"
+      ]
+    },
+    {
+      "skill_id": "Saaf7fdc2ac",
+      "skill_name": "GCP Data Engineer",
+      "skill_slug": "gcp-data-engineer",
+      "vertical": "engineering",
+      "also_in": [
+        "data_ml"
+      ],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "GCP Data Engineer",
+        "google cloud data engineer",
+        "professional data engineer"
+      ]
+    },
+    {
+      "skill_id": "Sb8dc25d330",
+      "skill_name": "GCP Professional Cloud Architect",
+      "skill_slug": "gcp-professional-cloud-architect",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "GCP Professional Cloud Architect",
+        "google cloud architect",
+        "professional cloud architect"
+      ]
+    },
+    {
+      "skill_id": "S0bcc70105a",
+      "skill_name": "Git",
+      "skill_slug": "git",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "devops",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Git",
+        "github",
+        "gitlab",
+        "version control",
+        "git/github",
+        "bitbucket"
+      ]
+    },
+    {
+      "skill_id": "S34d1f91fb2",
+      "skill_name": "Go",
+      "skill_slug": "go",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "language",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Go",
+        "golang"
+      ]
+    },
+    {
+      "skill_id": "S3205f64462",
+      "skill_name": "Gong",
+      "skill_slug": "gong",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "call_intelligence",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Gong",
+        "gong.io"
+      ]
+    },
+    {
+      "skill_id": "S89e8a431de",
+      "skill_name": "Google Ads",
+      "skill_slug": "google-ads",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "paid_media",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Google Ads",
+        "google adwords",
+        "adwords",
+        "ppc",
+        "sem"
+      ]
+    },
+    {
+      "skill_id": "S018",
+      "skill_name": "Google Analytics",
+      "skill_slug": "google-analytics",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "analytics",
+      "skill_group": "Analytics",
+      "difficulty_relevant": false,
+      "weight": 5,
+      "aliases": [
+        "Google Analytics",
+        "universal analytics",
+        "ua"
+      ]
+    },
+    {
+      "skill_id": "Sc48c3abf41",
+      "skill_name": "Google Analytics Certified",
+      "skill_slug": "google-analytics-certified",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Google Analytics Certified",
+        "ga certified",
+        "google analytics certification"
+      ]
+    },
+    {
+      "skill_id": "S572cda5190",
+      "skill_name": "GraphQL",
+      "skill_slug": "graphql",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "api",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "GraphQL",
+        "graph ql"
+      ]
+    },
+    {
+      "skill_id": "S7e7a1e8c28",
+      "skill_name": "Greenhouse",
+      "skill_slug": "greenhouse",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "ats",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Greenhouse",
+        "greenhouse recruiting"
+      ]
+    },
+    {
+      "skill_id": "S065",
+      "skill_name": "Airtable",
+      "skill_slug": "airtable",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Airtable"
+      ]
+    },
+    {
+      "skill_id": "Sd522b9f8f",
+      "skill_name": "Data Governance",
+      "skill_slug": "data-governance",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Data Governance",
+        "data stewardship",
+        "data catalog"
+      ]
+    },
+    {
+      "skill_id": "S_datalakehouse",
+      "skill_name": "Data Lakehouse",
+      "skill_slug": "data-lakehouse",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Data Lakehouse",
+        "lakehouse",
+        "lakehouse architecture"
+      ]
+    },
+    {
+      "skill_id": "S3b79d001b3",
+      "skill_name": "Data Modeling",
+      "skill_slug": "data-modeling",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Data Modeling",
+        "data modelling",
+        "dimensional modeling",
+        "dimensional modelling",
+        "data models",
+        "star schema",
+        "data warehouse design"
+      ]
+    },
+    {
+      "skill_id": "S_databricks",
+      "skill_name": "Databricks",
+      "skill_slug": "databricks",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "warehouse",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Databricks",
+        "databricks lakehouse",
+        "databricks platform"
+      ]
+    },
+    {
+      "skill_id": "S6a68b6412b",
+      "skill_name": "Deep Learning",
+      "skill_slug": "deep-learning",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Deep Learning",
+        "neural network",
+        "neural networks",
+        "deep neural networks",
+        "cnn",
+        "rnn",
+        "transformers"
+      ]
+    },
+    {
+      "skill_id": "Se51fc2a250",
+      "skill_name": "Delta Lake",
+      "skill_slug": "delta-lake",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Delta Lake",
+        "delta",
+        "delta tables"
+      ]
+    },
+    {
+      "skill_id": "S063",
+      "skill_name": "Domo",
+      "skill_slug": "domo",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "BI",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Domo"
+      ]
+    },
+    {
+      "skill_id": "S042",
+      "skill_name": "ETL Development",
+      "skill_slug": "etl-development",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Data Eng",
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "ETL Development",
+        "etl",
+        "elt",
+        "elt development",
+        "etl devolopment",
+        "etl/elt",
+        "etl tools",
+        "etl workflows",
+        "etl/elt workflows",
+        "automate etl",
+        "familiarity with etl/elt workflows",
+        "automate etl/elt workflows",
+        "etl tools (e.g",
+        "familiarity with etl",
+        "understanding of etl",
+        "understanding of etl/elt concepts"
+      ]
+    },
+    {
+      "skill_id": "S5203d06e9",
+      "skill_name": "Feast",
+      "skill_slug": "feast",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Feast"
+      ]
+    },
+    {
+      "skill_id": "S_fivetran",
+      "skill_name": "Fivetran",
+      "skill_slug": "fivetran",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Fivetran"
+      ]
+    },
+    {
+      "skill_id": "S056",
+      "skill_name": "Freewheel",
+      "skill_slug": "freewheel",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Ops",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Freewheel"
+      ]
+    },
+    {
+      "skill_id": "S055",
+      "skill_name": "GA4",
+      "skill_slug": "ga4",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Analytics",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "GA4",
+        "ga 4",
+        "google analytics 4"
+      ]
+    },
+    {
+      "skill_id": "S007",
+      "skill_name": "Google Sheets",
+      "skill_slug": "google-sheets",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Google Sheets"
+      ]
+    },
+    {
+      "skill_id": "S008",
+      "skill_name": "Google Slides",
+      "skill_slug": "google-slides",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Google Slides"
+      ]
+    },
+    {
+      "skill_id": "S13d976ec91",
+      "skill_name": "Grafana",
+      "skill_slug": "grafana",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Grafana"
+      ]
+    },
+    {
+      "skill_id": "S357846e92",
+      "skill_name": "Great Expectations",
+      "skill_slug": "great-expectations",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Great Expectations",
+        "great_expectations"
+      ]
+    },
+    {
+      "skill_id": "S_hadoop",
+      "skill_name": "Hadoop",
+      "skill_slug": "hadoop",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "data_processing",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Hadoop",
+        "hdfs",
+        "mapreduce",
+        "apache hadoop",
+        "hive",
+        "hbase"
+      ]
+    },
+    {
+      "skill_id": "S4d4a9aa362",
+      "skill_name": "Heap",
+      "skill_slug": "heap",
+      "vertical": "product",
+      "also_in": [],
+      "category": "analytics",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Heap",
+        "heap analytics"
+      ]
+    },
+    {
+      "skill_id": "S92640bd729",
+      "skill_name": "Hex",
+      "skill_slug": "hex",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Hex"
+      ]
+    },
+    {
+      "skill_id": "S8d33980b21",
+      "skill_name": "Hotjar",
+      "skill_slug": "hotjar",
+      "vertical": "marketing",
+      "also_in": [
+        "product"
+      ],
+      "category": "analytics",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Hotjar"
+      ]
+    },
+    {
+      "skill_id": "S047",
+      "skill_name": "HubSpot",
+      "skill_slug": "hubspot",
+      "vertical": "marketing",
+      "also_in": [
+        "sales"
+      ],
+      "category": "marketing_automation",
+      "skill_group": "Ops",
+      "difficulty_relevant": false,
+      "weight": 4,
+      "aliases": [
+        "HubSpot",
+        "hubspot crm",
+        "hubspot sales hub"
+      ]
+    },
+    {
+      "skill_id": "Sc7ba1b6933",
+      "skill_name": "HubSpot Certified",
+      "skill_slug": "hubspot-certified",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "HubSpot Certified",
+        "hubspot certification",
+        "hubspot inbound certified",
+        "hubspot marketing certified"
+      ]
+    },
+    {
+      "skill_id": "Saed0f18f58",
+      "skill_name": "Hyperion",
+      "skill_slug": "hyperion",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "fpa_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Hyperion",
+        "oracle hyperion",
+        "hfm",
+        "hyperion financial management",
+        "epm"
+      ]
+    },
+    {
+      "skill_id": "Sb9f1e40fa2",
+      "skill_name": "Iceberg",
+      "skill_slug": "iceberg",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Iceberg",
+        "apache iceberg"
+      ]
+    },
+    {
+      "skill_id": "S88ea2c7edb",
+      "skill_name": "IFRS",
+      "skill_slug": "ifrs",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "standard",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "IFRS",
+        "international financial reporting standards"
+      ]
+    },
+    {
+      "skill_id": "S80304554b4",
+      "skill_name": "Iterable",
+      "skill_slug": "iterable",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "lifecycle_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Iterable"
+      ]
+    },
+    {
+      "skill_id": "S6be13ebe30",
+      "skill_name": "ITIL",
+      "skill_slug": "itil",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "ITIL",
+        "itil foundation",
+        "itil certified",
+        "itil 4"
+      ]
+    },
+    {
+      "skill_id": "Sd52387880e",
+      "skill_name": "Java",
+      "skill_slug": "java",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "language",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Java",
+        "java 8",
+        "java 11",
+        "java 17",
+        "jvm"
+      ]
+    },
+    {
+      "skill_id": "Sde9b9ed78d",
+      "skill_name": "JavaScript",
+      "skill_slug": "javascript",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "language",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 5,
+      "aliases": [
+        "JavaScript",
+        "js",
+        "es6",
+        "es2015",
+        "ecmascript"
+      ]
+    },
+    {
+      "skill_id": "Sfab966bb8",
+      "skill_name": "JAX",
+      "skill_slug": "jax",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "JAX"
+      ]
+    },
+    {
+      "skill_id": "Sd20c781e94",
+      "skill_name": "Jira",
+      "skill_slug": "jira",
+      "vertical": "product",
+      "also_in": [
+        "engineering",
+        "ops"
+      ],
+      "category": "pm_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Jira",
+        "atlassian jira",
+        "jira software"
+      ]
+    },
+    {
+      "skill_id": "S020",
+      "skill_name": "Klaviyo",
+      "skill_slug": "klaviyo",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "lifecycle_tool",
+      "skill_group": "Strategy",
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "Klaviyo"
+      ]
+    },
+    {
+      "skill_id": "S4fba3bc02b",
+      "skill_name": "Kotlin",
+      "skill_slug": "kotlin",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "language",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Kotlin",
+        "android kotlin"
+      ]
+    },
+    {
+      "skill_id": "S30136395f0",
+      "skill_name": "Kubernetes",
+      "skill_slug": "kubernetes",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "devops",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Kubernetes",
+        "k8s",
+        "helm",
+        "eks",
+        "gke",
+        "aks"
+      ]
+    },
+    {
+      "skill_id": "S81b5345640",
+      "skill_name": "Lean",
+      "skill_slug": "lean",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Lean",
+        "lean methodology",
+        "lean six sigma",
+        "lean manufacturing principles"
+      ]
+    },
+    {
+      "skill_id": "Sba6e7efe4e",
+      "skill_name": "Lever",
+      "skill_slug": "lever",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "ats",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Lever",
+        "lever ats"
+      ]
+    },
+    {
+      "skill_id": "S9a932b3cb3",
+      "skill_name": "Linear",
+      "skill_slug": "linear",
+      "vertical": "product",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "pm_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Linear",
+        "linear app"
+      ]
+    },
+    {
+      "skill_id": "Sa73b3883c8",
+      "skill_name": "LinkedIn Ads",
+      "skill_slug": "linkedin-ads",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "paid_media",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "LinkedIn Ads",
+        "linkedin advertising",
+        "linkedin campaign manager"
+      ]
+    },
+    {
+      "skill_id": "S8212d038af",
+      "skill_name": "LinkedIn Sales Navigator",
+      "skill_slug": "linkedin-sales-navigator",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "prospecting",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "LinkedIn Sales Navigator",
+        "sales navigator",
+        "linkedin navigator"
+      ]
+    },
+    {
+      "skill_id": "S46f8656804",
+      "skill_name": "Lookback",
+      "skill_slug": "lookback",
+      "vertical": "design",
+      "also_in": [],
+      "category": "ux_research_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Lookback",
+        "lookback.io"
+      ]
+    },
+    {
+      "skill_id": "S2f0ac64711",
+      "skill_name": "Lottie",
+      "skill_slug": "lottie",
+      "vertical": "design",
+      "also_in": [],
+      "category": "motion_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Lottie",
+        "lottiefiles"
+      ]
+    },
+    {
+      "skill_id": "S066",
+      "skill_name": "Lucidchart",
+      "skill_slug": "lucidchart",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Lucidchart"
+      ]
+    },
+    {
+      "skill_id": "S091fa9121c",
+      "skill_name": "Machine Learning",
+      "skill_slug": "machine-learning",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Machine Learning",
+        "ml",
+        "predictive modeling",
+        "predictive analytics",
+        "ml models",
+        "ml algorithms"
+      ]
+    },
+    {
+      "skill_id": "S8eb9bca60",
+      "skill_name": "Mage",
+      "skill_slug": "mage",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Mage",
+        "mage.ai",
+        "mage ai"
+      ]
+    },
+    {
+      "skill_id": "Sacd1bc21d2",
+      "skill_name": "Mailchimp",
+      "skill_slug": "mailchimp",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "lifecycle_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Mailchimp",
+        "mail chimp"
+      ]
+    },
+    {
+      "skill_id": "S6882f42504",
+      "skill_name": "Marketo",
+      "skill_slug": "marketo",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "marketing_automation",
+      "skill_group": null,
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "Marketo",
+        "adobe marketo",
+        "marketo engage"
+      ]
+    },
+    {
+      "skill_id": "S062",
+      "skill_name": "MATLAB",
+      "skill_slug": "matlab",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Soft",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "MATLAB"
+      ]
+    },
+    {
+      "skill_id": "S053",
+      "skill_name": "Matplotlib",
+      "skill_slug": "matplotlib",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "BI",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Matplotlib"
+      ]
+    },
+    {
+      "skill_id": "Sd1f47e0b00",
+      "skill_name": "Maze",
+      "skill_slug": "maze",
+      "vertical": "design",
+      "also_in": [],
+      "category": "ux_research_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Maze",
+        "maze.co"
+      ]
+    },
+    {
+      "skill_id": "S041",
+      "skill_name": "MDX",
+      "skill_slug": "mdx",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "BI",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "MDX"
+      ]
+    },
+    {
+      "skill_id": "Sa28848e2bf",
+      "skill_name": "MEDDIC",
+      "skill_slug": "meddic",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "sales_methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "MEDDIC",
+        "meddpicc",
+        "medd-ic"
+      ]
+    },
+    {
+      "skill_id": "Sbc6e6209b8",
+      "skill_name": "Meta Ads",
+      "skill_slug": "meta-ads",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "paid_media",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Meta Ads",
+        "facebook ads",
+        "instagram ads",
+        "facebook advertising",
+        "meta advertising"
+      ]
+    },
+    {
+      "skill_id": "Se47a6cbb3",
+      "skill_name": "Metaflow",
+      "skill_slug": "metaflow",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Metaflow"
+      ]
+    },
+    {
+      "skill_id": "S7d488fa9de",
+      "skill_name": "Microservices",
+      "skill_slug": "microservices",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "architecture",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Microservices",
+        "micro services",
+        "service mesh",
+        "grpc",
+        "protobuf"
+      ]
+    },
+    {
+      "skill_id": "S084",
+      "skill_name": "and/or with data modeling",
+      "skill_slug": "and-or-with-data-modeling",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "and/or with data modeling"
+      ]
+    },
+    {
+      "skill_id": "S080",
+      "skill_name": "artificial intelligence/machine learning",
+      "skill_slug": "artificial-intelligence-machine-learning",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "artificial intelligence/machine learning"
+      ]
+    },
+    {
+      "skill_id": "S4847e034bb",
+      "skill_name": "AWS",
+      "skill_slug": "aws",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "cloud",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 5,
+      "aliases": [
+        "AWS",
+        "amazon web services",
+        "amazon aws",
+        "sagemaker",
+        "aws sagemaker",
+        "amazon sagemaker",
+        "aws lambda",
+        "aws s3",
+        "ec2",
+        "s3"
+      ]
+    },
+    {
+      "skill_id": "S088",
+      "skill_name": "basic modeling",
+      "skill_slug": "basic-modeling",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "basic modeling"
+      ]
+    },
+    {
+      "skill_id": "S069",
+      "skill_name": "bia’s",
+      "skill_slug": "bia-s",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "bia’s"
+      ]
+    },
+    {
+      "skill_id": "S044",
+      "skill_name": "BigQuery",
+      "skill_slug": "bigquery",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "warehouse",
+      "skill_group": "Data Eng",
+      "difficulty_relevant": false,
+      "weight": 4,
+      "aliases": [
+        "BigQuery",
+        "big query",
+        "bq"
+      ]
+    },
+    {
+      "skill_id": "S093",
+      "skill_name": "competitor analysis",
+      "skill_slug": "competitor-analysis",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "competitor analysis"
+      ]
+    },
+    {
+      "skill_id": "Sf41626d07",
+      "skill_name": "Dagster",
+      "skill_slug": "dagster",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "orchestration",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Dagster"
+      ]
+    },
+    {
+      "skill_id": "S045",
+      "skill_name": "dbt",
+      "skill_slug": "dbt",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "transformation",
+      "skill_group": "Data Eng",
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "dbt",
+        "data build tool",
+        "dbt core"
+      ]
+    },
+    {
+      "skill_id": "S4c632f624",
+      "skill_name": "dbt Cloud",
+      "skill_slug": "dbt-cloud",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "orchestration",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "dbt Cloud"
+      ]
+    },
+    {
+      "skill_id": "S077",
+      "skill_name": "develop insightful dashboards",
+      "skill_slug": "develop-insightful-dashboards",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "develop insightful dashboards"
+      ]
+    },
+    {
+      "skill_id": "S073",
+      "skill_name": "diplomacy",
+      "skill_slug": "diplomacy",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "diplomacy"
+      ]
+    },
+    {
+      "skill_id": "Sd92c36790b",
+      "skill_name": "Embeddings",
+      "skill_slug": "embeddings",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "llm_tooling",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Embeddings",
+        "vector embeddings",
+        "sentence embeddings",
+        "text embeddings"
+      ]
+    },
+    {
+      "skill_id": "S68c03a7615",
+      "skill_name": "Flink",
+      "skill_slug": "flink",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "data_processing",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Flink",
+        "apache flink"
+      ]
+    },
+    {
+      "skill_id": "S075",
+      "skill_name": "gap analysis",
+      "skill_slug": "gap-analysis",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "gap analysis"
+      ]
+    },
+    {
+      "skill_id": "S94cb3d601b",
+      "skill_name": "Hugging Face",
+      "skill_slug": "hugging-face",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "ml_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Hugging Face",
+        "huggingface",
+        "transformers library",
+        "diffusers"
+      ]
+    },
+    {
+      "skill_id": "S51be25b014",
+      "skill_name": "Kafka",
+      "skill_slug": "kafka",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "data_processing",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Kafka",
+        "apache kafka",
+        "confluent kafka",
+        "confluent"
+      ]
+    },
+    {
+      "skill_id": "Sc75a351cbd",
+      "skill_name": "Kubeflow",
+      "skill_slug": "kubeflow",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "mlops",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Kubeflow"
+      ]
+    },
+    {
+      "skill_id": "S8de59538e5",
+      "skill_name": "LangChain",
+      "skill_slug": "langchain",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "llm_tooling",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "LangChain",
+        "lang chain"
+      ]
+    },
+    {
+      "skill_id": "Sfc61b58f04",
+      "skill_name": "Large Language Models",
+      "skill_slug": "large-language-models",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "llm_tooling",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Large Language Models",
+        "llm",
+        "llms",
+        "large language model",
+        "generative ai",
+        "genai",
+        "foundation models"
+      ]
+    },
+    {
+      "skill_id": "S89dd061bf",
+      "skill_name": "LlamaIndex",
+      "skill_slug": "llamaindex",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "llm_tooling",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "LlamaIndex",
+        "llama index",
+        "llama-index",
+        "llama_index"
+      ]
+    },
+    {
+      "skill_id": "S006",
+      "skill_name": "Looker",
+      "skill_slug": "looker",
+      "vertical": "data_ml",
+      "also_in": [
+        "finance",
+        "marketing",
+        "ops",
+        "product",
+        "sales"
+      ],
+      "category": "bi_tool",
+      "skill_group": "BI",
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "Looker",
+        "looker studio",
+        "lookml"
+      ]
+    },
+    {
+      "skill_id": "S61ff5e6839",
+      "skill_name": "Metabase",
+      "skill_slug": "metabase",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "bi_tool",
+      "skill_group": null,
+      "difficulty_relevant": false,
+      "weight": 2,
+      "aliases": [
+        "Metabase"
+      ]
+    },
+    {
+      "skill_id": "S53a572ed6b",
+      "skill_name": "MicroStrategy",
+      "skill_slug": "microstrategy",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "MicroStrategy",
+        "mstr"
+      ]
+    },
+    {
+      "skill_id": "S_mixpanel",
+      "skill_name": "Mixpanel",
+      "skill_slug": "mixpanel",
+      "vertical": "marketing",
+      "also_in": [
+        "data_ml",
+        "product"
+      ],
+      "category": "analytics",
+      "skill_group": null,
+      "difficulty_relevant": false,
+      "weight": 4,
+      "aliases": [
+        "Mixpanel"
+      ]
+    },
+    {
+      "skill_id": "Sc8d3451e73",
+      "skill_name": "MLflow",
+      "skill_slug": "mlflow",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "mlops",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "MLflow",
+        "ml flow"
+      ]
+    },
+    {
+      "skill_id": "Sc59d6df80",
+      "skill_name": "Modal",
+      "skill_slug": "modal",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Modal",
+        "modal.com"
+      ]
+    },
+    {
+      "skill_id": "S650be61892",
+      "skill_name": "Mode",
+      "skill_slug": "mode",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "bi_tool",
+      "skill_group": null,
+      "difficulty_relevant": false,
+      "weight": 2,
+      "aliases": [
+        "Mode",
+        "mode analytics"
+      ]
+    },
+    {
+      "skill_id": "S54c1794150",
+      "skill_name": "Monday.com",
+      "skill_slug": "monday-com",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "pm_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Monday.com",
+        "monday",
+        "monday work os"
+      ]
+    },
+    {
+      "skill_id": "S_mongodb",
+      "skill_name": "MongoDB",
+      "skill_slug": "mongodb",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "database",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "MongoDB",
+        "mongo",
+        "mongoose"
+      ]
+    },
+    {
+      "skill_id": "S89364cb625",
+      "skill_name": "Moz",
+      "skill_slug": "moz",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "seo_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Moz",
+        "moz pro"
+      ]
+    },
+    {
+      "skill_id": "Seb27b52bd4",
+      "skill_name": "NetSuite",
+      "skill_slug": "netsuite",
+      "vertical": "finance",
+      "also_in": [
+        "ops"
+      ],
+      "category": "erp",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "NetSuite",
+        "oracle netsuite"
+      ]
+    },
+    {
+      "skill_id": "S32d3463fbf",
+      "skill_name": "Next.js",
+      "skill_slug": "next-js",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "frontend_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Next.js",
+        "nextjs",
+        "next js"
+      ]
+    },
+    {
+      "skill_id": "S85587c49af",
+      "skill_name": "NLP",
+      "skill_slug": "nlp",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "NLP",
+        "natural language processing",
+        "text mining",
+        "text analytics",
+        "text classification"
+      ]
+    },
+    {
+      "skill_id": "S28a3689be9",
+      "skill_name": "Node.js",
+      "skill_slug": "node-js",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "backend_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Node.js",
+        "nodejs",
+        "node js",
+        "express",
+        "express.js"
+      ]
+    },
+    {
+      "skill_id": "S5ea790e4a2",
+      "skill_name": "Notion",
+      "skill_slug": "notion",
+      "vertical": "product",
+      "also_in": [
+        "ops"
+      ],
+      "category": "pm_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Notion"
+      ]
+    },
+    {
+      "skill_id": "Sa4f5f6223a",
+      "skill_name": "OKRs",
+      "skill_slug": "okrs",
+      "vertical": "product",
+      "also_in": [],
+      "category": "pm_methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "OKRs",
+        "okr",
+        "objectives and key results"
+      ]
+    },
+    {
+      "skill_id": "S0523b13262",
+      "skill_name": "OpenAI",
+      "skill_slug": "openai",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "OpenAI",
+        "open ai",
+        "gpt",
+        "chatgpt"
+      ]
+    },
+    {
+      "skill_id": "S054",
+      "skill_name": "Optimizely",
+      "skill_slug": "optimizely",
+      "vertical": "product",
+      "also_in": [
+        "data_ml",
+        "marketing"
+      ],
+      "category": "experimentation",
+      "skill_group": "Analytics",
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "Optimizely"
+      ]
+    },
+    {
+      "skill_id": "Sab44ef0d8c",
+      "skill_name": "Oracle Financials",
+      "skill_slug": "oracle-financials",
+      "vertical": "finance",
+      "also_in": [
+        "ops"
+      ],
+      "category": "erp",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Oracle Financials",
+        "oracle erp",
+        "oracle cloud",
+        "oracle fusion"
+      ]
+    },
+    {
+      "skill_id": "Sfa5ddb5608",
+      "skill_name": "OSCP",
+      "skill_slug": "oscp",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "OSCP",
+        "offensive security certified professional"
+      ]
+    },
+    {
+      "skill_id": "Sf9b3d9bfea",
+      "skill_name": "Outreach",
+      "skill_slug": "outreach",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "sales_engagement",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Outreach",
+        "outreach.io",
+        "outreach platform"
+      ]
+    },
+    {
+      "skill_id": "Sd128829c70",
+      "skill_name": "Pardot",
+      "skill_slug": "pardot",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "marketing_automation",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Pardot",
+        "salesforce pardot",
+        "marketing cloud account engagement"
+      ]
+    },
+    {
+      "skill_id": "Sace780da48",
+      "skill_name": "Parquet",
+      "skill_slug": "parquet",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Parquet",
+        "apache parquet"
+      ]
+    },
+    {
+      "skill_id": "S0ad6859336",
+      "skill_name": "Pendo",
+      "skill_slug": "pendo",
+      "vertical": "product",
+      "also_in": [],
+      "category": "analytics",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Pendo"
+      ]
+    },
+    {
+      "skill_id": "S050",
+      "skill_name": "Perl",
+      "skill_slug": "perl",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Perl"
+      ]
+    },
+    {
+      "skill_id": "S4eaaecf1a7",
+      "skill_name": "Ahrefs",
+      "skill_slug": "ahrefs",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "seo_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Ahrefs"
+      ]
+    },
+    {
+      "skill_id": "Sce28071e1a",
+      "skill_name": "Abstract",
+      "skill_slug": "abstract",
+      "vertical": "design",
+      "also_in": [],
+      "category": "design_ops_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Abstract",
+        "abstract version control"
+      ]
+    },
+    {
+      "skill_id": "S710fcf4ae4",
+      "skill_name": "Adobe Creative Cloud",
+      "skill_slug": "adobe-creative-cloud",
+      "vertical": "marketing",
+      "also_in": [
+        "design"
+      ],
+      "category": "design_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Adobe Creative Cloud",
+        "adobe cc",
+        "adobe suite"
+      ]
+    },
+    {
+      "skill_id": "Sd945f9357c",
+      "skill_name": "Adobe Illustrator",
+      "skill_slug": "adobe-illustrator",
+      "vertical": "design",
+      "also_in": [
+        "marketing"
+      ],
+      "category": "design_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Adobe Illustrator",
+        "illustrator"
+      ]
+    },
+    {
+      "skill_id": "Sa4886549fe",
+      "skill_name": "Adobe InDesign",
+      "skill_slug": "adobe-indesign",
+      "vertical": "design",
+      "also_in": [
+        "marketing"
+      ],
+      "category": "design_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Adobe InDesign",
+        "indesign"
+      ]
+    },
+    {
+      "skill_id": "S02cc8dc4d0",
+      "skill_name": "Adobe Photoshop",
+      "skill_slug": "adobe-photoshop",
+      "vertical": "design",
+      "also_in": [
+        "marketing"
+      ],
+      "category": "design_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Adobe Photoshop",
+        "photoshop",
+        "ps"
+      ]
+    },
+    {
+      "skill_id": "S84d12ebf00",
+      "skill_name": "Adobe XD",
+      "skill_slug": "adobe-xd",
+      "vertical": "design",
+      "also_in": [],
+      "category": "design_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Adobe XD",
+        "xd"
+      ]
+    },
+    {
+      "skill_id": "S1f2eafb63c",
+      "skill_name": "After Effects",
+      "skill_slug": "after-effects",
+      "vertical": "design",
+      "also_in": [],
+      "category": "motion_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "After Effects",
+        "adobe after effects",
+        "ae"
+      ]
+    },
+    {
+      "skill_id": "S22723bbd42",
+      "skill_name": "Agile",
+      "skill_slug": "agile",
+      "vertical": "product",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "pm_methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Agile",
+        "scrum",
+        "kanban",
+        "sprint planning",
+        "sprint review"
+      ]
+    },
+    {
+      "skill_id": "S9e8c8fdafc",
+      "skill_name": "Aha!",
+      "skill_slug": "aha",
+      "vertical": "product",
+      "also_in": [],
+      "category": "pm_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Aha!",
+        "aha roadmap"
+      ]
+    },
+    {
+      "skill_id": "S016",
+      "skill_name": "Amplitude",
+      "skill_slug": "amplitude",
+      "vertical": "marketing",
+      "also_in": [
+        "data_ml",
+        "product"
+      ],
+      "category": "analytics",
+      "skill_group": "Analytics",
+      "difficulty_relevant": false,
+      "weight": 4,
+      "aliases": [
+        "Amplitude"
+      ]
+    },
+    {
+      "skill_id": "S31f2385ba9",
+      "skill_name": "Apollo",
+      "skill_slug": "apollo",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "prospecting",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Apollo",
+        "apollo.io"
+      ]
+    },
+    {
+      "skill_id": "S064",
+      "skill_name": "Asana",
+      "skill_slug": "asana",
+      "vertical": "product",
+      "also_in": [
+        "ops"
+      ],
+      "category": "pm_tool",
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "Asana"
+      ]
+    },
+    {
+      "skill_id": "S6af7db6f50",
+      "skill_name": "BambooHR",
+      "skill_slug": "bamboohr",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "hris",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "BambooHR",
+        "bamboo hr"
+      ]
+    },
+    {
+      "skill_id": "Se1bfd76232",
+      "skill_name": "PHP",
+      "skill_slug": "php",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "language",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "PHP",
+        "laravel",
+        "symfony"
+      ]
+    },
+    {
+      "skill_id": "Sb266e47eb6",
+      "skill_name": "PHR",
+      "skill_slug": "phr",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "PHR",
+        "professional in human resources"
+      ]
+    },
+    {
+      "skill_id": "S058",
+      "skill_name": "PI",
+      "skill_slug": "pi",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "PI"
+      ]
+    },
+    {
+      "skill_id": "S19c789d76c",
+      "skill_name": "Pipeline Management",
+      "skill_slug": "pipeline-management",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "sales_skill",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Pipeline Management",
+        "pipeline forecasting",
+        "quota management",
+        "quota attainment"
+      ]
+    },
+    {
+      "skill_id": "S04130da60e",
+      "skill_name": "PMC",
+      "skill_slug": "pmc",
+      "vertical": "product",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "PMC",
+        "pragmatic marketing certified"
+      ]
+    },
+    {
+      "skill_id": "S09aae1d48",
+      "skill_name": "Polars",
+      "skill_slug": "polars",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "data_library",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Polars"
+      ]
+    },
+    {
+      "skill_id": "S072",
+      "skill_name": "post-mortem analysis",
+      "skill_slug": "post-mortem-analysis",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "post-mortem analysis"
+      ]
+    },
+    {
+      "skill_id": "S92a34776da",
+      "skill_name": "Power Automate",
+      "skill_slug": "power-automate",
+      "vertical": "ops",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "automation_tool",
+      "skill_group": null,
+      "difficulty_relevant": false,
+      "weight": 2,
+      "aliases": [
+        "Power Automate",
+        "ms power automate",
+        "microsoft power automate"
+      ]
+    },
+    {
+      "skill_id": "S010",
+      "skill_name": "Power BI",
+      "skill_slug": "power-bi",
+      "vertical": "data_ml",
+      "also_in": [
+        "finance",
+        "marketing",
+        "ops",
+        "product",
+        "sales"
+      ],
+      "category": "bi_tool",
+      "skill_group": "BI",
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "Power BI",
+        "powerbi",
+        "dax",
+        "pbi"
+      ]
+    },
+    {
+      "skill_id": "S034",
+      "skill_name": "PowerPivot",
+      "skill_slug": "powerpivot",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Finance",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "PowerPivot"
+      ]
+    },
+    {
+      "skill_id": "S009",
+      "skill_name": "Powerpoint",
+      "skill_slug": "powerpoint",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Powerpoint"
+      ]
+    },
+    {
+      "skill_id": "Sb786828475",
+      "skill_name": "Pragmatic Marketing",
+      "skill_slug": "pragmatic-marketing",
+      "vertical": "product",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Pragmatic Marketing",
+        "pragmatic certified",
+        "pragmatic institute",
+        "pragmatic product manager"
+      ]
+    },
+    {
+      "skill_id": "Sdbbe1ffdf",
+      "skill_name": "Prefect",
+      "skill_slug": "prefect",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "orchestration",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Prefect"
+      ]
+    },
+    {
+      "skill_id": "S1534b649b4",
+      "skill_name": "Premiere Pro",
+      "skill_slug": "premiere-pro",
+      "vertical": "design",
+      "also_in": [],
+      "category": "motion_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Premiere Pro",
+        "premiere",
+        "adobe premiere",
+        "adobe premiere pro"
+      ]
+    },
+    {
+      "skill_id": "Sfd36d69b20",
+      "skill_name": "Principle",
+      "skill_slug": "principle",
+      "vertical": "design",
+      "also_in": [],
+      "category": "prototyping_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Principle",
+        "principle app",
+        "principle prototyping"
+      ]
+    },
+    {
+      "skill_id": "S72f643ed5e",
+      "skill_name": "Procurify",
+      "skill_slug": "procurify",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "procurement_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Procurify"
+      ]
+    },
+    {
+      "skill_id": "S6237794202",
+      "skill_name": "Productboard",
+      "skill_slug": "productboard",
+      "vertical": "product",
+      "also_in": [],
+      "category": "pm_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Productboard"
+      ]
+    },
+    {
+      "skill_id": "S948d1f30a0",
+      "skill_name": "Project Management",
+      "skill_slug": "project-management",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Project Management",
+        "program management",
+        "pmp",
+        "prince2",
+        "project management professional",
+        "agile project management"
+      ]
+    },
+    {
+      "skill_id": "S_prompt_eng",
+      "skill_name": "Prompt Engineering",
+      "skill_slug": "prompt-engineering",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Prompt Engineering",
+        "prompt design",
+        "prompting"
+      ]
+    },
+    {
+      "skill_id": "Sba25d7102b",
+      "skill_name": "Prototyping",
+      "skill_slug": "prototyping",
+      "vertical": "design",
+      "also_in": [],
+      "category": "design_skill",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Prototyping",
+        "rapid prototyping",
+        "high-fidelity prototype",
+        "low-fidelity prototype"
+      ]
+    },
+    {
+      "skill_id": "S7d56dcb370",
+      "skill_name": "PSM",
+      "skill_slug": "psm",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "PSM",
+        "professional scrum master",
+        "psm i",
+        "psm ii"
+      ]
+    },
+    {
+      "skill_id": "S023",
+      "skill_name": "Python",
+      "skill_slug": "python",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering",
+        "finance",
+        "ops"
+      ],
+      "category": "language",
+      "skill_group": "Analytics",
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Python",
+        "pandas",
+        "numpy",
+        "jupyter",
+        "jupyter notebook",
+        "jupyter notebooks",
+        "python3",
+        "python 3"
+      ]
+    },
+    {
+      "skill_id": "S95b88f180e",
+      "skill_name": "PyTorch",
+      "skill_slug": "pytorch",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "ml_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "PyTorch",
+        "torch"
+      ]
+    },
+    {
+      "skill_id": "S025",
+      "skill_name": "Quantitative Analytics",
+      "skill_slug": "quantitative-analytics",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Analytics",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Quantitative Analytics",
+        "quant analytics",
+        "quantitative research",
+        "quantitative methods"
+      ]
+    },
+    {
+      "skill_id": "S5a8b93606d",
+      "skill_name": "QuickBooks",
+      "skill_slug": "quickbooks",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "accounting_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "QuickBooks",
+        "quickbooks online",
+        "qbo"
+      ]
+    },
+    {
+      "skill_id": "S052",
+      "skill_name": "Quicksight",
+      "skill_slug": "quicksight",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "BI",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Quicksight",
+        "quick sight"
+      ]
+    },
+    {
+      "skill_id": "S014",
+      "skill_name": "R",
+      "skill_slug": "r",
+      "vertical": "data_ml",
+      "also_in": [
+        "finance"
+      ],
+      "category": "language",
+      "skill_group": "Analytics",
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "R",
+        "r programming",
+        "rlang"
+      ]
+    },
+    {
+      "skill_id": "S_rag",
+      "skill_name": "RAG",
+      "skill_slug": "rag",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "llm_tooling",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "RAG",
+        "retrieval augmented generation",
+        "retrieval-augmented generation"
+      ]
+    },
+    {
+      "skill_id": "S4d003d1435",
+      "skill_name": "Rails",
+      "skill_slug": "rails",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "backend_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Rails",
+        "ruby on rails",
+        "ror"
+      ]
+    },
+    {
+      "skill_id": "S266a1f7c2e",
+      "skill_name": "React",
+      "skill_slug": "react",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "frontend_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 5,
+      "aliases": [
+        "React",
+        "reactjs",
+        "react.js",
+        "react native"
+      ]
+    },
+    {
+      "skill_id": "S86a1b907d5",
+      "skill_name": "Redis",
+      "skill_slug": "redis",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "database",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Redis",
+        "redis cache",
+        "elasticache"
+      ]
+    },
+    {
+      "skill_id": "S048",
+      "skill_name": "Redshift",
+      "skill_slug": "redshift",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "warehouse",
+      "skill_group": "Data Eng",
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "Redshift",
+        "aws redshift",
+        "amazon redshift"
+      ]
+    },
+    {
+      "skill_id": "Sced9b681c2",
+      "skill_name": "Regression",
+      "skill_slug": "regression",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Regression",
+        "linear regression",
+        "logistic regression",
+        "regression analysis",
+        "regression modeling"
+      ]
+    },
+    {
+      "skill_id": "S4ae35cd73",
+      "skill_name": "Reinforcement Learning",
+      "skill_slug": "reinforcement-learning",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Reinforcement Learning",
+        "rlhf",
+        "reinforcement learning from human feedback",
+        "rl"
+      ]
+    },
+    {
+      "skill_id": "S65e8800b5c",
+      "skill_name": "REST",
+      "skill_slug": "rest",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "api",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "REST",
+        "restful",
+        "rest api",
+        "restful api"
+      ]
+    },
+    {
+      "skill_id": "S092",
+      "skill_name": "revenuecloudfx",
+      "skill_slug": "revenuecloudfx",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "revenuecloudfx"
+      ]
+    },
+    {
+      "skill_id": "S4a65e88669",
+      "skill_name": "Roadmapping",
+      "skill_slug": "roadmapping",
+      "vertical": "product",
+      "also_in": [],
+      "category": "pm_methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Roadmapping",
+        "product roadmap",
+        "roadmap planning"
+      ]
+    },
+    {
+      "skill_id": "S051",
+      "skill_name": "Ruby",
+      "skill_slug": "ruby",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "language",
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "Ruby",
+        "ruby on rails",
+        "rails",
+        "ror"
+      ]
+    },
+    {
+      "skill_id": "S72812e3087",
+      "skill_name": "Rust",
+      "skill_slug": "rust",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "language",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Rust",
+        "rust-lang"
+      ]
+    },
+    {
+      "skill_id": "S9dfc8dce72",
+      "skill_name": "SAFe",
+      "skill_slug": "safe",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "SAFe",
+        "safe certification",
+        "safe agile",
+        "scaled agile framework",
+        "safe agilist"
+      ]
+    },
+    {
+      "skill_id": "S004",
+      "skill_name": "Salesforce",
+      "skill_slug": "salesforce",
+      "vertical": "marketing",
+      "also_in": [
+        "ops",
+        "sales"
+      ],
+      "category": "crm",
+      "skill_group": "Ops",
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "Salesforce",
+        "sfdc"
+      ]
+    },
+    {
+      "skill_id": "S3aacf5d037",
+      "skill_name": "SalesLoft",
+      "skill_slug": "salesloft",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "sales_engagement",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "SalesLoft",
+        "sales loft"
+      ]
+    },
+    {
+      "skill_id": "Sd18b5ca3d6",
+      "skill_name": "Sandler",
+      "skill_slug": "sandler",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "sales_methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Sandler",
+        "sandler selling"
+      ]
+    },
+    {
+      "skill_id": "S4ef97a5db1",
+      "skill_name": "SAP",
+      "skill_slug": "sap",
+      "vertical": "finance",
+      "also_in": [
+        "ops"
+      ],
+      "category": "erp",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "SAP",
+        "sap erp",
+        "sap s/4hana",
+        "sap fi",
+        "sap co",
+        "sap hana",
+        "sap ariba",
+        "sap concur"
+      ]
+    },
+    {
+      "skill_id": "S013",
+      "skill_name": "SAS",
+      "skill_slug": "sas",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Analytics",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "SAS"
+      ]
+    },
+    {
+      "skill_id": "S3012dcff14",
+      "skill_name": "Scala",
+      "skill_slug": "scala",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "language",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Scala"
+      ]
+    },
+    {
+      "skill_id": "Sae928b0778",
+      "skill_name": "Scikit-learn",
+      "skill_slug": "scikit-learn",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "ml_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Scikit-learn",
+        "sklearn",
+        "scikit learn"
+      ]
+    },
+    {
+      "skill_id": "S10ea590d34",
+      "skill_name": "SciPy",
+      "skill_slug": "scipy",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "data_library",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "SciPy"
+      ]
+    },
+    {
+      "skill_id": "S7e1cedab31",
+      "skill_name": "Security+",
+      "skill_slug": "security",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Security+",
+        "comptia security+",
+        "security plus"
+      ]
+    },
+    {
+      "skill_id": "S_segment",
+      "skill_name": "Segment",
+      "skill_slug": "segment",
+      "vertical": "marketing",
+      "also_in": [
+        "data_ml",
+        "product"
+      ],
+      "category": "cdp",
+      "skill_group": null,
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "Segment",
+        "segment cdp",
+        "twilio segment"
+      ]
+    },
+    {
+      "skill_id": "S529662157e",
+      "skill_name": "SEMrush",
+      "skill_slug": "semrush",
+      "vertical": "marketing",
+      "also_in": [],
+      "category": "seo_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "SEMrush",
+        "sem rush"
+      ]
+    },
+    {
+      "skill_id": "S01736f6501",
+      "skill_name": "Series 63",
+      "skill_slug": "series-63",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Series 63",
+        "finra series 63"
+      ]
+    },
+    {
+      "skill_id": "S8ca97eb64f",
+      "skill_name": "Series 66",
+      "skill_slug": "series-66",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Series 66",
+        "finra series 66"
+      ]
+    },
+    {
+      "skill_id": "S425774c165",
+      "skill_name": "Series 7",
+      "skill_slug": "series-7",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Series 7",
+        "finra series 7",
+        "series 7 license"
+      ]
+    },
+    {
+      "skill_id": "Sa8b43f84ad",
+      "skill_name": "Series 79",
+      "skill_slug": "series-79",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Series 79",
+        "finra series 79"
+      ]
+    },
+    {
+      "skill_id": "S017",
+      "skill_name": "Shopify",
+      "skill_slug": "shopify",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Strategy",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Shopify"
+      ]
+    },
+    {
+      "skill_id": "S21189b4b16",
+      "skill_name": "SHRM-CP",
+      "skill_slug": "shrm-cp",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "SHRM-CP",
+        "shrm cp",
+        "society for human resource management certified professional"
+      ]
+    },
+    {
+      "skill_id": "Sb9d3fc7d94",
+      "skill_name": "SHRM-SCP",
+      "skill_slug": "shrm-scp",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "SHRM-SCP",
+        "shrm scp",
+        "shrm senior certified professional"
+      ]
+    },
+    {
+      "skill_id": "S003",
+      "skill_name": "Sigma",
+      "skill_slug": "sigma",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "BI",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Sigma"
+      ]
+    },
+    {
+      "skill_id": "Sa96098f6c7",
+      "skill_name": "Six Sigma",
+      "skill_slug": "six-sigma",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Six Sigma",
+        "6 sigma",
+        "dmaic"
+      ]
+    },
+    {
+      "skill_id": "Sa6193c6d9a",
+      "skill_name": "Six Sigma Black Belt",
+      "skill_slug": "six-sigma-black-belt",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Six Sigma Black Belt",
+        "black belt",
+        "lean six sigma black belt"
+      ]
+    },
+    {
+      "skill_id": "S03eddc862c",
+      "skill_name": "Six Sigma Green Belt",
+      "skill_slug": "six-sigma-green-belt",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Six Sigma Green Belt",
+        "green belt",
+        "lean six sigma green belt"
+      ]
+    },
+    {
+      "skill_id": "S834feae744",
+      "skill_name": "Sketch",
+      "skill_slug": "sketch",
+      "vertical": "design",
+      "also_in": [],
+      "category": "design_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Sketch",
+        "sketch app"
+      ]
+    },
+    {
+      "skill_id": "S8dfad6c2c0",
+      "skill_name": "Smartsheet",
+      "skill_slug": "smartsheet",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "pm_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Smartsheet"
+      ]
+    },
+    {
+      "skill_id": "S049",
+      "skill_name": "Snowflake",
+      "skill_slug": "snowflake",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "warehouse",
+      "skill_group": "Data Eng",
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Snowflake",
+        "snowflake data cloud"
+      ]
+    },
+    {
+      "skill_id": "S792e5dce80",
+      "skill_name": "SOX",
+      "skill_slug": "sox",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "standard",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "SOX",
+        "sarbanes-oxley",
+        "sarbanes oxley",
+        "sox compliance"
+      ]
+    },
+    {
+      "skill_id": "S8cde774d6f",
+      "skill_name": "Spark",
+      "skill_slug": "spark",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "data_processing",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Spark",
+        "apache spark",
+        "pyspark",
+        "spark streaming"
+      ]
+    },
+    {
+      "skill_id": "S9881f7cca0",
+      "skill_name": "SPHR",
+      "skill_slug": "sphr",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "credential",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "SPHR",
+        "senior professional in human resources"
+      ]
+    },
+    {
+      "skill_id": "Seb208fe630",
+      "skill_name": "SPIN Selling",
+      "skill_slug": "spin-selling",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "sales_methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "SPIN Selling",
+        "spin",
+        "spin methodology"
+      ]
+    },
+    {
+      "skill_id": "S2a2d595e6e",
+      "skill_name": "Spring",
+      "skill_slug": "spring",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "backend_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Spring",
+        "spring boot",
+        "spring framework",
+        "spring mvc"
+      ]
+    },
+    {
+      "skill_id": "S001",
+      "skill_name": "SQL",
+      "skill_slug": "sql",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering",
+        "finance",
+        "marketing",
+        "ops",
+        "product",
+        "sales"
+      ],
+      "category": "query_language",
+      "skill_group": "Analytics",
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "SQL",
+        "postgresql",
+        "postgres",
+        "mssql",
+        "sql server",
+        "querying",
+        "postgre sql",
+        "mysql",
+        "microsoft sql server",
+        "t-sql",
+        "tsql",
+        "sparksql",
+        "spark sql"
+      ]
+    },
+    {
+      "skill_id": "S061",
+      "skill_name": "Stata",
+      "skill_slug": "stata",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "Tools",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "Stata"
+      ]
+    },
+    {
+      "skill_id": "S3176af0d11",
+      "skill_name": "Statistical Modeling",
+      "skill_slug": "statistical-modeling",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Statistical Modeling",
+        "statistical modelling",
+        "statistical models",
+        "statistical analysis",
+        "statistical methods",
+        "quantitative analysis"
+      ]
+    },
+    {
+      "skill_id": "Sc33e404a44",
+      "skill_name": "Statistics",
+      "skill_slug": "statistics",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "statistics",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Statistics",
+        "statistical analysis",
+        "statistical modeling",
+        "bayesian statistics",
+        "regression"
+      ]
+    },
+    {
+      "skill_id": "S92c1731ea",
+      "skill_name": "Streamlit",
+      "skill_slug": "streamlit",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Streamlit"
+      ]
+    },
+    {
+      "skill_id": "S94f59083ea",
+      "skill_name": "Svelte",
+      "skill_slug": "svelte",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "frontend_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Svelte",
+        "sveltekit"
+      ]
+    },
+    {
+      "skill_id": "S818056dbd7",
+      "skill_name": "Swift",
+      "skill_slug": "swift",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "language",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Swift",
+        "swiftui",
+        "objective-c",
+        "objc",
+        "swift programming",
+        "swift ios",
+        "swift language"
+      ]
+    },
+    {
+      "skill_id": "S005",
+      "skill_name": "Tableau",
+      "skill_slug": "tableau",
+      "vertical": "data_ml",
+      "also_in": [
+        "finance",
+        "marketing",
+        "ops",
+        "product",
+        "sales"
+      ],
+      "category": "bi_tool",
+      "skill_group": "BI",
+      "difficulty_relevant": false,
+      "weight": 3,
+      "aliases": [
+        "Tableau"
+      ]
+    },
+    {
+      "skill_id": "S074dd69971",
+      "skill_name": "TensorFlow",
+      "skill_slug": "tensorflow",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "ml_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "TensorFlow",
+        "tf",
+        "keras"
+      ]
+    },
+    {
+      "skill_id": "S303e96f805",
+      "skill_name": "Terraform",
+      "skill_slug": "terraform",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "devops",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Terraform",
+        "infrastructure as code",
+        "iac",
+        "hashicorp terraform",
+        "tfstate",
+        "opentofu"
+      ]
+    },
+    {
+      "skill_id": "S038",
+      "skill_name": "TM1",
+      "skill_slug": "tm1",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "fpa_tool",
+      "skill_group": "BI",
+      "difficulty_relevant": false,
+      "weight": 2,
+      "aliases": [
+        "TM1",
+        "ibm planning analytics",
+        "ibm tm1"
+      ]
+    },
+    {
+      "skill_id": "S7db8613f8",
+      "skill_name": "Trino",
+      "skill_slug": "trino",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 1,
+      "aliases": [
+        "Trino",
+        "presto"
+      ]
+    },
+    {
+      "skill_id": "S1e35bcba2d",
+      "skill_name": "TypeScript",
+      "skill_slug": "typescript",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "language",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 5,
+      "aliases": [
+        "TypeScript",
+        "ts"
+      ]
+    },
+    {
+      "skill_id": "S7a32aafad3",
+      "skill_name": "User Research",
+      "skill_slug": "user-research",
+      "vertical": "product",
+      "also_in": [
+        "design"
+      ],
+      "category": "pm_methodology",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "User Research",
+        "ux research",
+        "customer research",
+        "usability testing",
+        "user interviews",
+        "contextual inquiry"
+      ]
+    },
+    {
+      "skill_id": "Sb1df119656",
+      "skill_name": "UserTesting",
+      "skill_slug": "usertesting",
+      "vertical": "design",
+      "also_in": [
+        "product"
+      ],
+      "category": "ux_research_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "UserTesting",
+        "user testing"
+      ]
+    },
+    {
+      "skill_id": "S070",
+      "skill_name": "utilize statistical modeling",
+      "skill_slug": "utilize-statistical-modeling",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "utilize statistical modeling"
+      ]
+    },
+    {
+      "skill_id": "Sf19b539b34",
+      "skill_name": "Valuation",
+      "skill_slug": "valuation",
+      "vertical": "finance",
+      "also_in": [],
+      "category": "finance_skill",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Valuation",
+        "equity valuation",
+        "company valuation",
+        "business valuation"
+      ]
+    },
+    {
+      "skill_id": "S_vectordb",
+      "skill_name": "Vector Databases",
+      "skill_slug": "vector-databases",
+      "vertical": "data_ml",
+      "also_in": [
+        "engineering"
+      ],
+      "category": "llm_tooling",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Vector Databases",
+        "vector database",
+        "vector store",
+        "pinecone",
+        "weaviate",
+        "chroma",
+        "faiss",
+        "qdrant",
+        "milvus",
+        "pgvector"
+      ]
+    },
+    {
+      "skill_id": "S067",
+      "skill_name": "vlookups",
+      "skill_slug": "vlookups",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": null,
+      "skill_group": "hard",
+      "difficulty_relevant": false,
+      "weight": 1,
+      "aliases": [
+        "vlookups"
+      ]
+    },
+    {
+      "skill_id": "S951c1f757a",
+      "skill_name": "Vue",
+      "skill_slug": "vue",
+      "vertical": "engineering",
+      "also_in": [],
+      "category": "frontend_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Vue",
+        "vuejs",
+        "vue.js",
+        "nuxt",
+        "nuxt.js"
+      ]
+    },
+    {
+      "skill_id": "Sdee64dc0a2",
+      "skill_name": "Webflow",
+      "skill_slug": "webflow",
+      "vertical": "design",
+      "also_in": [],
+      "category": "prototyping_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Webflow"
+      ]
+    },
+    {
+      "skill_id": "Se4d68ecf78",
+      "skill_name": "Weights & Biases",
+      "skill_slug": "weights-biases",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "mlops",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Weights & Biases",
+        "wandb",
+        "weights and biases"
+      ]
+    },
+    {
+      "skill_id": "S8a11abfe88",
+      "skill_name": "Wireframing",
+      "skill_slug": "wireframing",
+      "vertical": "design",
+      "also_in": [],
+      "category": "design_skill",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Wireframing",
+        "wireframes",
+        "wireframe"
+      ]
+    },
+    {
+      "skill_id": "S05db08e78a",
+      "skill_name": "Workday Financials",
+      "skill_slug": "workday-financials",
+      "vertical": "finance",
+      "also_in": [
+        "ops"
+      ],
+      "category": "fpa_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "Workday Financials",
+        "workday finance",
+        "workday adaptive"
+      ]
+    },
+    {
+      "skill_id": "Sa425264f8b",
+      "skill_name": "Workday HCM",
+      "skill_slug": "workday-hcm",
+      "vertical": "ops",
+      "also_in": [],
+      "category": "hris",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 4,
+      "aliases": [
+        "Workday HCM",
+        "workday",
+        "workday hr"
+      ]
+    },
+    {
+      "skill_id": "Sd9a0d8446a",
+      "skill_name": "XGBoost",
+      "skill_slug": "xgboost",
+      "vertical": "data_ml",
+      "also_in": [],
+      "category": "ml_framework",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "XGBoost",
+        "xgb",
+        "lightgbm",
+        "catboost",
+        "gradient boosting"
+      ]
+    },
+    {
+      "skill_id": "S4da1f861c5",
+      "skill_name": "Zeplin",
+      "skill_slug": "zeplin",
+      "vertical": "design",
+      "also_in": [],
+      "category": "handoff_tool",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 2,
+      "aliases": [
+        "Zeplin"
+      ]
+    },
+    {
+      "skill_id": "S88fac34799",
+      "skill_name": "ZoomInfo",
+      "skill_slug": "zoominfo",
+      "vertical": "sales",
+      "also_in": [],
+      "category": "prospecting",
+      "skill_group": null,
+      "difficulty_relevant": true,
+      "weight": 3,
+      "aliases": [
+        "ZoomInfo",
+        "zoom info"
+      ]
+    }
+  ]
+}

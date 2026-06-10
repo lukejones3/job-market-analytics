@@ -337,70 +337,10 @@ BANNED_CANON_SKILLS = {
 }
 
 # Internal fallback aliases (still bounded to allowlist)
-FALLBACK_ALIASES: Dict[str, List[str]] = {
-    "SQL": ["sql", "postgresql", "postgres", "mssql", "sql server"],
-    "Excel": ["excel", "vlookup", "vlookups", "xlookup", "powerpivot", "power pivot"],
-    "Power BI": ["power bi", "powerbi", "dax"],
-    "Google Analytics": ["google analytics"],
-    "GA4": ["ga4", "ga 4"],
-    "dbt": ["dbt"],
-    "Snowflake": ["snowflake"],
-    "Redshift": ["redshift"],
-    "BigQuery": ["bigquery", "big query"],
-    "Python": ["python"],
-    "Matplotlib": ["matplotlib"],
-    "JSON": ["json"],
-    "DAX": ["dax"],
-    "A/B Testing": ["a/b testing", "ab testing", "a/b test", "ab test"],
-    "ETL Development": ["etl", "etl development", "elt", "elt development"],
-    "Financial Modeling": ["financial modeling"],
-    "Machine Learning": ["machine learning"],
-    "AI": ["ai"],  # SPECIAL: standalone token + only in skills sections
-    "Spark": ["spark", "apache spark", "pyspark"],
-    "PySpark": ["pyspark", "py spark"],
-    "Airflow": ["airflow", "apache airflow"],
-    "Kafka": ["kafka", "apache kafka"],
-    "Terraform": ["terraform"],
-    "Docker": ["docker"],
-    "Kubernetes": ["kubernetes", "k8s"],
-    "Git": ["git", "github", "gitlab", "version control"],
-    "AWS": ["aws", "amazon web services", "amazon aws"],
-    "GCP": ["gcp", "google cloud", "google cloud platform"],
-    "Azure": ["azure", "microsoft azure"],
-    "Azure Data Factory": ["azure data factory", "adf"],
-    "AWS Glue": ["aws glue", "glue"],
-    "PyTorch": ["pytorch", "torch"],
-    "TensorFlow": ["tensorflow", "tf"],
-    "Scikit-learn": ["scikit-learn", "sklearn", "scikit learn"],
-    "MLflow": ["mlflow", "ml flow"],
-    "Hugging Face": ["hugging face", "huggingface"],
-    "LangChain": ["langchain", "lang chain"],
-    "OpenAI": ["openai", "open ai", "gpt", "chatgpt"],
-    "Hex": ["hex"],
-    "Metabase": ["metabase"],
-    "Grafana": ["grafana"],
-    "Mode": ["mode analytics", "mode"],
-    "Scala": ["scala"],
-    "Java": ["java"],
-    "Bash": ["bash", "shell scripting", "shell script"],
-    "Parquet": ["parquet", "apache parquet"],
-    "Delta Lake": ["delta lake", "delta"],
-    "Iceberg": ["iceberg", "apache iceberg"],
-    "Statistics": ["statistics", "statistical analysis", "statistical modeling"],
-    "Causal Inference": ["causal inference", "causal analysis"],
-    "NLP": ["nlp", "natural language processing"],
-    "Computer Vision": ["computer vision", "cv"],
-    "Deep Learning": ["deep learning", "neural network", "neural networks"],
-    "Regression": ["regression", "linear regression", "logistic regression"],
-    "Power Automate": ["power automate", "ms power automate"],
-    "MicroStrategy": ["microstrategy", "mstr"],
-    "Large Language Models": ["large language models", "llm", "llms", "large language model"],
-    "Marketo": ["marketo"],
-    "Data Modeling": ["data modeling", "data modelling", "dimensional modeling", "dimensional modelling"],
-    "Statistical Modeling": ["statistical modeling", "statistical modelling", "statistical models"],
-    "Agentic Systems": ["agentic systems", "agentic ai", "ai agents", "autonomous agents"],
-    "AWS Bedrock": ["aws bedrock", "bedrock", "amazon bedrock"],
-}
+# Skill alias seed — single source of truth: config/skill_taxonomy.json (loaded via
+# skill_taxonomy.py). Merged with live DB aliases in load_skill_aliases_from_db().
+import skill_taxonomy
+FALLBACK_ALIASES: Dict[str, List[str]] = skill_taxonomy.skill_aliases_seed()
 
 def load_existing_skill_ids(cur) -> Dict[str, str]:
     """
@@ -1534,19 +1474,7 @@ def load_skill_aliases_from_db(cur) -> Dict[str, List[str]]:
 
 # Skills we do NOT want to extract even if they exist in skills table (noise / soft skills).
 # You can shrink/expand this list over time.
-SKILL_DENYLIST = {
-    "insights",
-    "collaborate",
-    "reporting",
-    "data analysis",
-    "business analysis",
-    "modeling",
-    "presentation",
-    "consulting",
-    "marketing",
-    "sales",
-    "detail-oriented",
-}
+SKILL_DENYLIST = skill_taxonomy.denylist()  # config/skill_taxonomy.json -> denylist
 
 def build_skill_patterns_anywhere(canon_to_skill_id: Dict[str, str],
                                   skill_aliases: Dict[str, List[str]]) -> List[Tuple[re.Pattern, str, str]]:
@@ -1618,18 +1546,9 @@ def _relevant_skill_names_for_domain(domain: str) -> set:
       1. Skills defined directly in VERTICALS[domain]['skills']
       2. Skills in other verticals whose 'also_in' list includes this domain
 
-    Computed from the taxonomy at call time — no DB query needed.
+    Single source of truth: config/skill_taxonomy.json (via skill_taxonomy loader).
     """
-    relevant: set = set()
-    if domain in VERTICALS:
-        relevant.update(VERTICALS[domain]["skills"].keys())
-    for vkey, vdata in VERTICALS.items():
-        if vkey == domain:
-            continue
-        for skill_name, meta in vdata["skills"].items():
-            if domain in meta.get("also_in", []):
-                relevant.add(skill_name)
-    return relevant
+    return skill_taxonomy.relevant_skill_names_for_domain(domain)
 
 
 def build_skill_patterns_for_domain(

@@ -54,17 +54,10 @@ def _escape_pg_regex(text: str) -> str:
 
 
 def _relevant_skills_for_domain(domain: str) -> set:
-    """Mirror of enrich_job_postings._relevant_skill_names_for_domain."""
-    relevant: set = set()
-    if domain in VERTICALS:
-        relevant.update(VERTICALS[domain]["skills"].keys())
-    for vkey, vdata in VERTICALS.items():
-        if vkey == domain:
-            continue
-        for skill_name, meta in vdata["skills"].items():
-            if domain in meta.get("also_in", []):
-                relevant.add(skill_name)
-    return relevant
+    """Skills whose primary vertical is `domain` or whose also_in includes it.
+    Single source of truth: config/skill_taxonomy.json (via skill_taxonomy loader)."""
+    import skill_taxonomy
+    return skill_taxonomy.relevant_skill_names_for_domain(domain)
 
 
 def build_domain_alias_temp_table(cur, canon_to_skill_id: dict, skill_aliases: dict):

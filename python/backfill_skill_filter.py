@@ -70,9 +70,10 @@ def build_skill_filter_pattern() -> re.Pattern:
     Aliases < 3 chars are skipped (e.g. 'r', 'go', 'py' all have longer forms).
     Special regex chars (c#, c++, .net, …) are re.escape()'d.
     """
+    import skill_taxonomy
     aliases: set[str] = set()
-    for vdata in VERTICALS.values():
-        for skill_name, skill_data in vdata["skills"].items():
+    for vskills in skill_taxonomy.skills_by_vertical().values():
+        for skill_name, skill_data in vskills.items():
             canonical = skill_name.lower()
             # Only fall back to canonical if it isn't in the skip list AND isn't
             # already covered by the aliases list (avoids double-adding).

@@ -79,33 +79,34 @@ def build_new_skills(
     seen_canonical: set[str] = set()
     new_skills: list[dict] = []
 
-    for vkey, vdata in VERTICALS.items():
-        for skill_name, skill_data in vdata["skills"].items():
-            sname_lower = skill_name.lower()
-            if sname_lower in seen_canonical:
-                continue
-            seen_canonical.add(sname_lower)
+    import skill_taxonomy
+    for skill_data in skill_taxonomy.skills():
+        skill_name = skill_data["skill_name"]
+        sname_lower = skill_name.lower()
+        if sname_lower in seen_canonical:
+            continue
+        seen_canonical.add(sname_lower)
 
-            all_aliases = skill_data.get("aliases", [])
-            all_forms = [sname_lower] + [a.lower() for a in all_aliases]
+        all_aliases = skill_data.get("aliases", [])
+        all_forms = [sname_lower] + [a.lower() for a in all_aliases]
 
-            # Check if any form already exists in DB
-            hit = next((f for f in all_forms if f in existing_names or f in existing_aliases), None)
-            if hit:
-                continue  # already in DB — backfill_skill_verticals.py handles vertical assignment
+        # Check if any form already exists in DB
+        hit = next((f for f in all_forms if f in existing_names or f in existing_aliases), None)
+        if hit:
+            continue  # already in DB — backfill_skill_verticals.py handles vertical assignment
 
-            # Skill is new — compute safe aliases (exclude any that already exist)
-            safe_aliases = [a for a in all_aliases if a.lower() not in existing_aliases]
+        # Skill is new — compute safe aliases (exclude any that already exist)
+        safe_aliases = [a for a in all_aliases if a.lower() not in existing_aliases]
 
-            new_skills.append({
-                "skill_id":   make_skill_id(skill_name),
-                "skill_name": skill_name,
-                "vertical":   vkey,
-                "also_in":    skill_data.get("also_in", []),
-                "category":   skill_data.get("category", ""),
-                "weight":     skill_data.get("weight", 1),
-                "safe_aliases": safe_aliases,
-            })
+        new_skills.append({
+            "skill_id":   skill_data.get("skill_id") or make_skill_id(skill_name),
+            "skill_name": skill_name,
+            "vertical":   skill_data.get("vertical", ""),
+            "also_in":    skill_data.get("also_in", []),
+            "category":   skill_data.get("category", ""),
+            "weight":     skill_data.get("weight", 1),
+            "safe_aliases": safe_aliases,
+        })
 
     # Deduplicate skill_ids (extremely unlikely hash collision, but guard it)
     seen_ids: dict[str, str] = {}

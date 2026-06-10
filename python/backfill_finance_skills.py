@@ -38,8 +38,9 @@ def _matches(alias: str, desc_lower: str, desc_words: set) -> bool:
 
 def build_finance_alias_map() -> dict[str, str]:
     """Returns {alias_lower: canonical_skill_name} for all finance skills."""
+    import skill_taxonomy
     result = {}
-    for canon, meta in VERTICALS["finance"]["skills"].items():
+    for canon, meta in skill_taxonomy.skills_by_vertical().get("finance", {}).items():
         for alias in meta["aliases"]:
             result[alias.lower()] = canon
     return result
@@ -54,8 +55,9 @@ def main():
     conn.autocommit = False
     cur = conn.cursor(cursor_factory=DictCursor)
 
+    import skill_taxonomy
     alias_map = build_finance_alias_map()
-    print(f"Finance skills: {len(VERTICALS['finance']['skills'])} canonical, {len(alias_map)} aliases")
+    print(f"Finance skills: {len(skill_taxonomy.skills_by_vertical().get('finance', {}))} canonical, {len(alias_map)} aliases")
 
     # Fetch all finance tier-1 raw jobs + their existing skill ids to avoid dupes
     cur.execute("""
@@ -76,7 +78,7 @@ def main():
     skill_id_map = {row["skill_name"]: row["skill_id"] for row in cur.fetchall()}
 
     # Upsert any missing canonical skill rows
-    for canon in VERTICALS["finance"]["skills"]:
+    for canon in skill_taxonomy.skills_by_vertical().get("finance", {}):
         if canon not in skill_id_map:
             sid = _md5_id("S", canon)
             cur.execute(

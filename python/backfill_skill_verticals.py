@@ -44,8 +44,9 @@ def build_taxonomy_map() -> dict[str, tuple[str, list[str]]]:
     primary: dict[str, str] = {}
     also_in: dict[str, set] = {}
 
-    for vkey, vdata in VERTICALS.items():
-        for skill_name, skill_data in vdata["skills"].items():
+    import skill_taxonomy
+    for vkey, vskills in skill_taxonomy.skills_by_vertical().items():
+        for skill_name, skill_data in vskills.items():
             sname = skill_name.lower()
             if sname not in primary:
                 primary[sname] = vkey
@@ -70,8 +71,9 @@ def build_alias_to_canonical(taxonomy_map: dict) -> dict[str, str]:
     Lets us match a DB skill's aliases against the taxonomy.
     """
     alias_map: dict[str, str] = {}
-    for vkey, vdata in VERTICALS.items():
-        for skill_name, skill_data in vdata["skills"].items():
+    import skill_taxonomy
+    for vkey, vskills in skill_taxonomy.skills_by_vertical().items():
+        for skill_name, skill_data in vskills.items():
             sname = skill_name.lower()
             alias_map[sname] = sname  # canonical matches itself
             for alias in skill_data.get("aliases", []):

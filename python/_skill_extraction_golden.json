@@ -1,0 +1,6052 @@
+[
+[
+"data_ml",
+"S001",
+"microsoft sql server"
+],
+[
+"data_ml",
+"S001",
+"mssql"
+],
+[
+"data_ml",
+"S001",
+"mysql"
+],
+[
+"data_ml",
+"S001",
+"postgre sql"
+],
+[
+"data_ml",
+"S001",
+"postgres"
+],
+[
+"data_ml",
+"S001",
+"postgresql"
+],
+[
+"data_ml",
+"S001",
+"querying"
+],
+[
+"data_ml",
+"S001",
+"spark sql"
+],
+[
+"data_ml",
+"S001",
+"sparksql"
+],
+[
+"data_ml",
+"S001",
+"sql"
+],
+[
+"data_ml",
+"S001",
+"sql server"
+],
+[
+"data_ml",
+"S001",
+"t-sql"
+],
+[
+"data_ml",
+"S001",
+"tsql"
+],
+[
+"data_ml",
+"S003",
+"sigma"
+],
+[
+"data_ml",
+"S005",
+"tableau"
+],
+[
+"data_ml",
+"S006",
+"looker"
+],
+[
+"data_ml",
+"S006",
+"looker studio"
+],
+[
+"data_ml",
+"S006",
+"lookml"
+],
+[
+"data_ml",
+"S007",
+"google sheets"
+],
+[
+"data_ml",
+"S008",
+"google slides"
+],
+[
+"data_ml",
+"S009",
+"powerpoint"
+],
+[
+"data_ml",
+"S010",
+"dax"
+],
+[
+"data_ml",
+"S010",
+"pbi"
+],
+[
+"data_ml",
+"S010",
+"power bi"
+],
+[
+"data_ml",
+"S010",
+"powerbi"
+],
+[
+"data_ml",
+"S013",
+"sas"
+],
+[
+"data_ml",
+"S014",
+"r"
+],
+[
+"data_ml",
+"S014",
+"r programming"
+],
+[
+"data_ml",
+"S014",
+"rlang"
+],
+[
+"data_ml",
+"S015",
+"alteryx"
+],
+[
+"data_ml",
+"S016",
+"amplitude"
+],
+[
+"data_ml",
+"S017",
+"shopify"
+],
+[
+"data_ml",
+"S023",
+"jupyter"
+],
+[
+"data_ml",
+"S023",
+"jupyter notebook"
+],
+[
+"data_ml",
+"S023",
+"jupyter notebooks"
+],
+[
+"data_ml",
+"S023",
+"numpy"
+],
+[
+"data_ml",
+"S023",
+"pandas"
+],
+[
+"data_ml",
+"S023",
+"python"
+],
+[
+"data_ml",
+"S023",
+"python 3"
+],
+[
+"data_ml",
+"S023",
+"python3"
+],
+[
+"data_ml",
+"S025",
+"quant analytics"
+],
+[
+"data_ml",
+"S025",
+"quantitative analytics"
+],
+[
+"data_ml",
+"S025",
+"quantitative methods"
+],
+[
+"data_ml",
+"S025",
+"quantitative research"
+],
+[
+"data_ml",
+"S028",
+"a/b experiments"
+],
+[
+"data_ml",
+"S028",
+"a/b test"
+],
+[
+"data_ml",
+"S028",
+"a/b testing"
+],
+[
+"data_ml",
+"S028",
+"ab test"
+],
+[
+"data_ml",
+"S028",
+"ab testing"
+],
+[
+"data_ml",
+"S028",
+"experimentation"
+],
+[
+"data_ml",
+"S028",
+"hypothesis testing"
+],
+[
+"data_ml",
+"S028",
+"split testing"
+],
+[
+"data_ml",
+"S029",
+"case modeling"
+],
+[
+"data_ml",
+"S034",
+"powerpivot"
+],
+[
+"data_ml",
+"S037",
+"circana"
+],
+[
+"data_ml",
+"S041",
+"mdx"
+],
+[
+"data_ml",
+"S042",
+"automate etl"
+],
+[
+"data_ml",
+"S042",
+"automate etl/elt workflows"
+],
+[
+"data_ml",
+"S042",
+"elt"
+],
+[
+"data_ml",
+"S042",
+"elt development"
+],
+[
+"data_ml",
+"S042",
+"etl"
+],
+[
+"data_ml",
+"S042",
+"etl development"
+],
+[
+"data_ml",
+"S042",
+"etl devolopment"
+],
+[
+"data_ml",
+"S042",
+"etl tools"
+],
+[
+"data_ml",
+"S042",
+"etl tools \\(e\\.g"
+],
+[
+"data_ml",
+"S042",
+"etl workflows"
+],
+[
+"data_ml",
+"S042",
+"etl/elt"
+],
+[
+"data_ml",
+"S042",
+"etl/elt workflows"
+],
+[
+"data_ml",
+"S042",
+"familiarity with etl"
+],
+[
+"data_ml",
+"S042",
+"familiarity with etl/elt workflows"
+],
+[
+"data_ml",
+"S042",
+"understanding of etl"
+],
+[
+"data_ml",
+"S042",
+"understanding of etl/elt concepts"
+],
+[
+"data_ml",
+"S044",
+"big query"
+],
+[
+"data_ml",
+"S044",
+"bigquery"
+],
+[
+"data_ml",
+"S044",
+"bq"
+],
+[
+"data_ml",
+"S045",
+"data build tool"
+],
+[
+"data_ml",
+"S045",
+"dbt"
+],
+[
+"data_ml",
+"S045",
+"dbt core"
+],
+[
+"data_ml",
+"S048",
+"amazon redshift"
+],
+[
+"data_ml",
+"S048",
+"aws redshift"
+],
+[
+"data_ml",
+"S048",
+"redshift"
+],
+[
+"data_ml",
+"S049",
+"snowflake"
+],
+[
+"data_ml",
+"S049",
+"snowflake data cloud"
+],
+[
+"data_ml",
+"S050",
+"perl"
+],
+[
+"data_ml",
+"S052",
+"quick sight"
+],
+[
+"data_ml",
+"S052",
+"quicksight"
+],
+[
+"data_ml",
+"S0523b13262",
+"chatgpt"
+],
+[
+"data_ml",
+"S0523b13262",
+"gpt"
+],
+[
+"data_ml",
+"S0523b13262",
+"open ai"
+],
+[
+"data_ml",
+"S0523b13262",
+"openai"
+],
+[
+"data_ml",
+"S053",
+"matplotlib"
+],
+[
+"data_ml",
+"S054",
+"optimizely"
+],
+[
+"data_ml",
+"S055",
+"ga 4"
+],
+[
+"data_ml",
+"S055",
+"ga4"
+],
+[
+"data_ml",
+"S055",
+"google analytics 4"
+],
+[
+"data_ml",
+"S056",
+"freewheel"
+],
+[
+"data_ml",
+"S058",
+"pi"
+],
+[
+"data_ml",
+"S061",
+"stata"
+],
+[
+"data_ml",
+"S062",
+"matlab"
+],
+[
+"data_ml",
+"S063",
+"domo"
+],
+[
+"data_ml",
+"S065",
+"airtable"
+],
+[
+"data_ml",
+"S066",
+"lucidchart"
+],
+[
+"data_ml",
+"S067",
+"vlookups"
+],
+[
+"data_ml",
+"S069",
+"bia\u2019s"
+],
+[
+"data_ml",
+"S070",
+"utilize statistical modeling"
+],
+[
+"data_ml",
+"S072",
+"post-mortem analysis"
+],
+[
+"data_ml",
+"S073",
+"diplomacy"
+],
+[
+"data_ml",
+"S074dd69971",
+"keras"
+],
+[
+"data_ml",
+"S074dd69971",
+"tensorflow"
+],
+[
+"data_ml",
+"S074dd69971",
+"tf"
+],
+[
+"data_ml",
+"S075",
+"gap analysis"
+],
+[
+"data_ml",
+"S077",
+"develop insightful dashboards"
+],
+[
+"data_ml",
+"S080",
+"artificial intelligence/machine learning"
+],
+[
+"data_ml",
+"S084",
+"and/or with data modeling"
+],
+[
+"data_ml",
+"S088",
+"basic modeling"
+],
+[
+"data_ml",
+"S091fa9121c",
+"machine learning"
+],
+[
+"data_ml",
+"S091fa9121c",
+"ml"
+],
+[
+"data_ml",
+"S091fa9121c",
+"ml algorithms"
+],
+[
+"data_ml",
+"S091fa9121c",
+"ml models"
+],
+[
+"data_ml",
+"S091fa9121c",
+"predictive analytics"
+],
+[
+"data_ml",
+"S091fa9121c",
+"predictive modeling"
+],
+[
+"data_ml",
+"S092",
+"revenuecloudfx"
+],
+[
+"data_ml",
+"S093",
+"competitor analysis"
+],
+[
+"data_ml",
+"S09aae1d48",
+"polars"
+],
+[
+"data_ml",
+"S10ea590d34",
+"scipy"
+],
+[
+"data_ml",
+"S13d976ec91",
+"grafana"
+],
+[
+"data_ml",
+"S3012dcff14",
+"scala"
+],
+[
+"data_ml",
+"S3176af0d11",
+"quantitative analysis"
+],
+[
+"data_ml",
+"S3176af0d11",
+"statistical analysis"
+],
+[
+"data_ml",
+"S3176af0d11",
+"statistical methods"
+],
+[
+"data_ml",
+"S3176af0d11",
+"statistical modeling"
+],
+[
+"data_ml",
+"S3176af0d11",
+"statistical modelling"
+],
+[
+"data_ml",
+"S3176af0d11",
+"statistical models"
+],
+[
+"data_ml",
+"S3351237e85",
+"causal analysis"
+],
+[
+"data_ml",
+"S3351237e85",
+"causal inference"
+],
+[
+"data_ml",
+"S3351237e85",
+"causal modeling"
+],
+[
+"data_ml",
+"S3351237e85",
+"causal research"
+],
+[
+"data_ml",
+"S357846e92",
+"great expectations"
+],
+[
+"data_ml",
+"S357846e92",
+"great_expectations"
+],
+[
+"data_ml",
+"S3a580f1422",
+"azure"
+],
+[
+"data_ml",
+"S3a580f1422",
+"azure cloud"
+],
+[
+"data_ml",
+"S3a580f1422",
+"azure data factory"
+],
+[
+"data_ml",
+"S3a580f1422",
+"azure devops"
+],
+[
+"data_ml",
+"S3a580f1422",
+"azure ml"
+],
+[
+"data_ml",
+"S3a580f1422",
+"azure synapse"
+],
+[
+"data_ml",
+"S3a580f1422",
+"microsoft azure"
+],
+[
+"data_ml",
+"S3b79d001b3",
+"data modeling"
+],
+[
+"data_ml",
+"S3b79d001b3",
+"data modelling"
+],
+[
+"data_ml",
+"S3b79d001b3",
+"data models"
+],
+[
+"data_ml",
+"S3b79d001b3",
+"data warehouse design"
+],
+[
+"data_ml",
+"S3b79d001b3",
+"dimensional modeling"
+],
+[
+"data_ml",
+"S3b79d001b3",
+"dimensional modelling"
+],
+[
+"data_ml",
+"S3b79d001b3",
+"star schema"
+],
+[
+"data_ml",
+"S431fce03c",
+"clickhouse"
+],
+[
+"data_ml",
+"S4847e034bb",
+"amazon aws"
+],
+[
+"data_ml",
+"S4847e034bb",
+"amazon sagemaker"
+],
+[
+"data_ml",
+"S4847e034bb",
+"amazon web services"
+],
+[
+"data_ml",
+"S4847e034bb",
+"aws"
+],
+[
+"data_ml",
+"S4847e034bb",
+"aws lambda"
+],
+[
+"data_ml",
+"S4847e034bb",
+"aws s3"
+],
+[
+"data_ml",
+"S4847e034bb",
+"aws sagemaker"
+],
+[
+"data_ml",
+"S4847e034bb",
+"ec2"
+],
+[
+"data_ml",
+"S4847e034bb",
+"s3"
+],
+[
+"data_ml",
+"S4847e034bb",
+"sagemaker"
+],
+[
+"data_ml",
+"S4ae35cd73",
+"reinforcement learning"
+],
+[
+"data_ml",
+"S4ae35cd73",
+"reinforcement learning from human feedback"
+],
+[
+"data_ml",
+"S4ae35cd73",
+"rl"
+],
+[
+"data_ml",
+"S4ae35cd73",
+"rlhf"
+],
+[
+"data_ml",
+"S4c632f624",
+"dbt cloud"
+],
+[
+"data_ml",
+"S51be25b014",
+"apache kafka"
+],
+[
+"data_ml",
+"S51be25b014",
+"confluent"
+],
+[
+"data_ml",
+"S51be25b014",
+"confluent kafka"
+],
+[
+"data_ml",
+"S51be25b014",
+"kafka"
+],
+[
+"data_ml",
+"S5203d06e9",
+"feast"
+],
+[
+"data_ml",
+"S53a572ed6b",
+"microstrategy"
+],
+[
+"data_ml",
+"S53a572ed6b",
+"mstr"
+],
+[
+"data_ml",
+"S5cf9abccf",
+"apache superset"
+],
+[
+"data_ml",
+"S5cf9abccf",
+"superset"
+],
+[
+"data_ml",
+"S61ff5e6839",
+"metabase"
+],
+[
+"data_ml",
+"S650be61892",
+"mode"
+],
+[
+"data_ml",
+"S650be61892",
+"mode analytics"
+],
+[
+"data_ml",
+"S68c03a7615",
+"apache flink"
+],
+[
+"data_ml",
+"S68c03a7615",
+"flink"
+],
+[
+"data_ml",
+"S6a68b6412b",
+"cnn"
+],
+[
+"data_ml",
+"S6a68b6412b",
+"deep learning"
+],
+[
+"data_ml",
+"S6a68b6412b",
+"deep neural networks"
+],
+[
+"data_ml",
+"S6a68b6412b",
+"neural network"
+],
+[
+"data_ml",
+"S6a68b6412b",
+"neural networks"
+],
+[
+"data_ml",
+"S6a68b6412b",
+"rnn"
+],
+[
+"data_ml",
+"S6a68b6412b",
+"transformers"
+],
+[
+"data_ml",
+"S753a222580",
+"computer vision"
+],
+[
+"data_ml",
+"S753a222580",
+"cv"
+],
+[
+"data_ml",
+"S753a222580",
+"image processing"
+],
+[
+"data_ml",
+"S753a222580",
+"image recognition"
+],
+[
+"data_ml",
+"S753a222580",
+"object detection"
+],
+[
+"data_ml",
+"S7db8613f8",
+"presto"
+],
+[
+"data_ml",
+"S7db8613f8",
+"trino"
+],
+[
+"data_ml",
+"S8413e2ee8",
+"dataiku"
+],
+[
+"data_ml",
+"S85587c49af",
+"natural language processing"
+],
+[
+"data_ml",
+"S85587c49af",
+"nlp"
+],
+[
+"data_ml",
+"S85587c49af",
+"text analytics"
+],
+[
+"data_ml",
+"S85587c49af",
+"text classification"
+],
+[
+"data_ml",
+"S85587c49af",
+"text mining"
+],
+[
+"data_ml",
+"S89dd061bf",
+"llama index"
+],
+[
+"data_ml",
+"S89dd061bf",
+"llama-index"
+],
+[
+"data_ml",
+"S89dd061bf",
+"llama_index"
+],
+[
+"data_ml",
+"S89dd061bf",
+"llamaindex"
+],
+[
+"data_ml",
+"S8cde774d6f",
+"apache spark"
+],
+[
+"data_ml",
+"S8cde774d6f",
+"pyspark"
+],
+[
+"data_ml",
+"S8cde774d6f",
+"spark"
+],
+[
+"data_ml",
+"S8cde774d6f",
+"spark streaming"
+],
+[
+"data_ml",
+"S8de59538e5",
+"lang chain"
+],
+[
+"data_ml",
+"S8de59538e5",
+"langchain"
+],
+[
+"data_ml",
+"S8eb9bca60",
+"mage"
+],
+[
+"data_ml",
+"S8eb9bca60",
+"mage ai"
+],
+[
+"data_ml",
+"S8eb9bca60",
+"mage\\.ai"
+],
+[
+"data_ml",
+"S92640bd729",
+"hex"
+],
+[
+"data_ml",
+"S92c1731ea",
+"streamlit"
+],
+[
+"data_ml",
+"S94cb3d601b",
+"diffusers"
+],
+[
+"data_ml",
+"S94cb3d601b",
+"hugging face"
+],
+[
+"data_ml",
+"S94cb3d601b",
+"huggingface"
+],
+[
+"data_ml",
+"S94cb3d601b",
+"transformers library"
+],
+[
+"data_ml",
+"S95b88f180e",
+"pytorch"
+],
+[
+"data_ml",
+"S95b88f180e",
+"torch"
+],
+[
+"data_ml",
+"S_databricks",
+"databricks"
+],
+[
+"data_ml",
+"S_databricks",
+"databricks lakehouse"
+],
+[
+"data_ml",
+"S_databricks",
+"databricks platform"
+],
+[
+"data_ml",
+"S_datalakehouse",
+"data lakehouse"
+],
+[
+"data_ml",
+"S_datalakehouse",
+"lakehouse"
+],
+[
+"data_ml",
+"S_datalakehouse",
+"lakehouse architecture"
+],
+[
+"data_ml",
+"S_fivetran",
+"fivetran"
+],
+[
+"data_ml",
+"S_hadoop",
+"apache hadoop"
+],
+[
+"data_ml",
+"S_hadoop",
+"hadoop"
+],
+[
+"data_ml",
+"S_hadoop",
+"hbase"
+],
+[
+"data_ml",
+"S_hadoop",
+"hdfs"
+],
+[
+"data_ml",
+"S_hadoop",
+"hive"
+],
+[
+"data_ml",
+"S_hadoop",
+"mapreduce"
+],
+[
+"data_ml",
+"S_mixpanel",
+"mixpanel"
+],
+[
+"data_ml",
+"S_prompt_eng",
+"prompt design"
+],
+[
+"data_ml",
+"S_prompt_eng",
+"prompt engineering"
+],
+[
+"data_ml",
+"S_prompt_eng",
+"prompting"
+],
+[
+"data_ml",
+"S_rag",
+"rag"
+],
+[
+"data_ml",
+"S_rag",
+"retrieval augmented generation"
+],
+[
+"data_ml",
+"S_rag",
+"retrieval-augmented generation"
+],
+[
+"data_ml",
+"S_segment",
+"segment"
+],
+[
+"data_ml",
+"S_segment",
+"segment cdp"
+],
+[
+"data_ml",
+"S_segment",
+"twilio segment"
+],
+[
+"data_ml",
+"S_vectordb",
+"chroma"
+],
+[
+"data_ml",
+"S_vectordb",
+"faiss"
+],
+[
+"data_ml",
+"S_vectordb",
+"milvus"
+],
+[
+"data_ml",
+"S_vectordb",
+"pgvector"
+],
+[
+"data_ml",
+"S_vectordb",
+"pinecone"
+],
+[
+"data_ml",
+"S_vectordb",
+"qdrant"
+],
+[
+"data_ml",
+"S_vectordb",
+"vector database"
+],
+[
+"data_ml",
+"S_vectordb",
+"vector databases"
+],
+[
+"data_ml",
+"S_vectordb",
+"vector store"
+],
+[
+"data_ml",
+"S_vectordb",
+"weaviate"
+],
+[
+"data_ml",
+"Sa296104f0",
+"cube"
+],
+[
+"data_ml",
+"Sa296104f0",
+"cube\\.js"
+],
+[
+"data_ml",
+"Sa296104f0",
+"cubejs"
+],
+[
+"data_ml",
+"Saaf7fdc2ac",
+"gcp data engineer"
+],
+[
+"data_ml",
+"Saaf7fdc2ac",
+"google cloud data engineer"
+],
+[
+"data_ml",
+"Saaf7fdc2ac",
+"professional data engineer"
+],
+[
+"data_ml",
+"Sace780da48",
+"apache parquet"
+],
+[
+"data_ml",
+"Sace780da48",
+"parquet"
+],
+[
+"data_ml",
+"Sae928b0778",
+"scikit learn"
+],
+[
+"data_ml",
+"Sae928b0778",
+"scikit-learn"
+],
+[
+"data_ml",
+"Sae928b0778",
+"sklearn"
+],
+[
+"data_ml",
+"Sb9f1e40fa2",
+"apache iceberg"
+],
+[
+"data_ml",
+"Sb9f1e40fa2",
+"iceberg"
+],
+[
+"data_ml",
+"Sc33e404a44",
+"bayesian statistics"
+],
+[
+"data_ml",
+"Sc33e404a44",
+"regression"
+],
+[
+"data_ml",
+"Sc33e404a44",
+"statistical analysis"
+],
+[
+"data_ml",
+"Sc33e404a44",
+"statistical modeling"
+],
+[
+"data_ml",
+"Sc33e404a44",
+"statistics"
+],
+[
+"data_ml",
+"Sc59d6df80",
+"modal"
+],
+[
+"data_ml",
+"Sc59d6df80",
+"modal\\.com"
+],
+[
+"data_ml",
+"Sc6a538ac5",
+"amazon athena"
+],
+[
+"data_ml",
+"Sc6a538ac5",
+"athena"
+],
+[
+"data_ml",
+"Sc6a538ac5",
+"aws athena"
+],
+[
+"data_ml",
+"Sc731f72e1d",
+"dataflow"
+],
+[
+"data_ml",
+"Sc731f72e1d",
+"gcp"
+],
+[
+"data_ml",
+"Sc731f72e1d",
+"google bigquery"
+],
+[
+"data_ml",
+"Sc731f72e1d",
+"google cloud"
+],
+[
+"data_ml",
+"Sc731f72e1d",
+"google cloud platform"
+],
+[
+"data_ml",
+"Sc731f72e1d",
+"google cloud storage"
+],
+[
+"data_ml",
+"Sc731f72e1d",
+"google vertex ai"
+],
+[
+"data_ml",
+"Sc731f72e1d",
+"vertex ai"
+],
+[
+"data_ml",
+"Sc75a351cbd",
+"kubeflow"
+],
+[
+"data_ml",
+"Sc8d3451e73",
+"ml flow"
+],
+[
+"data_ml",
+"Sc8d3451e73",
+"mlflow"
+],
+[
+"data_ml",
+"Sced9b681c2",
+"linear regression"
+],
+[
+"data_ml",
+"Sced9b681c2",
+"logistic regression"
+],
+[
+"data_ml",
+"Sced9b681c2",
+"regression"
+],
+[
+"data_ml",
+"Sced9b681c2",
+"regression analysis"
+],
+[
+"data_ml",
+"Sced9b681c2",
+"regression modeling"
+],
+[
+"data_ml",
+"Sd1662521e6",
+"airflow"
+],
+[
+"data_ml",
+"Sd1662521e6",
+"apache airflow"
+],
+[
+"data_ml",
+"Sd1662521e6",
+"astronomer"
+],
+[
+"data_ml",
+"Sd27c79824",
+"amazon glue"
+],
+[
+"data_ml",
+"Sd27c79824",
+"aws glue"
+],
+[
+"data_ml",
+"Sd27c79824",
+"glue"
+],
+[
+"data_ml",
+"Sd522b9f8f",
+"data catalog"
+],
+[
+"data_ml",
+"Sd522b9f8f",
+"data governance"
+],
+[
+"data_ml",
+"Sd522b9f8f",
+"data stewardship"
+],
+[
+"data_ml",
+"Sd92c36790b",
+"embeddings"
+],
+[
+"data_ml",
+"Sd92c36790b",
+"sentence embeddings"
+],
+[
+"data_ml",
+"Sd92c36790b",
+"text embeddings"
+],
+[
+"data_ml",
+"Sd92c36790b",
+"vector embeddings"
+],
+[
+"data_ml",
+"Sd9a0d8446a",
+"catboost"
+],
+[
+"data_ml",
+"Sd9a0d8446a",
+"gradient boosting"
+],
+[
+"data_ml",
+"Sd9a0d8446a",
+"lightgbm"
+],
+[
+"data_ml",
+"Sd9a0d8446a",
+"xgb"
+],
+[
+"data_ml",
+"Sd9a0d8446a",
+"xgboost"
+],
+[
+"data_ml",
+"Sdbbe1ffdf",
+"prefect"
+],
+[
+"data_ml",
+"Se288ec651a",
+"agentic ai"
+],
+[
+"data_ml",
+"Se288ec651a",
+"agentic systems"
+],
+[
+"data_ml",
+"Se288ec651a",
+"ai agents"
+],
+[
+"data_ml",
+"Se288ec651a",
+"autonomous agents"
+],
+[
+"data_ml",
+"Se288ec651a",
+"multi-agent"
+],
+[
+"data_ml",
+"Se47a6cbb3",
+"metaflow"
+],
+[
+"data_ml",
+"Se4d68ecf78",
+"wandb"
+],
+[
+"data_ml",
+"Se4d68ecf78",
+"weights & biases"
+],
+[
+"data_ml",
+"Se4d68ecf78",
+"weights and biases"
+],
+[
+"data_ml",
+"Se51fc2a250",
+"delta"
+],
+[
+"data_ml",
+"Se51fc2a250",
+"delta lake"
+],
+[
+"data_ml",
+"Se51fc2a250",
+"delta tables"
+],
+[
+"data_ml",
+"Sf41626d07",
+"dagster"
+],
+[
+"data_ml",
+"Sfab966bb8",
+"jax"
+],
+[
+"data_ml",
+"Sfc61b58f04",
+"foundation models"
+],
+[
+"data_ml",
+"Sfc61b58f04",
+"genai"
+],
+[
+"data_ml",
+"Sfc61b58f04",
+"generative ai"
+],
+[
+"data_ml",
+"Sfc61b58f04",
+"large language model"
+],
+[
+"data_ml",
+"Sfc61b58f04",
+"large language models"
+],
+[
+"data_ml",
+"Sfc61b58f04",
+"llm"
+],
+[
+"data_ml",
+"Sfc61b58f04",
+"llms"
+],
+[
+"design",
+"S02cc8dc4d0",
+"adobe photoshop"
+],
+[
+"design",
+"S02cc8dc4d0",
+"photoshop"
+],
+[
+"design",
+"S02cc8dc4d0",
+"ps"
+],
+[
+"design",
+"S1534b649b4",
+"adobe premiere"
+],
+[
+"design",
+"S1534b649b4",
+"adobe premiere pro"
+],
+[
+"design",
+"S1534b649b4",
+"premiere"
+],
+[
+"design",
+"S1534b649b4",
+"premiere pro"
+],
+[
+"design",
+"S19861d3ac6",
+"component library"
+],
+[
+"design",
+"S19861d3ac6",
+"design system"
+],
+[
+"design",
+"S19861d3ac6",
+"design systems"
+],
+[
+"design",
+"S19861d3ac6",
+"style guide"
+],
+[
+"design",
+"S19861d3ac6",
+"token system"
+],
+[
+"design",
+"S1f2eafb63c",
+"adobe after effects"
+],
+[
+"design",
+"S1f2eafb63c",
+"ae"
+],
+[
+"design",
+"S1f2eafb63c",
+"after effects"
+],
+[
+"design",
+"S1febfac03e",
+"framer"
+],
+[
+"design",
+"S1febfac03e",
+"framer motion"
+],
+[
+"design",
+"S261b56d697",
+"c4d"
+],
+[
+"design",
+"S261b56d697",
+"cinema 4d"
+],
+[
+"design",
+"S2f0ac64711",
+"lottie"
+],
+[
+"design",
+"S2f0ac64711",
+"lottiefiles"
+],
+[
+"design",
+"S46f8656804",
+"lookback"
+],
+[
+"design",
+"S46f8656804",
+"lookback\\.io"
+],
+[
+"design",
+"S4da1f861c5",
+"zeplin"
+],
+[
+"design",
+"S710fcf4ae4",
+"adobe cc"
+],
+[
+"design",
+"S710fcf4ae4",
+"adobe creative cloud"
+],
+[
+"design",
+"S710fcf4ae4",
+"adobe suite"
+],
+[
+"design",
+"S7254fac47e",
+"figma"
+],
+[
+"design",
+"S7254fac47e",
+"figma components"
+],
+[
+"design",
+"S7254fac47e",
+"figma prototyping"
+],
+[
+"design",
+"S7a32aafad3",
+"contextual inquiry"
+],
+[
+"design",
+"S7a32aafad3",
+"customer research"
+],
+[
+"design",
+"S7a32aafad3",
+"usability testing"
+],
+[
+"design",
+"S7a32aafad3",
+"user interviews"
+],
+[
+"design",
+"S7a32aafad3",
+"user research"
+],
+[
+"design",
+"S7a32aafad3",
+"ux research"
+],
+[
+"design",
+"S7c7cec5ba2",
+"blender"
+],
+[
+"design",
+"S7c7cec5ba2",
+"blender 3d"
+],
+[
+"design",
+"S834feae744",
+"sketch"
+],
+[
+"design",
+"S834feae744",
+"sketch app"
+],
+[
+"design",
+"S84d12ebf00",
+"adobe xd"
+],
+[
+"design",
+"S84d12ebf00",
+"xd"
+],
+[
+"design",
+"S8a11abfe88",
+"wireframe"
+],
+[
+"design",
+"S8a11abfe88",
+"wireframes"
+],
+[
+"design",
+"S8a11abfe88",
+"wireframing"
+],
+[
+"design",
+"Sa4886549fe",
+"adobe indesign"
+],
+[
+"design",
+"Sa4886549fe",
+"indesign"
+],
+[
+"design",
+"Sb1df119656",
+"user testing"
+],
+[
+"design",
+"Sb1df119656",
+"usertesting"
+],
+[
+"design",
+"Sba25d7102b",
+"high-fidelity prototype"
+],
+[
+"design",
+"Sba25d7102b",
+"low-fidelity prototype"
+],
+[
+"design",
+"Sba25d7102b",
+"prototyping"
+],
+[
+"design",
+"Sba25d7102b",
+"rapid prototyping"
+],
+[
+"design",
+"Sce28071e1a",
+"abstract"
+],
+[
+"design",
+"Sce28071e1a",
+"abstract version control"
+],
+[
+"design",
+"Sd1f47e0b00",
+"maze"
+],
+[
+"design",
+"Sd1f47e0b00",
+"maze\\.co"
+],
+[
+"design",
+"Sd945f9357c",
+"adobe illustrator"
+],
+[
+"design",
+"Sd945f9357c",
+"illustrator"
+],
+[
+"design",
+"Sdee64dc0a2",
+"webflow"
+],
+[
+"design",
+"Sfd36d69b20",
+"principle"
+],
+[
+"design",
+"Sfd36d69b20",
+"principle app"
+],
+[
+"design",
+"Sfd36d69b20",
+"principle prototyping"
+],
+[
+"engineering",
+"S001",
+"microsoft sql server"
+],
+[
+"engineering",
+"S001",
+"mssql"
+],
+[
+"engineering",
+"S001",
+"mysql"
+],
+[
+"engineering",
+"S001",
+"postgre sql"
+],
+[
+"engineering",
+"S001",
+"postgres"
+],
+[
+"engineering",
+"S001",
+"postgresql"
+],
+[
+"engineering",
+"S001",
+"querying"
+],
+[
+"engineering",
+"S001",
+"spark sql"
+],
+[
+"engineering",
+"S001",
+"sparksql"
+],
+[
+"engineering",
+"S001",
+"sql"
+],
+[
+"engineering",
+"S001",
+"sql server"
+],
+[
+"engineering",
+"S001",
+"t-sql"
+],
+[
+"engineering",
+"S001",
+"tsql"
+],
+[
+"engineering",
+"S023",
+"jupyter"
+],
+[
+"engineering",
+"S023",
+"jupyter notebook"
+],
+[
+"engineering",
+"S023",
+"jupyter notebooks"
+],
+[
+"engineering",
+"S023",
+"numpy"
+],
+[
+"engineering",
+"S023",
+"pandas"
+],
+[
+"engineering",
+"S023",
+"python"
+],
+[
+"engineering",
+"S023",
+"python 3"
+],
+[
+"engineering",
+"S023",
+"python3"
+],
+[
+"engineering",
+"S044",
+"big query"
+],
+[
+"engineering",
+"S044",
+"bigquery"
+],
+[
+"engineering",
+"S044",
+"bq"
+],
+[
+"engineering",
+"S048",
+"amazon redshift"
+],
+[
+"engineering",
+"S048",
+"aws redshift"
+],
+[
+"engineering",
+"S048",
+"redshift"
+],
+[
+"engineering",
+"S049",
+"snowflake"
+],
+[
+"engineering",
+"S049",
+"snowflake data cloud"
+],
+[
+"engineering",
+"S051",
+"rails"
+],
+[
+"engineering",
+"S051",
+"ror"
+],
+[
+"engineering",
+"S051",
+"ruby"
+],
+[
+"engineering",
+"S051",
+"ruby on rails"
+],
+[
+"engineering",
+"S08dd72636b",
+"certified information systems auditor"
+],
+[
+"engineering",
+"S08dd72636b",
+"cisa"
+],
+[
+"engineering",
+"S0928db5377",
+"certified kubernetes application developer"
+],
+[
+"engineering",
+"S0928db5377",
+"ckad"
+],
+[
+"engineering",
+"S0bcc70105a",
+"bitbucket"
+],
+[
+"engineering",
+"S0bcc70105a",
+"git"
+],
+[
+"engineering",
+"S0bcc70105a",
+"git/github"
+],
+[
+"engineering",
+"S0bcc70105a",
+"github"
+],
+[
+"engineering",
+"S0bcc70105a",
+"gitlab"
+],
+[
+"engineering",
+"S0bcc70105a",
+"version control"
+],
+[
+"engineering",
+"S0fcfe3a313",
+"az-900"
+],
+[
+"engineering",
+"S0fcfe3a313",
+"azure fundamentals"
+],
+[
+"engineering",
+"S0fcfe3a313",
+"microsoft azure fundamentals"
+],
+[
+"engineering",
+"S18897dcfce",
+"elastic search"
+],
+[
+"engineering",
+"S18897dcfce",
+"elasticsearch"
+],
+[
+"engineering",
+"S18897dcfce",
+"elk stack"
+],
+[
+"engineering",
+"S18897dcfce",
+"opensearch"
+],
+[
+"engineering",
+"S1e35bcba2d",
+"ts"
+],
+[
+"engineering",
+"S1e35bcba2d",
+"typescript"
+],
+[
+"engineering",
+"S22723bbd42",
+"agile"
+],
+[
+"engineering",
+"S22723bbd42",
+"kanban"
+],
+[
+"engineering",
+"S22723bbd42",
+"scrum"
+],
+[
+"engineering",
+"S22723bbd42",
+"sprint planning"
+],
+[
+"engineering",
+"S22723bbd42",
+"sprint review"
+],
+[
+"engineering",
+"S240aa2cec4",
+"\\.net"
+],
+[
+"engineering",
+"S240aa2cec4",
+"asp\\.net"
+],
+[
+"engineering",
+"S240aa2cec4",
+"c sharp"
+],
+[
+"engineering",
+"S240aa2cec4",
+"c#"
+],
+[
+"engineering",
+"S240aa2cec4",
+"csharp"
+],
+[
+"engineering",
+"S240aa2cec4",
+"dotnet"
+],
+[
+"engineering",
+"S25bf6fde30",
+"az-400"
+],
+[
+"engineering",
+"S25bf6fde30",
+"azure devops engineer"
+],
+[
+"engineering",
+"S25bf6fde30",
+"microsoft devops engineer"
+],
+[
+"engineering",
+"S266a1f7c2e",
+"react"
+],
+[
+"engineering",
+"S266a1f7c2e",
+"react native"
+],
+[
+"engineering",
+"S266a1f7c2e",
+"react\\.js"
+],
+[
+"engineering",
+"S266a1f7c2e",
+"reactjs"
+],
+[
+"engineering",
+"S28a3689be9",
+"express"
+],
+[
+"engineering",
+"S28a3689be9",
+"express\\.js"
+],
+[
+"engineering",
+"S28a3689be9",
+"node js"
+],
+[
+"engineering",
+"S28a3689be9",
+"node\\.js"
+],
+[
+"engineering",
+"S28a3689be9",
+"nodejs"
+],
+[
+"engineering",
+"S2a2d595e6e",
+"spring"
+],
+[
+"engineering",
+"S2a2d595e6e",
+"spring boot"
+],
+[
+"engineering",
+"S2a2d595e6e",
+"spring framework"
+],
+[
+"engineering",
+"S2a2d595e6e",
+"spring mvc"
+],
+[
+"engineering",
+"S2b9afb89a6",
+"django"
+],
+[
+"engineering",
+"S2b9afb89a6",
+"django rest framework"
+],
+[
+"engineering",
+"S2b9afb89a6",
+"drf"
+],
+[
+"engineering",
+"S3012dcff14",
+"scala"
+],
+[
+"engineering",
+"S30136395f0",
+"aks"
+],
+[
+"engineering",
+"S30136395f0",
+"eks"
+],
+[
+"engineering",
+"S30136395f0",
+"gke"
+],
+[
+"engineering",
+"S30136395f0",
+"helm"
+],
+[
+"engineering",
+"S30136395f0",
+"k8s"
+],
+[
+"engineering",
+"S30136395f0",
+"kubernetes"
+],
+[
+"engineering",
+"S303e96f805",
+"hashicorp terraform"
+],
+[
+"engineering",
+"S303e96f805",
+"iac"
+],
+[
+"engineering",
+"S303e96f805",
+"infrastructure as code"
+],
+[
+"engineering",
+"S303e96f805",
+"opentofu"
+],
+[
+"engineering",
+"S303e96f805",
+"terraform"
+],
+[
+"engineering",
+"S303e96f805",
+"tfstate"
+],
+[
+"engineering",
+"S319c3206a7",
+"flask"
+],
+[
+"engineering",
+"S32d3463fbf",
+"next js"
+],
+[
+"engineering",
+"S32d3463fbf",
+"next\\.js"
+],
+[
+"engineering",
+"S32d3463fbf",
+"nextjs"
+],
+[
+"engineering",
+"S34d1f91fb2",
+"go"
+],
+[
+"engineering",
+"S34d1f91fb2",
+"golang"
+],
+[
+"engineering",
+"S3a580f1422",
+"azure"
+],
+[
+"engineering",
+"S3a580f1422",
+"azure cloud"
+],
+[
+"engineering",
+"S3a580f1422",
+"azure data factory"
+],
+[
+"engineering",
+"S3a580f1422",
+"azure devops"
+],
+[
+"engineering",
+"S3a580f1422",
+"azure ml"
+],
+[
+"engineering",
+"S3a580f1422",
+"azure synapse"
+],
+[
+"engineering",
+"S3a580f1422",
+"microsoft azure"
+],
+[
+"engineering",
+"S3dd8d33a8b",
+"az-104"
+],
+[
+"engineering",
+"S3dd8d33a8b",
+"azure administrator"
+],
+[
+"engineering",
+"S3dd8d33a8b",
+"microsoft azure administrator"
+],
+[
+"engineering",
+"S4847e034bb",
+"amazon aws"
+],
+[
+"engineering",
+"S4847e034bb",
+"amazon sagemaker"
+],
+[
+"engineering",
+"S4847e034bb",
+"amazon web services"
+],
+[
+"engineering",
+"S4847e034bb",
+"aws"
+],
+[
+"engineering",
+"S4847e034bb",
+"aws lambda"
+],
+[
+"engineering",
+"S4847e034bb",
+"aws s3"
+],
+[
+"engineering",
+"S4847e034bb",
+"aws sagemaker"
+],
+[
+"engineering",
+"S4847e034bb",
+"ec2"
+],
+[
+"engineering",
+"S4847e034bb",
+"s3"
+],
+[
+"engineering",
+"S4847e034bb",
+"sagemaker"
+],
+[
+"engineering",
+"S4d003d1435",
+"rails"
+],
+[
+"engineering",
+"S4d003d1435",
+"ror"
+],
+[
+"engineering",
+"S4d003d1435",
+"ruby on rails"
+],
+[
+"engineering",
+"S4fba3bc02b",
+"android kotlin"
+],
+[
+"engineering",
+"S4fba3bc02b",
+"kotlin"
+],
+[
+"engineering",
+"S51be25b014",
+"apache kafka"
+],
+[
+"engineering",
+"S51be25b014",
+"confluent"
+],
+[
+"engineering",
+"S51be25b014",
+"confluent kafka"
+],
+[
+"engineering",
+"S51be25b014",
+"kafka"
+],
+[
+"engineering",
+"S572cda5190",
+"graph ql"
+],
+[
+"engineering",
+"S572cda5190",
+"graphql"
+],
+[
+"engineering",
+"S627ccfaddf",
+"certified information systems security professional"
+],
+[
+"engineering",
+"S627ccfaddf",
+"cissp"
+],
+[
+"engineering",
+"S640c8a5376",
+"ansible"
+],
+[
+"engineering",
+"S640c8a5376",
+"ansible playbook"
+],
+[
+"engineering",
+"S65e8800b5c",
+"rest"
+],
+[
+"engineering",
+"S65e8800b5c",
+"rest api"
+],
+[
+"engineering",
+"S65e8800b5c",
+"restful"
+],
+[
+"engineering",
+"S65e8800b5c",
+"restful api"
+],
+[
+"engineering",
+"S68c03a7615",
+"apache flink"
+],
+[
+"engineering",
+"S68c03a7615",
+"flink"
+],
+[
+"engineering",
+"S6a620f5af7",
+"argocd"
+],
+[
+"engineering",
+"S6a620f5af7",
+"buildkite"
+],
+[
+"engineering",
+"S6a620f5af7",
+"ci/cd"
+],
+[
+"engineering",
+"S6a620f5af7",
+"cicd"
+],
+[
+"engineering",
+"S6a620f5af7",
+"circleci"
+],
+[
+"engineering",
+"S6a620f5af7",
+"github actions"
+],
+[
+"engineering",
+"S6a620f5af7",
+"gitlab ci"
+],
+[
+"engineering",
+"S6a620f5af7",
+"jenkins"
+],
+[
+"engineering",
+"S6a620f5af7",
+"tekton"
+],
+[
+"engineering",
+"S6a620f5af7",
+"travis ci"
+],
+[
+"engineering",
+"S6ce809eacf",
+"c plus plus"
+],
+[
+"engineering",
+"S6ce809eacf",
+"c\\+\\+"
+],
+[
+"engineering",
+"S6ce809eacf",
+"cpp"
+],
+[
+"engineering",
+"S6f3c04fc29",
+"az-204"
+],
+[
+"engineering",
+"S6f3c04fc29",
+"azure developer associate"
+],
+[
+"engineering",
+"S6f3c04fc29",
+"microsoft azure developer"
+],
+[
+"engineering",
+"S7024ff0860",
+"bash"
+],
+[
+"engineering",
+"S7024ff0860",
+"centos"
+],
+[
+"engineering",
+"S7024ff0860",
+"debian"
+],
+[
+"engineering",
+"S7024ff0860",
+"linux"
+],
+[
+"engineering",
+"S7024ff0860",
+"rhel"
+],
+[
+"engineering",
+"S7024ff0860",
+"shell script"
+],
+[
+"engineering",
+"S7024ff0860",
+"shell scripting"
+],
+[
+"engineering",
+"S7024ff0860",
+"ubuntu"
+],
+[
+"engineering",
+"S7024ff0860",
+"unix"
+],
+[
+"engineering",
+"S72812e3087",
+"rust"
+],
+[
+"engineering",
+"S72812e3087",
+"rust-lang"
+],
+[
+"engineering",
+"S73857270a4",
+"certified kubernetes administrator"
+],
+[
+"engineering",
+"S73857270a4",
+"cka"
+],
+[
+"engineering",
+"S7d488fa9de",
+"grpc"
+],
+[
+"engineering",
+"S7d488fa9de",
+"micro services"
+],
+[
+"engineering",
+"S7d488fa9de",
+"microservices"
+],
+[
+"engineering",
+"S7d488fa9de",
+"protobuf"
+],
+[
+"engineering",
+"S7d488fa9de",
+"service mesh"
+],
+[
+"engineering",
+"S7e1cedab31",
+"comptia security\\+"
+],
+[
+"engineering",
+"S7e1cedab31",
+"security plus"
+],
+[
+"engineering",
+"S7e1cedab31",
+"security\\+"
+],
+[
+"engineering",
+"S818056dbd7",
+"objc"
+],
+[
+"engineering",
+"S818056dbd7",
+"objective-c"
+],
+[
+"engineering",
+"S818056dbd7",
+"swift"
+],
+[
+"engineering",
+"S818056dbd7",
+"swift ios"
+],
+[
+"engineering",
+"S818056dbd7",
+"swift language"
+],
+[
+"engineering",
+"S818056dbd7",
+"swift programming"
+],
+[
+"engineering",
+"S818056dbd7",
+"swiftui"
+],
+[
+"engineering",
+"S86a1b907d5",
+"elasticache"
+],
+[
+"engineering",
+"S86a1b907d5",
+"redis"
+],
+[
+"engineering",
+"S86a1b907d5",
+"redis cache"
+],
+[
+"engineering",
+"S8bf72f3753",
+"certified kubernetes security specialist"
+],
+[
+"engineering",
+"S8bf72f3753",
+"cks"
+],
+[
+"engineering",
+"S8cde774d6f",
+"apache spark"
+],
+[
+"engineering",
+"S8cde774d6f",
+"pyspark"
+],
+[
+"engineering",
+"S8cde774d6f",
+"spark"
+],
+[
+"engineering",
+"S8cde774d6f",
+"spark streaming"
+],
+[
+"engineering",
+"S92a34776da",
+"microsoft power automate"
+],
+[
+"engineering",
+"S92a34776da",
+"ms power automate"
+],
+[
+"engineering",
+"S92a34776da",
+"power automate"
+],
+[
+"engineering",
+"S94f59083ea",
+"svelte"
+],
+[
+"engineering",
+"S94f59083ea",
+"sveltekit"
+],
+[
+"engineering",
+"S951c1f757a",
+"nuxt"
+],
+[
+"engineering",
+"S951c1f757a",
+"nuxt\\.js"
+],
+[
+"engineering",
+"S951c1f757a",
+"vue"
+],
+[
+"engineering",
+"S951c1f757a",
+"vue\\.js"
+],
+[
+"engineering",
+"S951c1f757a",
+"vuejs"
+],
+[
+"engineering",
+"S975e89cd02",
+"ceh"
+],
+[
+"engineering",
+"S975e89cd02",
+"certified ethical hacker"
+],
+[
+"engineering",
+"S97b3e650d3",
+"aws certified sysops"
+],
+[
+"engineering",
+"S97b3e650d3",
+"aws sysops"
+],
+[
+"engineering",
+"S97b3e650d3",
+"aws sysops administrator"
+],
+[
+"engineering",
+"S9a932b3cb3",
+"linear"
+],
+[
+"engineering",
+"S9a932b3cb3",
+"linear app"
+],
+[
+"engineering",
+"S_databricks",
+"databricks"
+],
+[
+"engineering",
+"S_databricks",
+"databricks lakehouse"
+],
+[
+"engineering",
+"S_databricks",
+"databricks platform"
+],
+[
+"engineering",
+"S_mongodb",
+"mongo"
+],
+[
+"engineering",
+"S_mongodb",
+"mongodb"
+],
+[
+"engineering",
+"S_mongodb",
+"mongoose"
+],
+[
+"engineering",
+"S_rag",
+"rag"
+],
+[
+"engineering",
+"S_rag",
+"retrieval augmented generation"
+],
+[
+"engineering",
+"S_rag",
+"retrieval-augmented generation"
+],
+[
+"engineering",
+"S_vectordb",
+"chroma"
+],
+[
+"engineering",
+"S_vectordb",
+"faiss"
+],
+[
+"engineering",
+"S_vectordb",
+"milvus"
+],
+[
+"engineering",
+"S_vectordb",
+"pgvector"
+],
+[
+"engineering",
+"S_vectordb",
+"pinecone"
+],
+[
+"engineering",
+"S_vectordb",
+"qdrant"
+],
+[
+"engineering",
+"S_vectordb",
+"vector database"
+],
+[
+"engineering",
+"S_vectordb",
+"vector databases"
+],
+[
+"engineering",
+"S_vectordb",
+"vector store"
+],
+[
+"engineering",
+"S_vectordb",
+"weaviate"
+],
+[
+"engineering",
+"Sa2c18f37c2",
+"atlassian confluence"
+],
+[
+"engineering",
+"Sa2c18f37c2",
+"confluence"
+],
+[
+"engineering",
+"Saaf7fdc2ac",
+"gcp data engineer"
+],
+[
+"engineering",
+"Saaf7fdc2ac",
+"google cloud data engineer"
+],
+[
+"engineering",
+"Saaf7fdc2ac",
+"professional data engineer"
+],
+[
+"engineering",
+"Sb8dc25d330",
+"gcp professional cloud architect"
+],
+[
+"engineering",
+"Sb8dc25d330",
+"google cloud architect"
+],
+[
+"engineering",
+"Sb8dc25d330",
+"professional cloud architect"
+],
+[
+"engineering",
+"Sc5fd214cdd",
+"containerization"
+],
+[
+"engineering",
+"Sc5fd214cdd",
+"containers"
+],
+[
+"engineering",
+"Sc5fd214cdd",
+"docker"
+],
+[
+"engineering",
+"Sc5fd214cdd",
+"docker compose"
+],
+[
+"engineering",
+"Sc5fd214cdd",
+"dockerfile"
+],
+[
+"engineering",
+"Sc731f72e1d",
+"dataflow"
+],
+[
+"engineering",
+"Sc731f72e1d",
+"gcp"
+],
+[
+"engineering",
+"Sc731f72e1d",
+"google bigquery"
+],
+[
+"engineering",
+"Sc731f72e1d",
+"google cloud"
+],
+[
+"engineering",
+"Sc731f72e1d",
+"google cloud platform"
+],
+[
+"engineering",
+"Sc731f72e1d",
+"google cloud storage"
+],
+[
+"engineering",
+"Sc731f72e1d",
+"google vertex ai"
+],
+[
+"engineering",
+"Sc731f72e1d",
+"vertex ai"
+],
+[
+"engineering",
+"Sc78e1b2397",
+"aws certified developer"
+],
+[
+"engineering",
+"Sc78e1b2397",
+"aws developer"
+],
+[
+"engineering",
+"Sc78e1b2397",
+"aws developer associate"
+],
+[
+"engineering",
+"Sd18b8624a0",
+"angular"
+],
+[
+"engineering",
+"Sd18b8624a0",
+"angular\\.js"
+],
+[
+"engineering",
+"Sd18b8624a0",
+"angularjs"
+],
+[
+"engineering",
+"Sd20c781e94",
+"atlassian jira"
+],
+[
+"engineering",
+"Sd20c781e94",
+"jira"
+],
+[
+"engineering",
+"Sd20c781e94",
+"jira software"
+],
+[
+"engineering",
+"Sd52387880e",
+"java"
+],
+[
+"engineering",
+"Sd52387880e",
+"java 11"
+],
+[
+"engineering",
+"Sd52387880e",
+"java 17"
+],
+[
+"engineering",
+"Sd52387880e",
+"java 8"
+],
+[
+"engineering",
+"Sd52387880e",
+"jvm"
+],
+[
+"engineering",
+"Sd92c36790b",
+"embeddings"
+],
+[
+"engineering",
+"Sd92c36790b",
+"sentence embeddings"
+],
+[
+"engineering",
+"Sd92c36790b",
+"text embeddings"
+],
+[
+"engineering",
+"Sd92c36790b",
+"vector embeddings"
+],
+[
+"engineering",
+"Sde9b9ed78d",
+"ecmascript"
+],
+[
+"engineering",
+"Sde9b9ed78d",
+"es2015"
+],
+[
+"engineering",
+"Sde9b9ed78d",
+"es6"
+],
+[
+"engineering",
+"Sde9b9ed78d",
+"javascript"
+],
+[
+"engineering",
+"Sde9b9ed78d",
+"js"
+],
+[
+"engineering",
+"Se1bfd76232",
+"laravel"
+],
+[
+"engineering",
+"Se1bfd76232",
+"php"
+],
+[
+"engineering",
+"Se1bfd76232",
+"symfony"
+],
+[
+"engineering",
+"Se677325b6e",
+"aws certified solutions architect"
+],
+[
+"engineering",
+"Se677325b6e",
+"aws sa"
+],
+[
+"engineering",
+"Se677325b6e",
+"aws solutions architect"
+],
+[
+"engineering",
+"Sf275f2a55",
+"fast api"
+],
+[
+"engineering",
+"Sf275f2a55",
+"fastapi"
+],
+[
+"engineering",
+"Sfa5ddb5608",
+"offensive security certified professional"
+],
+[
+"engineering",
+"Sfa5ddb5608",
+"oscp"
+],
+[
+"engineering",
+"Sfc61b58f04",
+"foundation models"
+],
+[
+"engineering",
+"Sfc61b58f04",
+"genai"
+],
+[
+"engineering",
+"Sfc61b58f04",
+"generative ai"
+],
+[
+"engineering",
+"Sfc61b58f04",
+"large language model"
+],
+[
+"engineering",
+"Sfc61b58f04",
+"large language models"
+],
+[
+"engineering",
+"Sfc61b58f04",
+"llm"
+],
+[
+"engineering",
+"Sfc61b58f04",
+"llms"
+],
+[
+"finance",
+"S001",
+"microsoft sql server"
+],
+[
+"finance",
+"S001",
+"mssql"
+],
+[
+"finance",
+"S001",
+"mysql"
+],
+[
+"finance",
+"S001",
+"postgre sql"
+],
+[
+"finance",
+"S001",
+"postgres"
+],
+[
+"finance",
+"S001",
+"postgresql"
+],
+[
+"finance",
+"S001",
+"querying"
+],
+[
+"finance",
+"S001",
+"spark sql"
+],
+[
+"finance",
+"S001",
+"sparksql"
+],
+[
+"finance",
+"S001",
+"sql"
+],
+[
+"finance",
+"S001",
+"sql server"
+],
+[
+"finance",
+"S001",
+"t-sql"
+],
+[
+"finance",
+"S001",
+"tsql"
+],
+[
+"finance",
+"S002",
+"excel"
+],
+[
+"finance",
+"S002",
+"microsoft excel"
+],
+[
+"finance",
+"S002",
+"power pivot"
+],
+[
+"finance",
+"S002",
+"powerpivot"
+],
+[
+"finance",
+"S002",
+"vlookup"
+],
+[
+"finance",
+"S002",
+"vlookups"
+],
+[
+"finance",
+"S002",
+"xlookup"
+],
+[
+"finance",
+"S005",
+"tableau"
+],
+[
+"finance",
+"S006",
+"looker"
+],
+[
+"finance",
+"S006",
+"looker studio"
+],
+[
+"finance",
+"S006",
+"lookml"
+],
+[
+"finance",
+"S010",
+"dax"
+],
+[
+"finance",
+"S010",
+"pbi"
+],
+[
+"finance",
+"S010",
+"power bi"
+],
+[
+"finance",
+"S010",
+"powerbi"
+],
+[
+"finance",
+"S014",
+"r"
+],
+[
+"finance",
+"S014",
+"r programming"
+],
+[
+"finance",
+"S014",
+"rlang"
+],
+[
+"finance",
+"S01736f6501",
+"finra series 63"
+],
+[
+"finance",
+"S01736f6501",
+"series 63"
+],
+[
+"finance",
+"S023",
+"jupyter"
+],
+[
+"finance",
+"S023",
+"jupyter notebook"
+],
+[
+"finance",
+"S023",
+"jupyter notebooks"
+],
+[
+"finance",
+"S023",
+"numpy"
+],
+[
+"finance",
+"S023",
+"pandas"
+],
+[
+"finance",
+"S023",
+"python"
+],
+[
+"finance",
+"S023",
+"python 3"
+],
+[
+"finance",
+"S023",
+"python3"
+],
+[
+"finance",
+"S030",
+"dcf"
+],
+[
+"finance",
+"S030",
+"financial analysis"
+],
+[
+"finance",
+"S030",
+"financial modeling"
+],
+[
+"finance",
+"S030",
+"financial modelling"
+],
+[
+"finance",
+"S030",
+"financial models"
+],
+[
+"finance",
+"S030",
+"financial planning"
+],
+[
+"finance",
+"S030",
+"fp&a"
+],
+[
+"finance",
+"S030",
+"lbo"
+],
+[
+"finance",
+"S030",
+"m&a modeling"
+],
+[
+"finance",
+"S030",
+"three-statement model"
+],
+[
+"finance",
+"S038",
+"ibm planning analytics"
+],
+[
+"finance",
+"S038",
+"ibm tm1"
+],
+[
+"finance",
+"S038",
+"tm1"
+],
+[
+"finance",
+"S043",
+"erp"
+],
+[
+"finance",
+"S043",
+"erp systems"
+],
+[
+"finance",
+"S05db08e78a",
+"workday adaptive"
+],
+[
+"finance",
+"S05db08e78a",
+"workday finance"
+],
+[
+"finance",
+"S05db08e78a",
+"workday financials"
+],
+[
+"finance",
+"S08dd72636b",
+"certified information systems auditor"
+],
+[
+"finance",
+"S08dd72636b",
+"cisa"
+],
+[
+"finance",
+"S1f6fda8063",
+"certified internal auditor"
+],
+[
+"finance",
+"S1f6fda8063",
+"cia"
+],
+[
+"finance",
+"S1fdf93b56e",
+"cfa"
+],
+[
+"finance",
+"S1fdf93b56e",
+"chartered financial analyst"
+],
+[
+"finance",
+"S2609344fa7",
+"financial risk manager"
+],
+[
+"finance",
+"S2609344fa7",
+"frm"
+],
+[
+"finance",
+"S2609344fa7",
+"garp frm"
+],
+[
+"finance",
+"S378c7ea18c",
+"factset"
+],
+[
+"finance",
+"S425774c165",
+"finra series 7"
+],
+[
+"finance",
+"S425774c165",
+"series 7"
+],
+[
+"finance",
+"S425774c165",
+"series 7 license"
+],
+[
+"finance",
+"S4ef97a5db1",
+"sap"
+],
+[
+"finance",
+"S4ef97a5db1",
+"sap ariba"
+],
+[
+"finance",
+"S4ef97a5db1",
+"sap co"
+],
+[
+"finance",
+"S4ef97a5db1",
+"sap concur"
+],
+[
+"finance",
+"S4ef97a5db1",
+"sap erp"
+],
+[
+"finance",
+"S4ef97a5db1",
+"sap fi"
+],
+[
+"finance",
+"S4ef97a5db1",
+"sap hana"
+],
+[
+"finance",
+"S4ef97a5db1",
+"sap s/4hana"
+],
+[
+"finance",
+"S5a8b93606d",
+"qbo"
+],
+[
+"finance",
+"S5a8b93606d",
+"quickbooks"
+],
+[
+"finance",
+"S5a8b93606d",
+"quickbooks online"
+],
+[
+"finance",
+"S5b344ac52a",
+"ea"
+],
+[
+"finance",
+"S5b344ac52a",
+"ea tax"
+],
+[
+"finance",
+"S5b344ac52a",
+"enrolled agent"
+],
+[
+"finance",
+"S5edc96d709",
+"capiq"
+],
+[
+"finance",
+"S5edc96d709",
+"capital iq"
+],
+[
+"finance",
+"S5edc96d709",
+"s&p capital iq"
+],
+[
+"finance",
+"S76285df8cb",
+"certified financial planner"
+],
+[
+"finance",
+"S76285df8cb",
+"cfp"
+],
+[
+"finance",
+"S792e5dce80",
+"sarbanes oxley"
+],
+[
+"finance",
+"S792e5dce80",
+"sarbanes-oxley"
+],
+[
+"finance",
+"S792e5dce80",
+"sox"
+],
+[
+"finance",
+"S792e5dce80",
+"sox compliance"
+],
+[
+"finance",
+"S88ea2c7edb",
+"ifrs"
+],
+[
+"finance",
+"S88ea2c7edb",
+"international financial reporting standards"
+],
+[
+"finance",
+"S8ca97eb64f",
+"finra series 66"
+],
+[
+"finance",
+"S8ca97eb64f",
+"series 66"
+],
+[
+"finance",
+"Sa1f64bc3be",
+"certified management accountant"
+],
+[
+"finance",
+"Sa1f64bc3be",
+"cma"
+],
+[
+"finance",
+"Sa59548a636",
+"bloomberg"
+],
+[
+"finance",
+"Sa59548a636",
+"bloomberg professional"
+],
+[
+"finance",
+"Sa59548a636",
+"bloomberg terminal"
+],
+[
+"finance",
+"Sa6a93d95ed",
+"gaap"
+],
+[
+"finance",
+"Sa6a93d95ed",
+"generally accepted accounting principles"
+],
+[
+"finance",
+"Sa6a93d95ed",
+"us gaap"
+],
+[
+"finance",
+"Sa8b43f84ad",
+"finra series 79"
+],
+[
+"finance",
+"Sa8b43f84ad",
+"series 79"
+],
+[
+"finance",
+"Sab44ef0d8c",
+"oracle cloud"
+],
+[
+"finance",
+"Sab44ef0d8c",
+"oracle erp"
+],
+[
+"finance",
+"Sab44ef0d8c",
+"oracle financials"
+],
+[
+"finance",
+"Sab44ef0d8c",
+"oracle fusion"
+],
+[
+"finance",
+"Saed0f18f58",
+"epm"
+],
+[
+"finance",
+"Saed0f18f58",
+"hfm"
+],
+[
+"finance",
+"Saed0f18f58",
+"hyperion"
+],
+[
+"finance",
+"Saed0f18f58",
+"hyperion financial management"
+],
+[
+"finance",
+"Saed0f18f58",
+"oracle hyperion"
+],
+[
+"finance",
+"Sb8665822b7",
+"anaplan"
+],
+[
+"finance",
+"Seb27b52bd4",
+"netsuite"
+],
+[
+"finance",
+"Seb27b52bd4",
+"oracle netsuite"
+],
+[
+"finance",
+"Sf114427f29",
+"certified public accountant"
+],
+[
+"finance",
+"Sf114427f29",
+"cpa"
+],
+[
+"finance",
+"Sf114427f29",
+"cpa certification"
+],
+[
+"finance",
+"Sf114427f29",
+"cpa license"
+],
+[
+"finance",
+"Sf114427f29",
+"cpa required"
+],
+[
+"finance",
+"Sf19b539b34",
+"business valuation"
+],
+[
+"finance",
+"Sf19b539b34",
+"company valuation"
+],
+[
+"finance",
+"Sf19b539b34",
+"equity valuation"
+],
+[
+"finance",
+"Sf19b539b34",
+"valuation"
+],
+[
+"marketing",
+"S001",
+"microsoft sql server"
+],
+[
+"marketing",
+"S001",
+"mssql"
+],
+[
+"marketing",
+"S001",
+"mysql"
+],
+[
+"marketing",
+"S001",
+"postgre sql"
+],
+[
+"marketing",
+"S001",
+"postgres"
+],
+[
+"marketing",
+"S001",
+"postgresql"
+],
+[
+"marketing",
+"S001",
+"querying"
+],
+[
+"marketing",
+"S001",
+"spark sql"
+],
+[
+"marketing",
+"S001",
+"sparksql"
+],
+[
+"marketing",
+"S001",
+"sql"
+],
+[
+"marketing",
+"S001",
+"sql server"
+],
+[
+"marketing",
+"S001",
+"t-sql"
+],
+[
+"marketing",
+"S001",
+"tsql"
+],
+[
+"marketing",
+"S002",
+"excel"
+],
+[
+"marketing",
+"S002",
+"microsoft excel"
+],
+[
+"marketing",
+"S002",
+"power pivot"
+],
+[
+"marketing",
+"S002",
+"powerpivot"
+],
+[
+"marketing",
+"S002",
+"vlookup"
+],
+[
+"marketing",
+"S002",
+"vlookups"
+],
+[
+"marketing",
+"S002",
+"xlookup"
+],
+[
+"marketing",
+"S004",
+"salesforce"
+],
+[
+"marketing",
+"S004",
+"sfdc"
+],
+[
+"marketing",
+"S005",
+"tableau"
+],
+[
+"marketing",
+"S006",
+"looker"
+],
+[
+"marketing",
+"S006",
+"looker studio"
+],
+[
+"marketing",
+"S006",
+"lookml"
+],
+[
+"marketing",
+"S010",
+"dax"
+],
+[
+"marketing",
+"S010",
+"pbi"
+],
+[
+"marketing",
+"S010",
+"power bi"
+],
+[
+"marketing",
+"S010",
+"powerbi"
+],
+[
+"marketing",
+"S016",
+"amplitude"
+],
+[
+"marketing",
+"S018",
+"google analytics"
+],
+[
+"marketing",
+"S018",
+"ua"
+],
+[
+"marketing",
+"S018",
+"universal analytics"
+],
+[
+"marketing",
+"S019",
+"attentive"
+],
+[
+"marketing",
+"S019",
+"attentive mobile"
+],
+[
+"marketing",
+"S020",
+"klaviyo"
+],
+[
+"marketing",
+"S028",
+"a/b experiments"
+],
+[
+"marketing",
+"S028",
+"a/b test"
+],
+[
+"marketing",
+"S028",
+"a/b testing"
+],
+[
+"marketing",
+"S028",
+"ab test"
+],
+[
+"marketing",
+"S028",
+"ab testing"
+],
+[
+"marketing",
+"S028",
+"experimentation"
+],
+[
+"marketing",
+"S028",
+"hypothesis testing"
+],
+[
+"marketing",
+"S028",
+"split testing"
+],
+[
+"marketing",
+"S02cc8dc4d0",
+"adobe photoshop"
+],
+[
+"marketing",
+"S02cc8dc4d0",
+"photoshop"
+],
+[
+"marketing",
+"S02cc8dc4d0",
+"ps"
+],
+[
+"marketing",
+"S047",
+"hubspot"
+],
+[
+"marketing",
+"S047",
+"hubspot crm"
+],
+[
+"marketing",
+"S047",
+"hubspot sales hub"
+],
+[
+"marketing",
+"S054",
+"optimizely"
+],
+[
+"marketing",
+"S272b9f5409",
+"braze"
+],
+[
+"marketing",
+"S4eaaecf1a7",
+"ahrefs"
+],
+[
+"marketing",
+"S529662157e",
+"sem rush"
+],
+[
+"marketing",
+"S529662157e",
+"semrush"
+],
+[
+"marketing",
+"S6882f42504",
+"adobe marketo"
+],
+[
+"marketing",
+"S6882f42504",
+"marketo"
+],
+[
+"marketing",
+"S6882f42504",
+"marketo engage"
+],
+[
+"marketing",
+"S710fcf4ae4",
+"adobe cc"
+],
+[
+"marketing",
+"S710fcf4ae4",
+"adobe creative cloud"
+],
+[
+"marketing",
+"S710fcf4ae4",
+"adobe suite"
+],
+[
+"marketing",
+"S7254fac47e",
+"figma"
+],
+[
+"marketing",
+"S7254fac47e",
+"figma components"
+],
+[
+"marketing",
+"S7254fac47e",
+"figma prototyping"
+],
+[
+"marketing",
+"S80304554b4",
+"iterable"
+],
+[
+"marketing",
+"S89364cb625",
+"moz"
+],
+[
+"marketing",
+"S89364cb625",
+"moz pro"
+],
+[
+"marketing",
+"S89e8a431de",
+"adwords"
+],
+[
+"marketing",
+"S89e8a431de",
+"google ads"
+],
+[
+"marketing",
+"S89e8a431de",
+"google adwords"
+],
+[
+"marketing",
+"S89e8a431de",
+"ppc"
+],
+[
+"marketing",
+"S89e8a431de",
+"sem"
+],
+[
+"marketing",
+"S8c4b4ad3a3",
+"content writing"
+],
+[
+"marketing",
+"S8c4b4ad3a3",
+"copy writing"
+],
+[
+"marketing",
+"S8c4b4ad3a3",
+"copywriting"
+],
+[
+"marketing",
+"S8c4b4ad3a3",
+"ux writing"
+],
+[
+"marketing",
+"S8d33980b21",
+"hotjar"
+],
+[
+"marketing",
+"S_mixpanel",
+"mixpanel"
+],
+[
+"marketing",
+"S_segment",
+"segment"
+],
+[
+"marketing",
+"S_segment",
+"segment cdp"
+],
+[
+"marketing",
+"S_segment",
+"twilio segment"
+],
+[
+"marketing",
+"Sa4886549fe",
+"adobe indesign"
+],
+[
+"marketing",
+"Sa4886549fe",
+"indesign"
+],
+[
+"marketing",
+"Sa73b3883c8",
+"linkedin ads"
+],
+[
+"marketing",
+"Sa73b3883c8",
+"linkedin advertising"
+],
+[
+"marketing",
+"Sa73b3883c8",
+"linkedin campaign manager"
+],
+[
+"marketing",
+"Sacd1bc21d2",
+"mail chimp"
+],
+[
+"marketing",
+"Sacd1bc21d2",
+"mailchimp"
+],
+[
+"marketing",
+"Sbc6e6209b8",
+"facebook ads"
+],
+[
+"marketing",
+"Sbc6e6209b8",
+"facebook advertising"
+],
+[
+"marketing",
+"Sbc6e6209b8",
+"instagram ads"
+],
+[
+"marketing",
+"Sbc6e6209b8",
+"meta ads"
+],
+[
+"marketing",
+"Sbc6e6209b8",
+"meta advertising"
+],
+[
+"marketing",
+"Sc48c3abf41",
+"ga certified"
+],
+[
+"marketing",
+"Sc48c3abf41",
+"google analytics certification"
+],
+[
+"marketing",
+"Sc48c3abf41",
+"google analytics certified"
+],
+[
+"marketing",
+"Sc6b22db07b",
+"customer\\.io"
+],
+[
+"marketing",
+"Sc6b22db07b",
+"customerio"
+],
+[
+"marketing",
+"Sc7ba1b6933",
+"hubspot certification"
+],
+[
+"marketing",
+"Sc7ba1b6933",
+"hubspot certified"
+],
+[
+"marketing",
+"Sc7ba1b6933",
+"hubspot inbound certified"
+],
+[
+"marketing",
+"Sc7ba1b6933",
+"hubspot marketing certified"
+],
+[
+"marketing",
+"Sd128829c70",
+"marketing cloud account engagement"
+],
+[
+"marketing",
+"Sd128829c70",
+"pardot"
+],
+[
+"marketing",
+"Sd128829c70",
+"salesforce pardot"
+],
+[
+"marketing",
+"Sd2d1334a06",
+"facebook blueprint"
+],
+[
+"marketing",
+"Sd2d1334a06",
+"facebook certified"
+],
+[
+"marketing",
+"Sd2d1334a06",
+"meta blueprint"
+],
+[
+"marketing",
+"Sd2d1334a06",
+"meta certified"
+],
+[
+"marketing",
+"Sd945f9357c",
+"adobe illustrator"
+],
+[
+"marketing",
+"Sd945f9357c",
+"illustrator"
+],
+[
+"ops",
+"S001",
+"microsoft sql server"
+],
+[
+"ops",
+"S001",
+"mssql"
+],
+[
+"ops",
+"S001",
+"mysql"
+],
+[
+"ops",
+"S001",
+"postgre sql"
+],
+[
+"ops",
+"S001",
+"postgres"
+],
+[
+"ops",
+"S001",
+"postgresql"
+],
+[
+"ops",
+"S001",
+"querying"
+],
+[
+"ops",
+"S001",
+"spark sql"
+],
+[
+"ops",
+"S001",
+"sparksql"
+],
+[
+"ops",
+"S001",
+"sql"
+],
+[
+"ops",
+"S001",
+"sql server"
+],
+[
+"ops",
+"S001",
+"t-sql"
+],
+[
+"ops",
+"S001",
+"tsql"
+],
+[
+"ops",
+"S002",
+"excel"
+],
+[
+"ops",
+"S002",
+"microsoft excel"
+],
+[
+"ops",
+"S002",
+"power pivot"
+],
+[
+"ops",
+"S002",
+"powerpivot"
+],
+[
+"ops",
+"S002",
+"vlookup"
+],
+[
+"ops",
+"S002",
+"vlookups"
+],
+[
+"ops",
+"S002",
+"xlookup"
+],
+[
+"ops",
+"S004",
+"salesforce"
+],
+[
+"ops",
+"S004",
+"sfdc"
+],
+[
+"ops",
+"S005",
+"tableau"
+],
+[
+"ops",
+"S006",
+"looker"
+],
+[
+"ops",
+"S006",
+"looker studio"
+],
+[
+"ops",
+"S006",
+"lookml"
+],
+[
+"ops",
+"S010",
+"dax"
+],
+[
+"ops",
+"S010",
+"pbi"
+],
+[
+"ops",
+"S010",
+"power bi"
+],
+[
+"ops",
+"S010",
+"powerbi"
+],
+[
+"ops",
+"S023",
+"jupyter"
+],
+[
+"ops",
+"S023",
+"jupyter notebook"
+],
+[
+"ops",
+"S023",
+"jupyter notebooks"
+],
+[
+"ops",
+"S023",
+"numpy"
+],
+[
+"ops",
+"S023",
+"pandas"
+],
+[
+"ops",
+"S023",
+"python"
+],
+[
+"ops",
+"S023",
+"python 3"
+],
+[
+"ops",
+"S023",
+"python3"
+],
+[
+"ops",
+"S03eddc862c",
+"green belt"
+],
+[
+"ops",
+"S03eddc862c",
+"lean six sigma green belt"
+],
+[
+"ops",
+"S03eddc862c",
+"six sigma green belt"
+],
+[
+"ops",
+"S043",
+"erp"
+],
+[
+"ops",
+"S043",
+"erp systems"
+],
+[
+"ops",
+"S05db08e78a",
+"workday adaptive"
+],
+[
+"ops",
+"S05db08e78a",
+"workday finance"
+],
+[
+"ops",
+"S05db08e78a",
+"workday financials"
+],
+[
+"ops",
+"S064",
+"asana"
+],
+[
+"ops",
+"S21189b4b16",
+"shrm cp"
+],
+[
+"ops",
+"S21189b4b16",
+"shrm-cp"
+],
+[
+"ops",
+"S21189b4b16",
+"society for human resource management certified professional"
+],
+[
+"ops",
+"S37098dfa7e",
+"change management"
+],
+[
+"ops",
+"S37098dfa7e",
+"itil change management"
+],
+[
+"ops",
+"S37098dfa7e",
+"organizational change"
+],
+[
+"ops",
+"S37098dfa7e",
+"organizational change management"
+],
+[
+"ops",
+"S4ef97a5db1",
+"sap"
+],
+[
+"ops",
+"S4ef97a5db1",
+"sap ariba"
+],
+[
+"ops",
+"S4ef97a5db1",
+"sap co"
+],
+[
+"ops",
+"S4ef97a5db1",
+"sap concur"
+],
+[
+"ops",
+"S4ef97a5db1",
+"sap erp"
+],
+[
+"ops",
+"S4ef97a5db1",
+"sap fi"
+],
+[
+"ops",
+"S4ef97a5db1",
+"sap hana"
+],
+[
+"ops",
+"S4ef97a5db1",
+"sap s/4hana"
+],
+[
+"ops",
+"S54c1794150",
+"monday"
+],
+[
+"ops",
+"S54c1794150",
+"monday work os"
+],
+[
+"ops",
+"S54c1794150",
+"monday\\.com"
+],
+[
+"ops",
+"S5ea790e4a2",
+"notion"
+],
+[
+"ops",
+"S6af7db6f50",
+"bamboo hr"
+],
+[
+"ops",
+"S6af7db6f50",
+"bamboohr"
+],
+[
+"ops",
+"S6be13ebe30",
+"itil"
+],
+[
+"ops",
+"S6be13ebe30",
+"itil 4"
+],
+[
+"ops",
+"S6be13ebe30",
+"itil certified"
+],
+[
+"ops",
+"S6be13ebe30",
+"itil foundation"
+],
+[
+"ops",
+"S72f643ed5e",
+"procurify"
+],
+[
+"ops",
+"S7d56dcb370",
+"professional scrum master"
+],
+[
+"ops",
+"S7d56dcb370",
+"psm"
+],
+[
+"ops",
+"S7d56dcb370",
+"psm i"
+],
+[
+"ops",
+"S7d56dcb370",
+"psm ii"
+],
+[
+"ops",
+"S7e7a1e8c28",
+"greenhouse"
+],
+[
+"ops",
+"S7e7a1e8c28",
+"greenhouse recruiting"
+],
+[
+"ops",
+"S81b5345640",
+"lean"
+],
+[
+"ops",
+"S81b5345640",
+"lean manufacturing principles"
+],
+[
+"ops",
+"S81b5345640",
+"lean methodology"
+],
+[
+"ops",
+"S81b5345640",
+"lean six sigma"
+],
+[
+"ops",
+"S8dfad6c2c0",
+"smartsheet"
+],
+[
+"ops",
+"S92a34776da",
+"microsoft power automate"
+],
+[
+"ops",
+"S92a34776da",
+"ms power automate"
+],
+[
+"ops",
+"S92a34776da",
+"power automate"
+],
+[
+"ops",
+"S948d1f30a0",
+"agile project management"
+],
+[
+"ops",
+"S948d1f30a0",
+"pmp"
+],
+[
+"ops",
+"S948d1f30a0",
+"prince2"
+],
+[
+"ops",
+"S948d1f30a0",
+"program management"
+],
+[
+"ops",
+"S948d1f30a0",
+"project management"
+],
+[
+"ops",
+"S948d1f30a0",
+"project management professional"
+],
+[
+"ops",
+"S9881f7cca0",
+"senior professional in human resources"
+],
+[
+"ops",
+"S9881f7cca0",
+"sphr"
+],
+[
+"ops",
+"S9dfc8dce72",
+"safe"
+],
+[
+"ops",
+"S9dfc8dce72",
+"safe agile"
+],
+[
+"ops",
+"S9dfc8dce72",
+"safe agilist"
+],
+[
+"ops",
+"S9dfc8dce72",
+"safe certification"
+],
+[
+"ops",
+"S9dfc8dce72",
+"scaled agile framework"
+],
+[
+"ops",
+"Sa425264f8b",
+"workday"
+],
+[
+"ops",
+"Sa425264f8b",
+"workday hcm"
+],
+[
+"ops",
+"Sa425264f8b",
+"workday hr"
+],
+[
+"ops",
+"Sa6193c6d9a",
+"black belt"
+],
+[
+"ops",
+"Sa6193c6d9a",
+"lean six sigma black belt"
+],
+[
+"ops",
+"Sa6193c6d9a",
+"six sigma black belt"
+],
+[
+"ops",
+"Sa96098f6c7",
+"6 sigma"
+],
+[
+"ops",
+"Sa96098f6c7",
+"dmaic"
+],
+[
+"ops",
+"Sa96098f6c7",
+"six sigma"
+],
+[
+"ops",
+"Sab44ef0d8c",
+"oracle cloud"
+],
+[
+"ops",
+"Sab44ef0d8c",
+"oracle erp"
+],
+[
+"ops",
+"Sab44ef0d8c",
+"oracle financials"
+],
+[
+"ops",
+"Sab44ef0d8c",
+"oracle fusion"
+],
+[
+"ops",
+"Sb266e47eb6",
+"phr"
+],
+[
+"ops",
+"Sb266e47eb6",
+"professional in human resources"
+],
+[
+"ops",
+"Sb4f8b02787",
+"certified scrum master"
+],
+[
+"ops",
+"Sb4f8b02787",
+"csm"
+],
+[
+"ops",
+"Sb4f8b02787",
+"scrum master certified"
+],
+[
+"ops",
+"Sb8665822b7",
+"anaplan"
+],
+[
+"ops",
+"Sb9d3fc7d94",
+"shrm scp"
+],
+[
+"ops",
+"Sb9d3fc7d94",
+"shrm senior certified professional"
+],
+[
+"ops",
+"Sb9d3fc7d94",
+"shrm-scp"
+],
+[
+"ops",
+"Sba6e7efe4e",
+"lever"
+],
+[
+"ops",
+"Sba6e7efe4e",
+"lever ats"
+],
+[
+"ops",
+"Sd20c781e94",
+"atlassian jira"
+],
+[
+"ops",
+"Sd20c781e94",
+"jira"
+],
+[
+"ops",
+"Sd20c781e94",
+"jira software"
+],
+[
+"ops",
+"Se695be6d72",
+"coupa"
+],
+[
+"ops",
+"Se695be6d72",
+"coupa software"
+],
+[
+"ops",
+"Seb27b52bd4",
+"netsuite"
+],
+[
+"ops",
+"Seb27b52bd4",
+"oracle netsuite"
+],
+[
+"ops",
+"Sfd676a2022",
+"capm"
+],
+[
+"ops",
+"Sfd676a2022",
+"certified associate in project management"
+],
+[
+"product",
+"S001",
+"microsoft sql server"
+],
+[
+"product",
+"S001",
+"mssql"
+],
+[
+"product",
+"S001",
+"mysql"
+],
+[
+"product",
+"S001",
+"postgre sql"
+],
+[
+"product",
+"S001",
+"postgres"
+],
+[
+"product",
+"S001",
+"postgresql"
+],
+[
+"product",
+"S001",
+"querying"
+],
+[
+"product",
+"S001",
+"spark sql"
+],
+[
+"product",
+"S001",
+"sparksql"
+],
+[
+"product",
+"S001",
+"sql"
+],
+[
+"product",
+"S001",
+"sql server"
+],
+[
+"product",
+"S001",
+"t-sql"
+],
+[
+"product",
+"S001",
+"tsql"
+],
+[
+"product",
+"S005",
+"tableau"
+],
+[
+"product",
+"S006",
+"looker"
+],
+[
+"product",
+"S006",
+"looker studio"
+],
+[
+"product",
+"S006",
+"lookml"
+],
+[
+"product",
+"S010",
+"dax"
+],
+[
+"product",
+"S010",
+"pbi"
+],
+[
+"product",
+"S010",
+"power bi"
+],
+[
+"product",
+"S010",
+"powerbi"
+],
+[
+"product",
+"S016",
+"amplitude"
+],
+[
+"product",
+"S028",
+"a/b experiments"
+],
+[
+"product",
+"S028",
+"a/b test"
+],
+[
+"product",
+"S028",
+"a/b testing"
+],
+[
+"product",
+"S028",
+"ab test"
+],
+[
+"product",
+"S028",
+"ab testing"
+],
+[
+"product",
+"S028",
+"experimentation"
+],
+[
+"product",
+"S028",
+"hypothesis testing"
+],
+[
+"product",
+"S028",
+"split testing"
+],
+[
+"product",
+"S04130da60e",
+"pmc"
+],
+[
+"product",
+"S04130da60e",
+"pragmatic marketing certified"
+],
+[
+"product",
+"S054",
+"optimizely"
+],
+[
+"product",
+"S064",
+"asana"
+],
+[
+"product",
+"S0ad6859336",
+"pendo"
+],
+[
+"product",
+"S22723bbd42",
+"agile"
+],
+[
+"product",
+"S22723bbd42",
+"kanban"
+],
+[
+"product",
+"S22723bbd42",
+"scrum"
+],
+[
+"product",
+"S22723bbd42",
+"sprint planning"
+],
+[
+"product",
+"S22723bbd42",
+"sprint review"
+],
+[
+"product",
+"S4a65e88669",
+"product roadmap"
+],
+[
+"product",
+"S4a65e88669",
+"roadmap planning"
+],
+[
+"product",
+"S4a65e88669",
+"roadmapping"
+],
+[
+"product",
+"S4d4a9aa362",
+"heap"
+],
+[
+"product",
+"S4d4a9aa362",
+"heap analytics"
+],
+[
+"product",
+"S5ea790e4a2",
+"notion"
+],
+[
+"product",
+"S6237794202",
+"productboard"
+],
+[
+"product",
+"S7254fac47e",
+"figma"
+],
+[
+"product",
+"S7254fac47e",
+"figma components"
+],
+[
+"product",
+"S7254fac47e",
+"figma prototyping"
+],
+[
+"product",
+"S7a32aafad3",
+"contextual inquiry"
+],
+[
+"product",
+"S7a32aafad3",
+"customer research"
+],
+[
+"product",
+"S7a32aafad3",
+"usability testing"
+],
+[
+"product",
+"S7a32aafad3",
+"user interviews"
+],
+[
+"product",
+"S7a32aafad3",
+"user research"
+],
+[
+"product",
+"S7a32aafad3",
+"ux research"
+],
+[
+"product",
+"S8d33980b21",
+"hotjar"
+],
+[
+"product",
+"S9a932b3cb3",
+"linear"
+],
+[
+"product",
+"S9a932b3cb3",
+"linear app"
+],
+[
+"product",
+"S9e8c8fdafc",
+"aha roadmap"
+],
+[
+"product",
+"S9e8c8fdafc",
+"aha!"
+],
+[
+"product",
+"S_mixpanel",
+"mixpanel"
+],
+[
+"product",
+"S_segment",
+"segment"
+],
+[
+"product",
+"S_segment",
+"segment cdp"
+],
+[
+"product",
+"S_segment",
+"twilio segment"
+],
+[
+"product",
+"Sa2c18f37c2",
+"atlassian confluence"
+],
+[
+"product",
+"Sa2c18f37c2",
+"confluence"
+],
+[
+"product",
+"Sa4f5f6223a",
+"objectives and key results"
+],
+[
+"product",
+"Sa4f5f6223a",
+"okr"
+],
+[
+"product",
+"Sa4f5f6223a",
+"okrs"
+],
+[
+"product",
+"Sb1df119656",
+"user testing"
+],
+[
+"product",
+"Sb1df119656",
+"usertesting"
+],
+[
+"product",
+"Sb786828475",
+"pragmatic certified"
+],
+[
+"product",
+"Sb786828475",
+"pragmatic institute"
+],
+[
+"product",
+"Sb786828475",
+"pragmatic marketing"
+],
+[
+"product",
+"Sb786828475",
+"pragmatic product manager"
+],
+[
+"product",
+"Sd20c781e94",
+"atlassian jira"
+],
+[
+"product",
+"Sd20c781e94",
+"jira"
+],
+[
+"product",
+"Sd20c781e94",
+"jira software"
+],
+[
+"sales",
+"S001",
+"microsoft sql server"
+],
+[
+"sales",
+"S001",
+"mssql"
+],
+[
+"sales",
+"S001",
+"mysql"
+],
+[
+"sales",
+"S001",
+"postgre sql"
+],
+[
+"sales",
+"S001",
+"postgres"
+],
+[
+"sales",
+"S001",
+"postgresql"
+],
+[
+"sales",
+"S001",
+"querying"
+],
+[
+"sales",
+"S001",
+"spark sql"
+],
+[
+"sales",
+"S001",
+"sparksql"
+],
+[
+"sales",
+"S001",
+"sql"
+],
+[
+"sales",
+"S001",
+"sql server"
+],
+[
+"sales",
+"S001",
+"t-sql"
+],
+[
+"sales",
+"S001",
+"tsql"
+],
+[
+"sales",
+"S002",
+"excel"
+],
+[
+"sales",
+"S002",
+"microsoft excel"
+],
+[
+"sales",
+"S002",
+"power pivot"
+],
+[
+"sales",
+"S002",
+"powerpivot"
+],
+[
+"sales",
+"S002",
+"vlookup"
+],
+[
+"sales",
+"S002",
+"vlookups"
+],
+[
+"sales",
+"S002",
+"xlookup"
+],
+[
+"sales",
+"S004",
+"salesforce"
+],
+[
+"sales",
+"S004",
+"sfdc"
+],
+[
+"sales",
+"S005",
+"tableau"
+],
+[
+"sales",
+"S006",
+"looker"
+],
+[
+"sales",
+"S006",
+"looker studio"
+],
+[
+"sales",
+"S006",
+"lookml"
+],
+[
+"sales",
+"S010",
+"dax"
+],
+[
+"sales",
+"S010",
+"pbi"
+],
+[
+"sales",
+"S010",
+"power bi"
+],
+[
+"sales",
+"S010",
+"powerbi"
+],
+[
+"sales",
+"S047",
+"hubspot"
+],
+[
+"sales",
+"S047",
+"hubspot crm"
+],
+[
+"sales",
+"S047",
+"hubspot sales hub"
+],
+[
+"sales",
+"S19c789d76c",
+"pipeline forecasting"
+],
+[
+"sales",
+"S19c789d76c",
+"pipeline management"
+],
+[
+"sales",
+"S19c789d76c",
+"quota attainment"
+],
+[
+"sales",
+"S19c789d76c",
+"quota management"
+],
+[
+"sales",
+"S2bf76f8747",
+"challenger"
+],
+[
+"sales",
+"S2bf76f8747",
+"challenger sale"
+],
+[
+"sales",
+"S2bf76f8747",
+"challenger selling"
+],
+[
+"sales",
+"S31f2385ba9",
+"apollo"
+],
+[
+"sales",
+"S31f2385ba9",
+"apollo\\.io"
+],
+[
+"sales",
+"S3205f64462",
+"gong"
+],
+[
+"sales",
+"S3205f64462",
+"gong\\.io"
+],
+[
+"sales",
+"S3aacf5d037",
+"sales loft"
+],
+[
+"sales",
+"S3aacf5d037",
+"salesloft"
+],
+[
+"sales",
+"S8212d038af",
+"linkedin navigator"
+],
+[
+"sales",
+"S8212d038af",
+"linkedin sales navigator"
+],
+[
+"sales",
+"S8212d038af",
+"sales navigator"
+],
+[
+"sales",
+"S88fac34799",
+"zoom info"
+],
+[
+"sales",
+"S88fac34799",
+"zoominfo"
+],
+[
+"sales",
+"S970ae9dcbe",
+"chorus"
+],
+[
+"sales",
+"S970ae9dcbe",
+"chorus\\.ai"
+],
+[
+"sales",
+"S970ae9dcbe",
+"zoominfo chorus"
+],
+[
+"sales",
+"Sa28848e2bf",
+"medd-ic"
+],
+[
+"sales",
+"Sa28848e2bf",
+"meddic"
+],
+[
+"sales",
+"Sa28848e2bf",
+"meddpicc"
+],
+[
+"sales",
+"Sd18b5ca3d6",
+"sandler"
+],
+[
+"sales",
+"Sd18b5ca3d6",
+"sandler selling"
+],
+[
+"sales",
+"Seb208fe630",
+"spin"
+],
+[
+"sales",
+"Seb208fe630",
+"spin methodology"
+],
+[
+"sales",
+"Seb208fe630",
+"spin selling"
+],
+[
+"sales",
+"Sf9b3d9bfea",
+"outreach"
+],
+[
+"sales",
+"Sf9b3d9bfea",
+"outreach platform"
+],
+[
+"sales",
+"Sf9b3d9bfea",
+"outreach\\.io"
+]
+]

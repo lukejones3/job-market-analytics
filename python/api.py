@@ -1175,6 +1175,124 @@ async def create_checkout(request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+# ── Stripe billing helpers (resolve customer via api_keys.client_email only) ──
+def _client_email_for_key(conn, key: dict) -> str:
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            "SELECT client_email FROM api_keys WHERE key_id = %s",
+            (key["key_id"],),
+        )
+        row = cur.fetchone()
+    email = (row["client_email"] if row else None) or ""
+    email = email.strip().lower()
+    if not email:
+        raise HTTPException(
+            status_code=404,
+            detail="No billing email on file for this account. Contact support.",
+        )
+    return email
+
+
+def _stripe_customer_id_for_email(email: str) -> str:
+    """Exact email match only. Never pick customers.data[0] without a match."""
+    try:
+        customers = stripe.Customer.list(email=email, limit=10)
+    except Exception as e:
+        log.warning(f"Stripe Customer.list failed for {email!r}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    matches = [
+        c
+        for c in (customers.data or [])
+        if (c.email or "").strip().lower() == email
+    ]
+    if len(matches) == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="No Stripe billing profile found for this account.",
+        )
+    if len(matches) > 1:
+        ids = [c.id for c in matches]
+        log.warning(f"Stripe: multiple customers for {email!r}: {ids}")
+        raise HTTPException(
+            status_code=409,
+            detail="Multiple billing profiles found for this email. Please contact support.",
+        )
+    return matches[0].id
+
+
+def _first_cancellable_subscription(customer_id: str):
+    try:
+        for status in ("active", "trialing", "past_due"):
+            subs = stripe.Subscription.list(customer=customer_id, status=status, limit=1)
+            if subs.data:
+                return subs.data[0]
+    except Exception as e:
+        log.warning(f"Stripe Subscription.list failed for {customer_id}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    return None
+
+
+@app.post("/stripe/create-portal")
+async def create_portal(
+    request: Request,
+    key: dict = Depends(verify_api_key),
+    conn=Depends(get_conn),
+):
+    body = await request.json()
+    lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
+    return_url = body.get("return_url", f"{lander_base}/settings")
+    email = _client_email_for_key(conn, key)
+    customer_id = _stripe_customer_id_for_email(email)
+    try:
+        session = stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=return_url,
+        )
+        return {"portal_url": session.url}
+    except Exception as e:
+        log.warning(f"Stripe billing portal failed for {email!r} ({customer_id}): {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/stripe/cancel-subscription")
+async def cancel_subscription(
+    request: Request,
+    key: dict = Depends(verify_api_key),
+    conn=Depends(get_conn),
+):
+    body = await request.json()
+    immediate = bool(body.get("immediate", True))
+    email = _client_email_for_key(conn, key)
+    try:
+        customer_id = _stripe_customer_id_for_email(email)
+    except HTTPException as exc:
+        # No Stripe customer: nothing to cancel (idempotent for delete-account).
+        if exc.status_code == 404:
+            return {"ok": True, "cancelled": False}
+        # Ambiguous multiple customers: must not cancel the wrong subscription.
+        raise
+    sub = _first_cancellable_subscription(customer_id)
+    if not sub:
+        return {"ok": True, "cancelled": False}
+    try:
+        if immediate:
+            stripe.Subscription.cancel(sub.id)
+        else:
+            stripe.Subscription.modify(sub.id, cancel_at_period_end=True)
+    except Exception as e:
+        log.warning(f"Stripe subscription cancel failed for {email!r} ({sub.id}): {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE api_keys SET active = false WHERE key_id = %s",
+            (key["key_id"],),
+        )
+        conn.commit()
+    log.info(f"Cancelled subscription {sub.id} for {email!r} (immediate={immediate})")
+    return {"ok": True, "cancelled": True}
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--generate-key", nargs=3,
