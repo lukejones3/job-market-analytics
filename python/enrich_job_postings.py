@@ -2308,7 +2308,7 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
     skill_aliases = load_skill_aliases_from_db(cur)
 
     # Pre-load role_category cache into memory (eliminates per-job DB round-trips)
-    if only_missing:
+    if only_missing or job_ids:
         cat_cache, role_name_cache = _load_cat_cache(cur)
     else:
         cat_cache, role_name_cache = {}, {}
@@ -2446,7 +2446,7 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
     # ── Pre-pass: classify NULL-domain jobs before Phase 1 skill gate ─────────
     # Jobs that arrived with domain=NULL skip skill extraction and LLM role_category.
     # Classify them here so Phase 1 sees a real domain value.
-    if only_missing:
+    if only_missing or job_ids:
         null_domain_jobs = [j for j in jobs if not j.get("domain")]
         if null_domain_jobs:
             pre_alias_map = _build_domain_alias_map(conn)
