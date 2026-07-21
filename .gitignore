@@ -43,3 +43,15 @@ job_analytics_*.sql
 
 # local provenance input for role taxonomy fixture regen
 python/_role_corpus.tsv
+
+# === JOB SEARCH (personal; keep out of git entirely) ===
+job_results*.md
+job_results*.csv
+job_review.html
+job_search.py
+refine_results.py
+email_digest.py
+
+# Claude Code local state (machine-specific; not shared config)
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
