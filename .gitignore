@@ -7,11 +7,6 @@ backups/
 data/
 logs/
 *.bak
-.venv/
-backups/
-data/
-logs/
-*.bak
 *.log
 __pycache__/
 *.pyc
@@ -37,8 +32,8 @@ p*.py
 # Streamlit secrets
 .streamlit/secrets.toml
 
-# Local DB dumps
-*.sql
+# Local DB dumps (root only — sql/ and dbt/ stay tracked)
+/*.sql
 job_analytics_*.sql
 
 # local provenance input for role taxonomy fixture regen
