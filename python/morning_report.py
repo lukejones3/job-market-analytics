@@ -337,12 +337,11 @@ def send_email(html: str):
             },
             timeout=15,
         )
-        if r.status_code in (200, 201):
-            print(f"✅ Morning report sent via Resend to {TO_EMAIL}")
-        else:
-            print(f"❌ Resend error {r.status_code}: {r.text[:200]}")
-    except Exception as e:
-        print(f"❌ Failed to send report: {e}")
+        r.raise_for_status()
+        print(f"✅ Morning report sent via Resend to {TO_EMAIL}")
+    except Exception:
+        print("❌ Failed to send report")
+        raise
 
 
 if __name__ == "__main__":
@@ -352,13 +351,6 @@ if __name__ == "__main__":
     out = _P('/opt/job-market-analytics/logs/latest_report.html')
     out.write_text(html)
     print(f'Report written to {out}')
-    # MORNING_REPORT_RESEND_v1: actually send via Resend
-    try:
-        send_email(html)
-    except Exception as e:
-        print(f"❌ Email send raised: {e}")
-    try:
-        send_email(html)
-    except Exception as e:
-        print(f'Email send skipped: {e}')
+    # MORNING_REPORT_RESEND_v1: actually send via Resend once.
+    send_email(html)
     print("Done")
