@@ -13,7 +13,7 @@ def test_dags_import_cleanly():
 def test_nightly_is_bounded_and_serializes_ingest_writers():
     dag = dag_bag().get_dag("lander_nightly")
     assert dag.max_active_runs == 1
-    assert len(dag.tasks) == 26
+    assert len(dag.tasks) == 27
     sources = ("greenhouse", "lever", "ashby", "workday", "eightfold", "amazon",
                "smartrecruiters", "workable", "icims", "taleo")
     for source, successor in zip(sources, sources[1:]):
