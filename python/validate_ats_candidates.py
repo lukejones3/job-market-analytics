@@ -35,6 +35,7 @@ from typing import Dict, List, Optional, Tuple
 import psycopg2
 from psycopg2.extras import DictCursor
 import requests
+from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from role_taxonomy import is_target_role
 
@@ -177,6 +178,19 @@ def _count_from_jobs(jobs: List[Dict], title_key: str, location_key: str) -> Tup
             if _is_target_role(title):
                 data_ml_jobs += 1
     return us_jobs, data_ml_jobs
+
+
+def _candidate_status(us_jobs: int, target_jobs: int) -> str:
+    """A verified tenant needs one target opening, not five total openings.
+
+    Small employers are valuable long-tail coverage. Boards with US openings but
+    no matching role remain measurable without being activated.
+    """
+    if target_jobs > 0:
+        return "active"
+    if us_jobs > 0:
+        return "no_data_jobs"
+    return "unreachable"
 
 
 # ============================================================
@@ -346,12 +360,8 @@ def validate_workday(row: Dict) -> Tuple[Optional[str], int, int, str]:
         return server, 0, 0, "unreachable"
 
     us_jobs, data_ml_jobs = _wd_count_jobs(tenant, server, board)
-    if us_jobs >= 5:
-        return f"{server}/{board}", us_jobs, data_ml_jobs, "active"
-    elif us_jobs > 0:
-        return f"{server}/{board}", us_jobs, data_ml_jobs, "no_data_jobs"
-    else:
-        return server, 0, 0, "unreachable"
+    status = _candidate_status(us_jobs, data_ml_jobs)
+    return f"{server}/{board}", us_jobs, data_ml_jobs, status
 
 
 # ============================================================
@@ -380,12 +390,7 @@ def validate_greenhouse(row: Dict) -> Tuple[Optional[str], int, int, str]:
                 us_jobs += 1
                 if _is_target_role(title):
                     data_ml_jobs += 1
-        if us_jobs >= 5:
-            return None, us_jobs, data_ml_jobs, "active"
-        elif us_jobs > 0:
-            return None, us_jobs, data_ml_jobs, "no_data_jobs"
-        else:
-            return None, 0, 0, "unreachable"
+        return None, us_jobs, data_ml_jobs, _candidate_status(us_jobs, data_ml_jobs)
     except Exception:
         return None, 0, 0, "unreachable"
 
@@ -414,12 +419,7 @@ def validate_lever(row: Dict) -> Tuple[Optional[str], int, int, str]:
                 us_jobs += 1
                 if _is_target_role(title):
                     data_ml_jobs += 1
-        if us_jobs >= 5:
-            return None, us_jobs, data_ml_jobs, "active"
-        elif us_jobs > 0:
-            return None, us_jobs, data_ml_jobs, "no_data_jobs"
-        else:
-            return None, 0, 0, "unreachable"
+        return None, us_jobs, data_ml_jobs, _candidate_status(us_jobs, data_ml_jobs)
     except Exception:
         return None, 0, 0, "unreachable"
 
@@ -449,12 +449,7 @@ def validate_ashby(row: Dict) -> Tuple[Optional[str], int, int, str]:
                 us_jobs += 1
                 if _is_target_role(title):
                     data_ml_jobs += 1
-        if us_jobs >= 5:
-            return None, us_jobs, data_ml_jobs, "active"
-        elif us_jobs > 0:
-            return None, us_jobs, data_ml_jobs, "no_data_jobs"
-        else:
-            return None, 0, 0, "unreachable"
+        return None, us_jobs, data_ml_jobs, _candidate_status(us_jobs, data_ml_jobs)
     except Exception:
         return None, 0, 0, "unreachable"
 
@@ -485,12 +480,7 @@ def validate_workable(row: Dict) -> Tuple[Optional[str], int, int, str]:
                 us_jobs += 1
                 if _is_target_role(title):
                     data_ml_jobs += 1
-        if us_jobs >= 5:
-            return None, us_jobs, data_ml_jobs, "active"
-        elif us_jobs > 0:
-            return None, us_jobs, data_ml_jobs, "no_data_jobs"
-        else:
-            return None, 0, 0, "unreachable"
+        return None, us_jobs, data_ml_jobs, _candidate_status(us_jobs, data_ml_jobs)
     except Exception:
         return None, 0, 0, "unreachable"
 
@@ -515,9 +505,12 @@ def validate_icims(row: Dict) -> Tuple[Optional[str], int, int, str]:
                              headers={"User-Agent": "Mozilla/5.0"},
                              allow_redirects=True)
             if r.status_code == 200 and "icims" in r.text.lower():
-                # iCIMS portals don't expose job counts cleanly without auth.
-                # Return non-zero placeholder — full validation happens during harvest.
-                return None, 1, 0, "no_data_jobs"
+                soup = BeautifulSoup(r.text, "html.parser")
+                titles = [el.get_text(" ", strip=True) for el in soup.select(
+                    "[itemprop='title'], .iCIMS_JobsTable .title, a[href*='/jobs/'][href*='/job']")]
+                target = sum(1 for title in set(titles) if _is_target_role(title))
+                total = len(set(titles)) or 1
+                return None, total, target, _candidate_status(total, target)
         except Exception:
             continue
     return None, 0, 0, "unreachable"
@@ -547,10 +540,13 @@ def validate_taleo(row: Dict) -> Tuple[Optional[str], int, int, str]:
                         data.get("jobs") or
                         data.get("searchResults") or [])
                 if isinstance(jobs, list) and len(jobs) > 0:
-                    return None, len(jobs), 0, "no_data_jobs"
-                return None, 1, 0, "no_data_jobs"
+                    titles = [str(j.get("column", {}).get("title") or j.get("title") or
+                                  j.get("jobTitle") or "") for j in jobs if isinstance(j, dict)]
+                    target = sum(1 for title in titles if _is_target_role(title))
+                    return None, len(jobs), target, _candidate_status(len(jobs), target)
+                return None, 0, 0, "no_data_jobs"
             except Exception:
-                return None, 1, 0, "no_data_jobs"
+                return None, 0, 0, "no_data_jobs"
     except Exception:
         pass
 
@@ -560,7 +556,10 @@ def validate_taleo(row: Dict) -> Tuple[Optional[str], int, int, str]:
         r = requests.get(portal_url, timeout=REQUEST_TIMEOUT,
                          headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
         if r.status_code == 200 and "taleo" in r.text.lower():
-            return None, 1, 0, "no_data_jobs"
+            titles = [el.get_text(" ", strip=True) for el in
+                      BeautifulSoup(r.text, "html.parser").select("a[href*='jobdetail']")]
+            target = sum(1 for title in set(titles) if _is_target_role(title))
+            return None, len(set(titles)) or 1, target, _candidate_status(len(set(titles)) or 1, target)
     except Exception:
         pass
 
@@ -578,6 +577,20 @@ def validate_eightfold(row: Dict) -> Tuple[Optional[str], int, int, str]:
         r = requests.get(url, timeout=REQUEST_TIMEOUT,
                          headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
         if r.status_code == 200 and "eightfold" in r.text.lower():
+            domains = re.findall(r'"(?:domain|careerSiteDomain)"\s*:\s*"([^"]+)"', r.text)
+            domain = domains[0] if domains else None
+            if domain:
+                api = requests.get(f"https://{tenant}.eightfold.ai/api/pcsx/search",
+                    params={"domain": domain, "query": "", "start": 0, "num": 100},
+                    timeout=REQUEST_TIMEOUT, headers={"User-Agent": "Mozilla/5.0"})
+                positions = api.json().get("data", {}).get("positions", []) if api.ok else []
+                us = target = 0
+                for position in positions:
+                    locations = ", ".join(position.get("locations") or [])
+                    if _is_us_job(locations):
+                        us += 1
+                        target += int(_is_target_role(position.get("name", "")))
+                return domain, us, target, _candidate_status(us, target)
             return None, 1, 0, "no_data_jobs"
     except Exception:
         pass
@@ -595,10 +608,13 @@ def validate_jobvite(row: Dict) -> Tuple[Optional[str], int, int, str]:
         r = requests.get(url, timeout=REQUEST_TIMEOUT,
                          headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
         if r.status_code == 200:
-            # Count job entries by looking for common Jobvite HTML patterns
-            count = len(re.findall(r'jv-job-list-job', r.text))
-            if count > 0:
-                return None, count, 0, "no_data_jobs"
+            soup = BeautifulSoup(r.text, "html.parser")
+            titles = [el.get_text(" ", strip=True) for el in soup.select(
+                ".jv-job-list-job-title, [data-automation='job-title'], a[href*='/job/']")]
+            titles = list(dict.fromkeys(filter(None, titles)))
+            if titles:
+                target = sum(1 for title in titles if _is_target_role(title))
+                return None, len(titles), target, _candidate_status(len(titles), target)
     except Exception:
         pass
     return None, 0, 0, "unreachable"
@@ -626,12 +642,7 @@ def validate_smartrecruiters(row: Dict) -> Tuple[Optional[str], int, int, str]:
                     us_jobs += 1
                     if _is_target_role(title):
                         data_ml_jobs += 1
-            if us_jobs >= 5:
-                return None, us_jobs, data_ml_jobs, "active"
-            elif us_jobs > 0:
-                return None, us_jobs, data_ml_jobs, "no_data_jobs"
-            else:
-                return None, 0, 0, "unreachable"
+            return None, us_jobs, data_ml_jobs, _candidate_status(us_jobs, data_ml_jobs)
     except Exception:
         pass
     return None, 0, 0, "unreachable"
@@ -650,9 +661,10 @@ VALIDATORS = {
     "icims":          validate_icims,
     "taleo":          validate_taleo,
     "eightfold":      validate_eightfold,
-    "jobvite":        validate_jobvite,
     "smartrecruiters":validate_smartrecruiters,
 }
+
+DISCOVERABLE_NOT_HARVESTED = {"jobvite", "successfactors", "bamboohr"}
 
 
 def validate_candidate(row: Dict) -> Tuple[Optional[str], int, int, str]:
@@ -660,6 +672,9 @@ def validate_candidate(row: Dict) -> Tuple[Optional[str], int, int, str]:
     ats = row.get("ats", "").lower()
     validator = VALIDATORS.get(ats)
     if not validator:
+        if ats in DISCOVERABLE_NOT_HARVESTED:
+            log.info(f"  {ats} is intentionally routed to generic JSON-LD coverage, not tenant integration")
+            return None, 0, 0, "unsupported"
         log.warning(f"  No validator for ATS: {ats} — marking unreachable")
         return None, 0, 0, "unreachable"
     return validator(row)
@@ -735,7 +750,8 @@ def run_validation(apply: bool, ats_filter: Optional[str], limit: Optional[int],
         log.info("Nothing to validate. Run discover_ats_aggressive.py first.")
         return
 
-    results: Dict[str, int] = {"active": 0, "no_data_jobs": 0, "unreachable": 0, "errors": 0}
+    results: Dict[str, int] = {"active": 0, "no_data_jobs": 0, "unsupported": 0,
+                               "unreachable": 0, "errors": 0}
 
     conn = cur = None
     if apply:
@@ -755,6 +771,8 @@ def run_validation(apply: bool, ats_filter: Optional[str], limit: Optional[int],
                 log.info(f"  ✅ {ats}/{tenant} — {us_jobs} US jobs, {data_ml_jobs} data/ML")
             elif status == "no_data_jobs":
                 log.info(f"  ⚪ {ats}/{tenant} — {us_jobs} US jobs, 0 data/ML")
+            elif status == "unsupported":
+                log.info(f"  ➖ {ats}/{tenant} — use generic JSON-LD coverage")
             else:
                 log.info(f"  ❌ {ats}/{tenant} — unreachable")
 

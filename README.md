@@ -17,6 +17,7 @@ Every mainstream job platform (LinkedIn, Indeed, ZipRecruiter) makes its money f
 ## What it does
 
 - **Harvests 10 ATS systems nightly** — Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Eightfold, Workable, iCIMS, Taleo, and Amazon
+- **Optional coverage** — USAJOBS, employer JSON/CSV feeds, career-page `JobPosting` JSON-LD, and a clearly labeled Adzuna Tier 2 backstop fill gaps outside supported ATS APIs
 - **Ghost Job Index** — scores every posting on ghost-job probability from time-to-close patterns, re-post frequency, and lifecycle signals, then buckets it fresh / low / medium / high
 - **Honesty scores** — a per-posting signal built from freshness, salary disclosure, and posting behavior
 - **Semantic resume → job matching** — upload a resume, get top matches by meaning (not keywords) with skill-gap analysis, powered by pgvector + sentence-transformers
@@ -83,6 +84,32 @@ Began with data & ML roles; now spans multiple verticals (engineering, finance, 
 The daily cron path is intentionally **LLM-free** — classification runs on regex, heuristics, and a cached label store.
 Airflow is the production orchestrator. Its weekly discovery DAG continuously
 expands the tenant universe before validation and activation.
+
+### Coverage sources
+
+The optional coverage runner preserves direct postings as Tier 1 records and applies
+the same role and US-location filters as ATS ingestion:
+
+```bash
+python python/coverage_ingest.py usajobs --apply
+python python/coverage_ingest.py adzuna --apply
+python python/coverage_ingest.py jsonld --sitemap https://example.com/jobs-sitemap.xml --apply
+python python/coverage_ingest.py feed --url https://employer.example/jobs.json --apply
+```
+
+USAJOBS requires `USAJOBS_API_KEY` and `USAJOBS_EMAIL`; Adzuna requires
+`ADZUNA_APP_ID` and `ADZUNA_APP_KEY` and remains Tier 2. Employer feeds accept JSON
+(`{"jobs": [...]}` or a top-level array) and CSV with `id`/`requisition_id`, `title`,
+`company`, `location`, `description`, and `url`; set `EMPLOYER_FEED_TOKEN` for a
+Bearer-authenticated endpoint. JSON-LD URLs may be supplied directly or discovered
+from one or more sitemaps. These adapters are opt-in so missing credentials or an
+unapproved third-party feed cannot block the production nightly DAG.
+
+Every nightly source writes an explicit crawl outcome. Operators may use
+`--accept-empty` only after verifying that a zero-result crawl completed normally;
+partial/source failures remain fail-closed and are excluded from expiry. Source
+postings are retained independently and `canonicalize_opportunities.py` assigns a
+grouping ID for likely mirrors without suppressing requisitions.
 
 ## API
 

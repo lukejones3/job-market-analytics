@@ -88,9 +88,17 @@ def role_label(slug: str) -> Optional[str]:
 
 # Broad queries maximize recall; the taxonomy-backed matcher below provides the
 # precise acceptance decision consistently during harvesting and validation.
-SEARCH_TERMS = ("data", "analytics", "machine learning", "software engineer",
-    "developer", "product", "design", "marketing", "sales", "finance",
-    "accounting", "recruiter", "human resources", "operations", "project manager")
+# Search adapters use these only to discover candidates; ``is_target_role`` is
+# still the acceptance boundary. Keep aliases that do not share an obvious word
+# with their role family so source-side search does not hide valid taxonomy hits.
+SEARCH_TERMS = (
+    "data", "analytics", "machine learning", "software engineer", "developer",
+    "solutions architect", "security", "product", "design", "ux", "researcher",
+    "marketing", "copywriter", "content", "sales", "account executive",
+    "customer success", "finance", "accounting", "controller", "auditor",
+    "recruiter", "human resources", "people", "operations", "project manager",
+    "program manager", "supply chain", "procurement",
+)
 
 
 @lru_cache(maxsize=1)

@@ -55,6 +55,7 @@ def _board_token(ats: str, tenant: str, server: Optional[str]) -> Optional[str]:
       Workable:   tenant
       iCIMS:      tenant
       Taleo:      tenant
+      Eightfold:  tenant/domain (validation stores the required employer domain)
       others:     tenant
 
     Returns None for Workday rows where server is unknown — caller must skip
@@ -65,6 +66,8 @@ def _board_token(ats: str, tenant: str, server: Optional[str]) -> Optional[str]:
             return None   # no server → cannot build a valid harvester URL
         server_name, _, board = server.partition("/")
         return f"{tenant}/{server_name}/{board or 'External'}"
+    if ats == "eightfold":
+        return f"{tenant}/{server}" if server else None
     return tenant
 
 

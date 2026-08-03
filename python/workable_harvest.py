@@ -52,7 +52,7 @@ REQUEST_DELAY = 0.4
 REQUEST_TIMEOUT = 15
 BASE_URL = "https://jobs.workable.com/api/v1/jobs"
 PAGE_SIZE = 20           # Workable global API hard limit is 20 per page
-MAX_PAGES_PER_TERM = 20  # cap at 400 raw results per term (~100-200 US after filter)
+MAX_PAGES_PER_TERM = 250  # loop guard only; pagination normally ends on nextPageToken
 
 USER_AGENT = "LanderJobBot/1.0 contact: jones31luke@gmail.com"
 
@@ -197,6 +197,7 @@ def fetch_workable_for_term(search_term: str) -> List[RawJob]:
     jobs: List[RawJob] = []
     seen_ids: set = set()
     next_token: Optional[str] = None
+    seen_tokens: set = set()
     page = 0
 
     while page < MAX_PAGES_PER_TERM:
@@ -296,7 +297,14 @@ def fetch_workable_for_term(search_term: str) -> List[RawJob]:
         next_token = data.get("nextPageToken")
         if not next_token:
             break
+        if next_token in seen_tokens:
+            log.warning(f"  Workable [{search_term}] repeated a pagination token; stopping safely")
+            break
+        seen_tokens.add(next_token)
         page += 1
+
+    if page >= MAX_PAGES_PER_TERM:
+        log.warning(f"  Workable [{search_term}] hit the {MAX_PAGES_PER_TERM}-page safety limit")
 
     log.debug(f"  Workable term='{search_term}': {len(jobs)} US target roles")
     return jobs

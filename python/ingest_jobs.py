@@ -1362,6 +1362,7 @@ def ensure_schema_columns(cur):
         ALTER TABLE job_postings
           ADD COLUMN IF NOT EXISTS ingestion_source text,
           ADD COLUMN IF NOT EXISTS source_id        text,
+          ADD COLUMN IF NOT EXISTS crawl_tenant     text,
           ADD COLUMN IF NOT EXISTS description_quality text DEFAULT 'full',
           ADD COLUMN IF NOT EXISTS job_url          text
     """)
@@ -1415,6 +1416,8 @@ def ingest_job(cur, job: RawJob) -> bool:
 
     # LOC_PATCH_v1: normalize location once at insert (single source of truth)
     _loc = normalize_location(job.location, job.workplace_type)
+    crawl_tenant = str(job.metadata.get("board_token") or job.metadata.get("slug") or
+                       job.metadata.get("tenant") or job.metadata.get("workable_company_id") or "") or None
 
     cur.execute(
         """
@@ -1441,9 +1444,10 @@ def ingest_job(cur, job: RawJob) -> bool:
             last_seen_at,
             loc_city,
             loc_state,
-            loc_country
+            loc_country,
+            crawl_tenant
         ) VALUES (
-            %s, %s, %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s, %s
+            %s, %s, %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s, %s, %s
         )
         ON CONFLICT (job_id) DO UPDATE SET
             last_seen_at = now(),
@@ -1458,7 +1462,8 @@ def ingest_job(cur, job: RawJob) -> bool:
             job_url = EXCLUDED.job_url,
             loc_country = EXCLUDED.loc_country,
             loc_city = EXCLUDED.loc_city,
-            loc_state = EXCLUDED.loc_state
+            loc_state = EXCLUDED.loc_state,
+            crawl_tenant = COALESCE(EXCLUDED.crawl_tenant, job_postings.crawl_tenant)
         """,
         (
             job_id,
@@ -1481,6 +1486,7 @@ def ingest_job(cur, job: RawJob) -> bool:
             _loc.city,
             _loc.state,
             _loc.country,
+            crawl_tenant,
         )
     )
 
@@ -2430,6 +2436,7 @@ async def _fetch_workday_tenant_async(
                 salary_period=None,
                 workplace_type=workplace_type,
                 posted_date=None,
+                metadata={"tenant": tenant},
             ))
             continue
         desc, detail_loc, posted_date, detail_remote = dr
@@ -2466,6 +2473,7 @@ async def _fetch_workday_tenant_async(
             salary_period=None,
             workplace_type=workplace_type,
             posted_date=posted_date,
+            metadata={"tenant": tenant},
         ))
 
     if detail_failures:
@@ -2817,6 +2825,7 @@ def fetch_amazon() -> List[RawJob]:
                         salary_max=None,
                         salary_period=None,
                         workplace_type=workplace_type,
+                        metadata={"tenant": "amazon"},
                     ))
 
                 offset += limit
@@ -2946,6 +2955,7 @@ def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJ
                         salary_max=None,
                         salary_period=None,
                         workplace_type=workplace_type,
+                        metadata={"tenant": subdomain},
                     ))
 
                 start += num
@@ -2963,8 +2973,23 @@ def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJ
 
 
 def fetch_all_eightfold() -> List[RawJob]:
+    companies = []
+    try:
+        with get_conn() as conn, conn.cursor() as cur:
+            cur.execute("""SELECT company_name, board_token FROM discovered_companies
+                WHERE ats_source='eightfold' AND enabled=true
+                ORDER BY active_roles DESC NULLS LAST""")
+            for name, token in cur.fetchall():
+                tenant, separator, domain = (token or "").partition("/")
+                if separator and tenant and domain:
+                    companies.append((name, tenant, domain))
+    except Exception as exc:
+        log.warning(f"Eightfold tenant load failed; using bootstrap list: {exc}")
+    if not companies:
+        companies = EIGHTFOLD_COMPANIES
+
     all_jobs = []
-    for name, subdomain, domain in EIGHTFOLD_COMPANIES:
+    for name, subdomain, domain in companies:
         try:
             jobs = fetch_eightfold_company(name, subdomain, domain)
             all_jobs.extend(jobs)
@@ -2974,7 +2999,8 @@ def fetch_all_eightfold() -> List[RawJob]:
     log.info(f"Eightfold total: {len(all_jobs)} jobs")
     return all_jobs
 
-def run_ingestion(source: str, apply: bool) -> None:
+def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] = None,
+                  accept_empty: bool = False) -> None:
     run_id = f"ingest_{source}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     log.info(f"Starting ingestion run: {run_id} | apply={apply}")
 
@@ -3033,6 +3059,16 @@ def run_ingestion(source: str, apply: bool) -> None:
     log.info(f"Total fetched across all sources: {len(all_jobs)}")
 
     if not all_jobs:
+        if accept_empty and apply:
+            with get_conn() as empty_conn, empty_conn.cursor() as empty_cur:
+                empty_cur.execute(Path("sql/ingestion_observability.sql").read_text(encoding="utf-8"))
+                empty_cur.execute("""INSERT INTO ingestion_crawl_runs
+                    (run_id, source, orchestration_run_id, finished_at, status, jobs_fetched)
+                    VALUES (%s, %s, %s, now(), 'complete_zero', 0)
+                    ON CONFLICT (run_id) DO UPDATE SET finished_at=now(), status='complete_zero'""",
+                    (run_id, source, orchestration_run_id))
+            log.info(f"{source} completed with zero results (explicitly accepted)")
+            return
         raise RuntimeError(f"{source} returned no jobs; refusing to report a successful crawl")
 
     # Deduplicate within this batch by source+source_id
@@ -3064,6 +3100,11 @@ def run_ingestion(source: str, apply: bool) -> None:
 
     try:
         ensure_schema_columns(cur)
+        cur.execute(Path("sql/ingestion_observability.sql").read_text(encoding="utf-8"))
+        cur.execute("""INSERT INTO ingestion_crawl_runs
+            (run_id, source, orchestration_run_id, status)
+            VALUES (%s, %s, %s, 'running') ON CONFLICT (run_id) DO NOTHING""",
+            (run_id, source, orchestration_run_id))
         conn.commit()
     except Exception as e:
         log.error(f"Schema migration failed: {e}")
@@ -3120,6 +3161,10 @@ def run_ingestion(source: str, apply: bool) -> None:
     # ---- Pipeline logging in a SEPARATE transaction so it can never roll back job data ----
     try:
         log_pipeline_run(cur, run_id, source, inserted, skipped, errors)
+        crawl_status = "partial_failure" if errors else "complete_nonzero"
+        cur.execute("""UPDATE ingestion_crawl_runs SET finished_at=now(), status=%s,
+            jobs_fetched=%s, jobs_written=%s, errors=%s WHERE run_id=%s""",
+            (crawl_status, len(deduped), inserted + skipped, errors, run_id))
         conn.commit()
     except Exception as e:
         log.warning(f"Pipeline run logging failed (data already committed safely): {e}")
@@ -3145,6 +3190,9 @@ def main():
         default="all",
         help="Which source to pull from (default: all)"
     )
+    ap.add_argument("--orchestration-run-id", help="Stable Airflow/manual run identifier")
+    ap.add_argument("--accept-empty", action="store_true",
+                    help="Record a verified complete-zero crawl instead of failing")
     ap.add_argument(
         "--apply",
         action="store_true",
@@ -3152,7 +3200,9 @@ def main():
     )
     args = ap.parse_args()
 
-    run_ingestion(source=args.source, apply=args.apply)
+    run_ingestion(source=args.source, apply=args.apply,
+                  orchestration_run_id=args.orchestration_run_id,
+                  accept_empty=args.accept_empty)
 
 
 if __name__ == "__main__":

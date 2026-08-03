@@ -36,12 +36,12 @@ def main():
             # Expire only sources proven healthy during this crawl window. The
             # Airflow gate requires all scheduled sources; this also makes the
             # script safe when run independently after a partial crawl.
-            cur.execute("""SELECT ingestion_source, COUNT(*) FROM job_postings
-                WHERE last_seen_at >= COALESCE(%s::timestamptz, now() - interval '4 hours')
-                AND data_tier = 1 AND ingestion_source = ANY(%s)
-                GROUP BY ingestion_source""", (args.since, list(INGEST_SOURCES)))
-            counts = dict(cur.fetchall())
-            healthy_sources = [source for source in INGEST_SOURCES if counts.get(source, 0) > 0]
+            cur.execute("""SELECT source, status FROM ingestion_crawl_runs
+                WHERE orchestration_run_id = %s AND finished_at IS NOT NULL
+                  AND source = ANY(%s)""", (args.since, list(INGEST_SOURCES)))
+            outcomes = dict(cur.fetchall())
+            healthy_sources = [source for source in INGEST_SOURCES
+                if outcomes.get(source) in ('complete_nonzero', 'complete_zero')]
             if not healthy_sources:
                 print("⚠️ No sources completed recently — skipping expiry")
                 return
@@ -55,21 +55,33 @@ def main():
                 WHERE jp.data_tier = 1
                   AND jp.status != 'expired'
                   AND jp.ingestion_source = ANY(%s)
+                  AND jp.crawl_tenant IS NOT NULL
+                  AND EXISTS (
+                      SELECT 1 FROM job_postings seen
+                      WHERE seen.ingestion_source = jp.ingestion_source
+                        AND seen.crawl_tenant = jp.crawl_tenant
+                        AND seen.last_seen_at >= COALESCE(%s::timestamptz, now() - interval '12 hours'))
                   AND jp.last_seen_at < now() - interval '1 day'
                 ON CONFLICT DO NOTHING
-            """, (healthy_sources,))
+            """, (healthy_sources, args.since))
             disappeared_events = cur.rowcount
 
             # Mark expired — not seen in today's run (missed last_seen_at update)
             cur.execute("""
-                UPDATE job_postings
+                UPDATE job_postings jp
                 SET status = 'expired',
                     expired_reason = 'natural_cron'
-                WHERE data_tier = 1
-                AND status != 'expired'
-                AND ingestion_source = ANY(%s)
-                AND last_seen_at < now() - interval '1 day'
-            """, (healthy_sources,))
+                WHERE jp.data_tier = 1
+                AND jp.status != 'expired'
+                AND jp.ingestion_source = ANY(%s)
+                AND jp.crawl_tenant IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 FROM job_postings seen
+                    WHERE seen.ingestion_source = jp.ingestion_source
+                      AND seen.crawl_tenant = jp.crawl_tenant
+                      AND seen.last_seen_at >= COALESCE(%s::timestamptz, now() - interval '12 hours'))
+                AND jp.last_seen_at < now() - interval '1 day'
+            """, (healthy_sources, args.since))
             expired = cur.rowcount
             print(f"Marked expired: {expired}  (logged {disappeared_events} disappeared events)")
 

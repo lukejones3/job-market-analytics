@@ -25,7 +25,8 @@ with DAG(dag_id="lander_nightly",
     for source in ("greenhouse", "lever", "ashby", "workday", "eightfold", "amazon",
                    "smartrecruiters", "workable", "icims", "taleo"):
         ingest = command(f"ingest_{source}",
-            f"{PYTHON} python/ingest_jobs.py --apply --source {source}")
+            f"{PYTHON} python/ingest_jobs.py --apply --source {source} "
+            "--orchestration-run-id '{{ dag_run.start_date.isoformat() }}'")
         previous >> ingest
         previous = ingest
     ingest_gate = command("ingest_quality_gate",
@@ -48,6 +49,8 @@ with DAG(dag_id="lander_nightly",
     discover = command("discover_companies",
         f"{PYTHON} python/discover_companies.py --apply --source refresh")
     dedup = command("deduplicate_sources", f"{PYTHON} python/dedup_sources.py --apply")
+    canonicalize = command("canonicalize_opportunities",
+        f"{PYTHON} python/canonicalize_opportunities.py --apply")
     expiry = command("expire_jobs",
         f"{PYTHON} python/expire_jobs.py --since '{{{{ dag_run.start_date.isoformat() }}}}'")
     dbt_build = command("dbt_build",
@@ -59,7 +62,7 @@ with DAG(dag_id="lander_nightly",
     annualize >> [enrich, skills]
     enrich >> embeddings >> experience
     [experience, skills] >> honesty
-    honesty >> discover >> dedup >> expiry >> dbt_build >> publish_gate >> report
+    honesty >> discover >> dedup >> canonicalize >> expiry >> dbt_build >> publish_gate >> report
 
 with DAG(dag_id="lander_ats_discovery",
     description="Discover, validate, and activate new ATS tenants",

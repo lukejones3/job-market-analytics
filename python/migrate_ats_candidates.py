@@ -71,14 +71,14 @@ COMMENT ON COLUMN ats_tenants_candidates.tenant IS
     'For Lever: company slug. For Ashby: company slug. For iCIMS: subdomain. For Taleo: subdomain.';
 
 COMMENT ON COLUMN ats_tenants_candidates.server IS
-    'Workday-only: server prefix (wd1, wd5, wd3, etc.). NULL for all other ATSs.';
+    'Resolved board parameter. Workday stores server/board; Eightfold stores employer domain.';
 
 COMMENT ON COLUMN ats_tenants_candidates.source IS
     'Discovery source: ct_logs | serper | company_probe | sitemap | linkedin | commoncrawl | edgar';
 
 COMMENT ON COLUMN ats_tenants_candidates.status IS
     'pending=not validated | active=has US+data/ML jobs | no_data_jobs=working but no target roles '
-    '| unreachable=probe failed | integrated=written to discovered_companies';
+    '| unsupported=route to generic coverage | unreachable=probe failed | integrated=written to discovered_companies';
 """
 
 

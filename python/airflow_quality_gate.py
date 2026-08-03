@@ -33,15 +33,23 @@ def main():
                 raise RuntimeError(f"implausibly small job table: {total}")
             print(f"shadow gate passed: jobs={total}")
         elif gate == "ingest":
+            cursor.execute("""SELECT source, status, jobs_fetched FROM ingestion_crawl_runs
+                WHERE orchestration_run_id=%s AND finished_at IS NOT NULL""", (args.since,))
+            crawl_rows = {row[0]: row[1:] for row in cursor.fetchall()}
+            bad = [source for source in INGEST_SOURCES
+                   if crawl_rows.get(source, (None,))[0] not in ('complete_nonzero', 'complete_zero')]
+            if bad:
+                raise RuntimeError(f"ingest gate failed; incomplete crawl outcome for: {', '.join(bad)}")
             cursor.execute("""SELECT ingestion_source, COUNT(*) FROM job_postings
                 WHERE data_tier=1 AND last_seen_at >= COALESCE(%s::timestamptz, now() - interval '12 hours')
                 AND ingestion_source = ANY(%s) GROUP BY ingestion_source""",
                 (args.since, list(INGEST_SOURCES)))
             counts = dict(cursor.fetchall())
-            missing = [source for source in INGEST_SOURCES if counts.get(source, 0) == 0]
+            missing = [source for source in INGEST_SOURCES
+                       if crawl_rows[source][0] == 'complete_nonzero' and counts.get(source, 0) == 0]
             if missing:
                 raise RuntimeError(f"ingest gate failed; no current-run rows for: {', '.join(missing)}")
-            print(f"ingest gate passed: " + ", ".join(f"{s}={counts[s]}" for s in INGEST_SOURCES))
+            print(f"ingest gate passed: " + ", ".join(f"{s}={counts.get(s, 0)}" for s in INGEST_SOURCES))
         else:
             active = scalar(cursor, "SELECT COUNT(*) FROM job_postings WHERE status='raw' AND data_tier=1")
             missing = scalar(cursor, """SELECT COUNT(*) FROM job_postings
