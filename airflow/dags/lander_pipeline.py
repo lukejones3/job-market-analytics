@@ -59,7 +59,9 @@ with DAG(dag_id="lander_nightly",
         f"{PYTHON} python/airflow_quality_gate.py publish")
     report = command("morning_report", f"{PYTHON} python/morning_report.py")
     previous >> ingest_gate >> reclassify >> blocklist >> annualize
-    annualize >> [enrich, skills]
+    # Domain classification must commit before domain-aware skill extraction.
+    # The oldest-first enrichment batch drains backlog without starving rows.
+    annualize >> enrich >> skills
     enrich >> embeddings >> experience
     [experience, skills] >> honesty
     honesty >> discover >> dedup >> canonicalize >> expiry >> dbt_build >> publish_gate >> report

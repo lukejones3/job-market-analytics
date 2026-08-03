@@ -27,6 +27,8 @@ def test_nightly_has_complete_safe_publish_path():
     assert "canonicalize_opportunities" in dag.task_ids
     assert "canonicalize_opportunities" in dag.get_task("deduplicate_sources").downstream_task_ids
     assert "publish_quality_gate" in dag.get_task("dbt_build").downstream_task_ids
+    assert "extract_skills" in dag.get_task("enrich_jobs").downstream_task_ids
+    assert "extract_skills" not in dag.get_task("annualize_salaries").downstream_task_ids
     assert not any("sync_discovered.sql" in (getattr(t, "bash_command", "") or "") for t in dag.tasks)
 
 def test_discovery_pipeline_is_ordered():

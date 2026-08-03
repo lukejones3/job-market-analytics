@@ -27,6 +27,11 @@ CREATE INDEX IF NOT EXISTS idx_jpe_event_type   ON job_posting_events (event_typ
 CREATE INDEX IF NOT EXISTS idx_jpe_observed_at  ON job_posting_events (observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_jpe_job_event    ON job_posting_events (job_id, event_type, observed_at DESC);
 
+-- Make event writes idempotent.  This also makes the historical backfill below
+-- safe to run more than once.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_jpe_job_event_observed
+    ON job_posting_events (job_id, event_type, observed_at);
+
 COMMENT ON TABLE job_posting_events IS
   'Forward-looking repost detection. appeared=new job, disappeared=natural expiry, reappeared=reopened after expiry.';
 

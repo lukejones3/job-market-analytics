@@ -2361,7 +2361,9 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                   OR lower(jp.description_text) LIKE '%%base pay%%'
                   OR lower(jp.description_text) LIKE '%%pay rate%%'
               )
-            ORDER BY jp.ingested_at DESC
+            -- Oldest missing work first prevents a sustained daily intake from
+            -- permanently starving yesterday's incomplete rows.
+            ORDER BY jp.ingested_at ASC
             LIMIT %s
             """,
             (limit,),
@@ -2398,7 +2400,9 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
                 -- Tier 2: only experience_level inference needed
                 (COALESCE(jp.data_tier,1) = 2 AND jp.experience_level IS NULL)
               )
-            ORDER BY jp.ingested_at DESC
+            -- Drain the enrichment backlog fairly instead of repeatedly
+            -- selecting only the newest arrivals under the nightly limit.
+            ORDER BY jp.ingested_at ASC
             LIMIT %s
             """,
             (limit,),
@@ -2510,7 +2514,8 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
         pj = parse_dimensions(desc, skip_salary_llm=True)
 
         # Scalar field updates (workplace, employment, experience, salary from regex)
-        scalar_fields, scalar_params = [], []
+        scalar_fields = ["enrichment_input_hash=%s"]
+        scalar_params = [hashlib.md5(desc.encode("utf-8")).hexdigest()]
         if pj.workplace_type and pj.workplace_type != job["workplace_type"]:
             scalar_fields.append("workplace_type=%s"); scalar_params.append(pj.workplace_type)
         if pj.employment_type and pj.employment_type != job["employment_type"]:

@@ -56,11 +56,11 @@ def main():
                   AND jp.status != 'expired'
                   AND jp.ingestion_source = ANY(%s)
                   AND jp.crawl_tenant IS NOT NULL
-                  AND EXISTS (
-                      SELECT 1 FROM job_postings seen
-                      WHERE seen.ingestion_source = jp.ingestion_source
-                        AND seen.crawl_tenant = jp.crawl_tenant
-                        AND seen.last_seen_at >= COALESCE(%s::timestamptz, now() - interval '12 hours'))
+                  AND EXISTS (SELECT 1 FROM ingestion_tenant_runs tr
+                      JOIN ingestion_crawl_runs cr ON cr.run_id=tr.run_id
+                      WHERE cr.orchestration_run_id=%s
+                        AND tr.source=jp.ingestion_source AND tr.crawl_tenant=jp.crawl_tenant
+                        AND tr.status IN ('complete_nonzero','complete_zero'))
                   AND jp.last_seen_at < now() - interval '1 day'
                 ON CONFLICT DO NOTHING
             """, (healthy_sources, args.since))
@@ -75,11 +75,11 @@ def main():
                 AND jp.status != 'expired'
                 AND jp.ingestion_source = ANY(%s)
                 AND jp.crawl_tenant IS NOT NULL
-                AND EXISTS (
-                    SELECT 1 FROM job_postings seen
-                    WHERE seen.ingestion_source = jp.ingestion_source
-                      AND seen.crawl_tenant = jp.crawl_tenant
-                      AND seen.last_seen_at >= COALESCE(%s::timestamptz, now() - interval '12 hours'))
+                AND EXISTS (SELECT 1 FROM ingestion_tenant_runs tr
+                    JOIN ingestion_crawl_runs cr ON cr.run_id=tr.run_id
+                    WHERE cr.orchestration_run_id=%s
+                      AND tr.source=jp.ingestion_source AND tr.crawl_tenant=jp.crawl_tenant
+                      AND tr.status IN ('complete_nonzero','complete_zero'))
                 AND jp.last_seen_at < now() - interval '1 day'
             """, (healthy_sources, args.since))
             expired = cur.rowcount

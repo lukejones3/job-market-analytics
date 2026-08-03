@@ -264,6 +264,8 @@ def market_overview(key: dict = Depends(verify_api_key), conn=Depends(get_conn))
         FROM job_postings jp
         LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
         WHERE jp.data_tier = 1 AND jp.status = 'raw'
+          AND jp.role_id IS NOT NULL
+          AND COALESCE(jp.loc_country, 'unknown') IN ('US', 'unknown')
     """)
     overview = dict(cur.fetchone())
 
@@ -280,6 +282,8 @@ def market_overview(key: dict = Depends(verify_api_key), conn=Depends(get_conn))
         SELECT source, COUNT(*) as active_roles
         FROM job_postings
         WHERE data_tier = 1 AND status = 'raw'
+          AND role_id IS NOT NULL
+          AND COALESCE(loc_country, 'unknown') IN ('US', 'unknown')
         GROUP BY source ORDER BY active_roles DESC
     """)
     sources = [dict(r) for r in cur.fetchall()]
@@ -301,7 +305,8 @@ def market_roles(
 ):
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
-    where = ["jp.data_tier = 1", "jp.status = 'raw'"]
+    where = ["jp.data_tier = 1", "jp.status = 'raw'", "jp.role_id IS NOT NULL",
+             "COALESCE(jp.loc_country, 'unknown') IN ('US', 'unknown')"]
     params = []
 
     if family:
@@ -495,7 +500,7 @@ def list_companies(
     cur.execute(f"""
         SELECT COUNT(*) as total
         FROM analytics_analytics.mart_company_scorecard
-        WHERE {' AND '.join(where[:-0] if where else ['1=1'])}
+        WHERE {' AND '.join(where) if where else '1=1'}
     """, params[:-2])
     total = cur.fetchone()["total"]
 
@@ -581,7 +586,8 @@ def company_roles(
             jp.salary_min_annual, jp.salary_max_annual, jp.salary_period,
             jp.job_url, jp.posted_date, jp.ingested_at,
             l.location, l.state,
-            g.ghost_probability, g.ghost_tier,
+            g.ghost_probability, g.ghost_tier, g.score_confidence,
+            g.age_risk, g.reappearance_count, g.related_posting_count,
             jh.honesty_score
         FROM job_postings jp
         JOIN roles r ON r.role_id = jp.role_id
@@ -653,7 +659,8 @@ def list_roles(
 ):
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
-    where = ["jp.data_tier = 1", "jp.status = 'raw'"]
+    where = ["jp.data_tier = 1", "jp.status = 'raw'", "jp.role_id IS NOT NULL",
+             "COALESCE(jp.loc_country, 'unknown') IN ('US', 'unknown')"]
     params = {}
 
     if family:
@@ -681,6 +688,15 @@ def list_roles(
     params["limit"]  = limit
     params["offset"] = offset
 
+    count_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
+    cur.execute(f"""SELECT COUNT(*) AS total
+        FROM job_postings jp
+        JOIN roles r ON r.role_id=jp.role_id
+        LEFT JOIN companies c ON c.company_id=jp.company_id
+        LEFT JOIN vw_ghost_job_index g ON g.job_id=jp.job_id
+        WHERE {' AND '.join(where)}""", count_params)
+    total = cur.fetchone()["total"]
+
     cur.execute(f"""
         SELECT jp.job_id, r.role_name,
             {ROLE_FAMILY_SQL}                   as role_family,
@@ -689,7 +705,8 @@ def list_roles(
             jp.salary_min_annual, jp.salary_max_annual,
             jp.job_url, jp.posted_date,
             l.location, l.state,
-            g.ghost_probability, g.ghost_tier,
+            g.ghost_probability, g.ghost_tier, g.score_confidence,
+            g.age_risk, g.reappearance_count, g.related_posting_count,
             jh.honesty_score
         FROM job_postings jp
         JOIN roles r ON r.role_id = jp.role_id
@@ -706,6 +723,7 @@ def list_roles(
     return {
         "filters":      {k: v for k, v in params.items() if k not in ("limit","offset")},
         "count":        len(results),
+        "total":        total,
         "limit":        limit,
         "offset":       offset,
         "results":      results,
@@ -727,7 +745,8 @@ def role_detail(
             jp.salary_min_annual, jp.salary_max_annual, jp.salary_period,
             jp.job_url, jp.posted_date, jp.ingested_at, jp.source,
             l.location, l.state,
-            g.ghost_probability, g.ghost_tier,
+            g.ghost_probability, g.ghost_tier, g.score_confidence,
+            g.age_risk, g.reappearance_count, g.related_posting_count,
             jh.honesty_score
         FROM job_postings jp
         JOIN roles r ON r.role_id = jp.role_id
@@ -735,7 +754,9 @@ def role_detail(
         LEFT JOIN locations l ON l.location_id = jp.location_id
         LEFT JOIN vw_ghost_job_index g ON g.job_id = jp.job_id
         LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
-        WHERE jp.job_id = %s AND jp.data_tier = 1
+        WHERE jp.job_id = %s AND jp.data_tier = 1 AND jp.status = 'raw'
+          AND jp.role_id IS NOT NULL
+          AND COALESCE(jp.loc_country, 'unknown') IN ('US', 'unknown')
     """, (job_id,))
 
     role = cur.fetchone()

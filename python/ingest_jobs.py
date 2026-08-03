@@ -1416,8 +1416,17 @@ def ingest_job(cur, job: RawJob) -> bool:
 
     # LOC_PATCH_v1: normalize location once at insert (single source of truth)
     _loc = normalize_location(job.location, job.workplace_type)
+    # Lander is intentionally US-only.  Keep the API predicate as defense in
+    # depth, but do not spend storage/enrichment work on explicitly foreign rows.
+    if _loc.country == "foreign":
+        return False
     crawl_tenant = str(job.metadata.get("board_token") or job.metadata.get("slug") or
                        job.metadata.get("tenant") or job.metadata.get("workable_company_id") or "") or None
+
+    cur.execute("SELECT desc_hash, status, last_seen_at FROM job_postings WHERE job_id=%s", (job_id,))
+    previous = cur.fetchone()
+    description_changed = bool(previous and previous["desc_hash"] != desc_hash)
+    was_expired = bool(previous and previous["status"] == "expired")
 
     cur.execute(
         """
@@ -1491,6 +1500,26 @@ def ingest_job(cur, job: RawJob) -> bool:
     )
 
     inserted = cur.rowcount > 0
+
+    # Derived values are a cache of source inputs.  A changed description must
+    # invalidate them or an old classification/embedding can be published with
+    # new source text indefinitely.
+    if description_changed:
+        cur.execute("""UPDATE job_postings SET domain=NULL, role_category=NULL,
+            role_classified_at=NULL, embedding=NULL, experience_level=NULL,
+            experience_level_v2=NULL, enrichment_input_hash=NULL
+            WHERE job_id=%s""", (job_id,))
+        cur.execute("DELETE FROM job_skills WHERE job_id=%s", (job_id,))
+
+    event_type = "reappeared" if was_expired else ("appeared" if previous is None else None)
+    if event_type:
+        cur.execute("""INSERT INTO job_posting_events
+            (job_id, event_type, observed_at, gap_days, source, posted_date)
+            VALUES (%s, %s, now(), CASE WHEN %s THEN
+                EXTRACT(DAYS FROM now()-%s::timestamptz)::int END, %s, %s)
+            ON CONFLICT DO NOTHING""",
+            (job_id, event_type, was_expired,
+             previous["last_seen_at"] if previous else None, job.source, job.posted_date))
 
     # If inserted and we have company/title, pre-populate those fields
     # (enrich_job_postings.py will fill the rest via NLP)
@@ -3160,11 +3189,27 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
 
     # ---- Pipeline logging in a SEPARATE transaction so it can never roll back job data ----
     try:
+        # A tenant is eligible for expiry only when this run explicitly records
+        # it as completed.  Sources that cannot yet report page expectations
+        # still get exact observed-tenant accounting, never inferred completion
+        # from an unrelated tenant's success.
+        cur.execute("""INSERT INTO ingestion_tenant_runs
+            (run_id, source, crawl_tenant, status, jobs_fetched)
+            SELECT %s, ingestion_source, crawl_tenant, 'complete_nonzero', COUNT(*)
+            FROM job_postings
+            WHERE ingestion_source=%s AND crawl_tenant IS NOT NULL
+              AND last_seen_at >= (SELECT started_at FROM ingestion_crawl_runs WHERE run_id=%s)
+            GROUP BY ingestion_source, crawl_tenant
+            ON CONFLICT (run_id, source, crawl_tenant) DO UPDATE
+            SET status=EXCLUDED.status, jobs_fetched=EXCLUDED.jobs_fetched""",
+            (run_id, source, run_id))
         log_pipeline_run(cur, run_id, source, inserted, skipped, errors)
         crawl_status = "partial_failure" if errors else "complete_nonzero"
         cur.execute("""UPDATE ingestion_crawl_runs SET finished_at=now(), status=%s,
-            jobs_fetched=%s, jobs_written=%s, errors=%s WHERE run_id=%s""",
-            (crawl_status, len(deduped), inserted + skipped, errors, run_id))
+            jobs_fetched=%s, jobs_written=%s, errors=%s,
+            detail=detail || jsonb_build_object('rejected_or_unchanged', %s)
+            WHERE run_id=%s""",
+            (crawl_status, len(deduped), inserted, errors, skipped, run_id))
         conn.commit()
     except Exception as e:
         log.warning(f"Pipeline run logging failed (data already committed safely): {e}")

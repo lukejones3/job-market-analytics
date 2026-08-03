@@ -51,12 +51,21 @@ def main():
                 raise RuntimeError(f"ingest gate failed; no current-run rows for: {', '.join(missing)}")
             print(f"ingest gate passed: " + ", ".join(f"{s}={counts.get(s, 0)}" for s in INGEST_SOURCES))
         else:
-            active = scalar(cursor, "SELECT COUNT(*) FROM job_postings WHERE status='raw' AND data_tier=1")
+            publication = """status='raw' AND data_tier=1 AND role_id IS NOT NULL
+                AND COALESCE(loc_country,'unknown') IN ('US','unknown')"""
+            active = scalar(cursor, f"SELECT COUNT(*) FROM job_postings WHERE {publication}")
             missing = scalar(cursor, """SELECT COUNT(*) FROM job_postings
                 WHERE status='raw' AND data_tier=1 AND company_id IS NULL""")
-            if active < 1000 or missing > max(25, active // 100):
-                raise RuntimeError(f"publish gate failed: active={active}, missing_company={missing}")
-            print(f"publish gate passed: active={active}, missing_company={missing}")
+            foreign = scalar(cursor, """SELECT COUNT(*) FROM job_postings
+                WHERE status='raw' AND data_tier=1 AND loc_country='foreign'""")
+            incomplete = scalar(cursor, f"""SELECT COUNT(*) FROM job_postings WHERE {publication}
+                AND (company_id IS NULL OR domain IS NULL OR role_category IS NULL
+                     OR experience_level IS NULL OR embedding IS NULL
+                     OR description_text IS NULL OR length(description_text)<100)""")
+            if active < 1000 or missing > max(25, active // 100) or incomplete > max(100, active // 20):
+                raise RuntimeError(f"publish gate failed: active={active}, missing_company={missing}, "
+                                   f"foreign_excluded={foreign}, incomplete={incomplete}")
+            print(f"publish gate passed: active={active}, foreign_excluded={foreign}, incomplete={incomplete}")
 
 if __name__ == "__main__":
     main()

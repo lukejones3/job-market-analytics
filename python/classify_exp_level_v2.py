@@ -143,11 +143,15 @@ def classify_jobs(conn, clf, apply: bool) -> None:
         log.info(f"Dry-run: would write {len(updates):,} jobs. Pass --apply to commit.")
         return
 
+    # Downstream API/marts use the canonical four-level vocabulary.  Make the
+    # v2 classifier authoritative without leaking its training labels.
+    canonical = {"junior": "entry", "lead": "senior"}
+    canonical_updates = [(canonical.get(level, level), job_id) for level, job_id in updates]
     with conn.cursor() as cur:
         execute_batch(
             cur,
-            "UPDATE job_postings SET experience_level_v2 = %s WHERE job_id = %s",
-            updates,
+            "UPDATE job_postings SET experience_level_v2 = %s, experience_level = %s WHERE job_id = %s",
+            [(level, level, job_id) for level, job_id in canonical_updates],
             page_size=500,
         )
     conn.commit()

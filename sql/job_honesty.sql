@@ -213,6 +213,7 @@ BEGIN
         LEFT JOIN companies c ON c.company_id  = jp.company_id
         -- Tier 1 only — full descriptions required for meaningful scoring
         WHERE COALESCE(jp.data_tier, 1) = 1
+          AND jp.status = 'raw'
           AND jp.description_text IS NOT NULL
           AND length(jp.description_text) > 100
     ),

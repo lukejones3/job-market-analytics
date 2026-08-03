@@ -17,8 +17,40 @@ CREATE TABLE IF NOT EXISTS ingestion_crawl_runs (
 CREATE INDEX IF NOT EXISTS idx_ingestion_crawl_runs_source_finished
     ON ingestion_crawl_runs (source, finished_at DESC);
 
+CREATE TABLE IF NOT EXISTS ingestion_tenant_runs (
+    run_id text NOT NULL REFERENCES ingestion_crawl_runs(run_id) ON DELETE CASCADE,
+    source text NOT NULL,
+    crawl_tenant text NOT NULL,
+    status text NOT NULL CHECK (status IN ('complete_nonzero', 'complete_zero', 'partial_failure', 'failed')),
+    jobs_fetched integer NOT NULL DEFAULT 0,
+    pages_fetched integer,
+    pages_expected integer,
+    errors integer NOT NULL DEFAULT 0,
+    detail jsonb NOT NULL DEFAULT '{}'::jsonb,
+    PRIMARY KEY (run_id, source, crawl_tenant)
+);
+
+CREATE INDEX IF NOT EXISTS idx_ingestion_tenant_runs_complete
+    ON ingestion_tenant_runs (source, crawl_tenant, run_id);
+
 ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS canonical_opportunity_id text;
 ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS crawl_tenant text;
+ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS enrichment_input_hash text;
+ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS expired_reason text;
+
+CREATE TABLE IF NOT EXISTS job_posting_events (
+    event_id bigserial PRIMARY KEY,
+    job_id text NOT NULL REFERENCES job_postings(job_id),
+    event_type text NOT NULL CHECK (event_type IN ('appeared','disappeared','reappeared')),
+    observed_at timestamptz NOT NULL DEFAULT now(),
+    gap_days integer,
+    source text,
+    posted_date date
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_jpe_job_event_observed
+    ON job_posting_events (job_id, event_type, observed_at);
+CREATE INDEX IF NOT EXISTS idx_jpe_job_event
+    ON job_posting_events (job_id, event_type, observed_at DESC);
 CREATE INDEX IF NOT EXISTS idx_job_postings_canonical_opportunity
     ON job_postings (canonical_opportunity_id)
     WHERE canonical_opportunity_id IS NOT NULL;
