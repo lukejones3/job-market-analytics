@@ -37,6 +37,7 @@ from psycopg2.extras import DictCursor
 
 sys.path.insert(0, str(Path(__file__).parent))
 from location_normalizer import normalize_location
+from role_taxonomy import SEARCH_TERMS, is_target_role
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -55,26 +56,7 @@ MAX_PAGES_PER_TERM = 20  # cap at 400 raw results per term (~100-200 US after fi
 
 USER_AGENT = "LanderJobBot/1.0 contact: jones31luke@gmail.com"
 
-SEARCH_TERMS = [
-    "data analyst",
-    "data engineer",
-    "data scientist",
-    "machine learning engineer",
-    "analytics engineer",
-    "business intelligence analyst",
-    "ml engineer",
-    "ai engineer",
-    "mlops engineer",
-    "quantitative analyst",
-    "research scientist",
-    "applied scientist",
-    "revenue operations analyst",
-    "product analyst",
-    "marketing analyst",
-    "data architect",
-    "analytics manager",
-    "data science manager",
-]
+SEARCH_TERMS = list(SEARCH_TERMS)
 
 US_COUNTRY_NAMES = {
     "united states", "usa", "us", "u.s.", "u.s.a.",
@@ -144,11 +126,7 @@ _BLOCK_RE = re.compile(
 
 
 def _is_target_role(title: str) -> bool:
-    if not title:
-        return False
-    if _BLOCK_RE.search(title):
-        return False
-    return bool(_TARGET_RE.search(title))
+    return is_target_role(title)
 
 
 def get_conn():

@@ -45,6 +45,9 @@ import psycopg2
 from psycopg2.extras import DictCursor
 
 sys.path.insert(0, str(Path(__file__).parent))
+from role_taxonomy import SEARCH_TERMS, is_target_role
+
+sys.path.insert(0, str(Path(__file__).parent))
 from location_normalizer import normalize_location
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
@@ -60,14 +63,7 @@ REQUEST_DELAY = 0.7
 REQUEST_TIMEOUT = 15
 USER_AGENT = "LanderJobBot/1.0 contact: jones31luke@gmail.com"
 
-SEARCH_KEYWORDS = [
-    "data analyst",
-    "data engineer",
-    "data scientist",
-    "machine learning",
-    "analytics",
-    "business intelligence",
-]
+SEARCH_KEYWORDS = list(SEARCH_TERMS)
 
 # Taleo section names to probe in order of frequency
 TALEO_SECTIONS = ["2", "10", "externalsite", "External", "careersection"]
@@ -168,11 +164,7 @@ _BLOCK_RE = re.compile(
 
 
 def _is_target_role(title: str) -> bool:
-    if not title:
-        return False
-    if _BLOCK_RE.search(title):
-        return False
-    return bool(_TARGET_RE.search(title))
+    return is_target_role(title)
 
 
 def get_conn():
@@ -366,60 +358,54 @@ def fetch_taleo(company_name: str, slug: str, section: Optional[str] = None) -> 
     seen_ids: set = set()
 
     for keyword in SEARCH_KEYWORDS:
-        # Try GET first (most Taleo versions support keyword param)
-        params = {"lang": "en", "keyword": keyword, "searchExpanded": "true"}
-        html = _get_html(search_url, params=params)
-        time.sleep(REQUEST_DELAY)
-
-        if not html:
-            continue
-
-        listings = _parse_taleo_listings(html)
-        log.debug(f"  Taleo [{company_name}] keyword='{keyword}': {len(listings)} candidates")
-
-        for job_id, title, location in listings:
-            if job_id in seen_ids:
-                continue
-            if not title or not _is_target_role(title):
-                continue
-            seen_ids.add(job_id)
-
-            # Fetch full description
-            desc, detail_location, posted_date = _fetch_taleo_description(slug, working_section, job_id)
+        page = 0
+        while True:
+            params = {"lang": "en", "keyword": keyword, "searchExpanded": "true",
+                      "start": str(page * 25)}
+            html = _get_html(search_url, params=params)
             time.sleep(REQUEST_DELAY)
+            if not html:
+                break
+            listings = _parse_taleo_listings(html)
+            new_listings = [listing for listing in listings if listing[0] not in seen_ids]
+            log.debug(f"  Taleo [{company_name}] keyword='{keyword}' page={page + 1}: {len(listings)} candidates")
+            if page and not new_listings:
+                break
 
-            if not location and detail_location:
-                location = detail_location
+            for job_id, title, location in new_listings:
+                seen_ids.add(job_id)
+                if not title or not _is_target_role(title):
+                    continue
 
-            # US filter
-            loc_lower = (location or "").lower()
-            if "remote" in loc_lower or "virtual" in loc_lower:
-                workplace_type = "remote"
-            elif "hybrid" in loc_lower:
-                workplace_type = "hybrid"
-            else:
-                workplace_type = None
+                desc, detail_location, posted_date = _fetch_taleo_description(slug, working_section, job_id)
+                time.sleep(REQUEST_DELAY)
 
-            if normalize_location(location, workplace_type).should_drop:
-                continue
+                if not location and detail_location:
+                    location = detail_location
 
-            job_url = (
-                f"https://{slug}.taleo.net/careersection/{working_section}"
-                f"/jobdetail.ftl?job={job_id}&lang=en"
-            )
+                loc_lower = (location or "").lower()
+                if "remote" in loc_lower or "virtual" in loc_lower:
+                    workplace_type = "remote"
+                elif "hybrid" in loc_lower:
+                    workplace_type = "hybrid"
+                else:
+                    workplace_type = None
 
-            jobs.append(RawJob(
-                source="taleo",
-                source_id=f"{slug}_{job_id}",
-                title=title,
-                company=company_name,
-                location=location,
-                description=desc,
-                job_url=job_url,
-                workplace_type=workplace_type,
-                posted_date=posted_date,
-                metadata={"slug": slug, "section": working_section, "taleo_job_id": job_id},
-            ))
+                if normalize_location(location, workplace_type).should_drop:
+                    continue
+
+                job_url = (f"https://{slug}.taleo.net/careersection/{working_section}"
+                           f"/jobdetail.ftl?job={job_id}&lang=en")
+
+                jobs.append(RawJob(source="taleo", source_id=f"{slug}_{job_id}",
+                    title=title, company=company_name, location=location,
+                    description=desc, job_url=job_url, workplace_type=workplace_type,
+                    posted_date=posted_date,
+                    metadata={"slug": slug, "section": working_section, "taleo_job_id": job_id}))
+
+            if len(listings) < 25:
+                break
+            page += 1
 
     log.info(f"  Taleo [{company_name}]: {len(jobs)} target roles found")
     return jobs

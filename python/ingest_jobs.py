@@ -42,6 +42,7 @@ from dotenv import load_dotenv
 import psycopg2
 # LOC_PATCH_v1
 from location_normalizer import normalize_location
+from role_taxonomy import is_target_role
 
 # New ATS harvesters — imported here so `--source all` includes them
 try:
@@ -929,13 +930,7 @@ _KW_EXCLUDE_RE = re.compile("|".join([
 
 def _is_knowledge_worker_title(title: str) -> bool:
     """True if title belongs to one of the 8 target knowledge-worker verticals."""
-    if not title:
-        return False
-    if not _KW_INCLUDE_RE.search(title):
-        return False
-    if _KW_EXCLUDE_RE.search(title):
-        return False
-    return True
+    return is_target_role(title)
 
 
 def _is_target_role(title: str) -> bool:
@@ -1076,13 +1071,14 @@ def fetch_greenhouse(company_name: str, board_token: str) -> List[RawJob]:
 
         # Location
         offices = j.get("offices", [])
-        location = offices[0].get("name", "") if offices else ""
-
-        # Remote flag
+        office_names = [_clean(o.get("name", "")) for o in offices if o.get("name")]
         is_remote = any(
             "remote" in (o.get("name", "") or "").lower()
             for o in offices
         )
+        acceptable_locations = [name for name in office_names
+            if not normalize_location(name, "remote" if "remote" in name.lower() else None).should_drop]
+        location = acceptable_locations[0] if acceptable_locations else (office_names[0] if office_names else "")
 
         # LOC_PATCH_v1: drop foreign via normalize_location
         if normalize_location(location, "remote" if is_remote else None).should_drop:
@@ -1451,9 +1447,18 @@ def ingest_job(cur, job: RawJob) -> bool:
         )
         ON CONFLICT (job_id) DO UPDATE SET
             last_seen_at = now(),
-            loc_country  = COALESCE(job_postings.loc_country, EXCLUDED.loc_country),
-            loc_city     = COALESCE(job_postings.loc_city,    EXCLUDED.loc_city),
-            loc_state    = COALESCE(job_postings.loc_state,   EXCLUDED.loc_state)
+            status = 'raw', expired_reason = NULL,
+            description_text = EXCLUDED.description_text,
+            desc_hash = EXCLUDED.desc_hash,
+            posted_date = COALESCE(EXCLUDED.posted_date, job_postings.posted_date),
+            salary_min = EXCLUDED.salary_min, salary_max = EXCLUDED.salary_max,
+            salary_period = EXCLUDED.salary_period,
+            workplace_type = EXCLUDED.workplace_type,
+            employment_type = EXCLUDED.employment_type,
+            job_url = EXCLUDED.job_url,
+            loc_country = EXCLUDED.loc_country,
+            loc_city = EXCLUDED.loc_city,
+            loc_state = EXCLUDED.loc_state
         """,
         (
             job_id,
@@ -2815,7 +2820,7 @@ def fetch_amazon() -> List[RawJob]:
                     ))
 
                 offset += limit
-                if offset >= min(total, 200):  # cap at 200 per term
+                if offset >= total:
                     break
                 time.sleep(0.4)
 
@@ -2917,7 +2922,9 @@ def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJ
                         pass
                     time.sleep(0.3)
 
-                    location = locations[0] if locations else ""
+                    acceptable_locations = [loc for loc in locations
+                        if not normalize_location(loc, "remote" if "remote" in loc.lower() else None).should_drop]
+                    location = acceptable_locations[0] if acceptable_locations else (locations[0] if locations else "")
                     workplace_type = None
                     wlo = p.get("workLocationOption", "")
                     if wlo and "remote" in wlo.lower():
@@ -2942,7 +2949,7 @@ def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJ
                     ))
 
                 start += num
-                if count > 0 and start >= min(count, 500):
+                if count > 0 and start >= count:
                     break
                 time.sleep(0.4)
 
@@ -3026,8 +3033,7 @@ def run_ingestion(source: str, apply: bool) -> None:
     log.info(f"Total fetched across all sources: {len(all_jobs)}")
 
     if not all_jobs:
-        log.info("Nothing to ingest.")
-        return
+        raise RuntimeError(f"{source} returned no jobs; refusing to report a successful crawl")
 
     # Deduplicate within this batch by source+source_id
     seen = set()
@@ -3038,129 +3044,9 @@ def run_ingestion(source: str, apply: bool) -> None:
             seen.add(key)
             deduped.append(job)
 
-    # Cross-source dedup — same company + title + location should not be inserted twice
-    # regardless of which ATS source it came from.
-    # Location logic:
-    #   - Remote roles: location normalized to "remote" (source doesn't matter)
-    #   - Onsite/hybrid: use first city segment for city-level dedup
-    #   - Unknown location: use "unknown"
-    def _norm_location(job) -> str:
-        if job.workplace_type == "remote":
-            return "remote"
-        loc = (job.location or "").strip().lower()
-        if not loc or loc in ("united states", "us", "usa", ""):
-            return "unknown"
-        return loc.split(",")[0].strip()
-
-    # Load existing jobs from DB for cross-source dedup
-    # Build two sets:
-    #   active_cross_keys  — raw/active jobs (block re-insertion)
-    #   expired_cross_keys — expired jobs keyed by (company, title, loc) -> job_id
-    #                        When a match is found, update last_seen_at instead of dropping
-    try:
-        _conn = get_conn()
-        _cur = _conn.cursor()
-        _cur.execute("""
-            SELECT lower(c.company_name), lower(r.role_name),
-                   CASE
-                       WHEN jp.workplace_type = 'remote' THEN 'remote'
-                       WHEN l.location IS NULL OR l.location = '' THEN 'unknown'
-                       ELSE lower(split_part(l.location, ',', 1))
-                   END,
-                   jp.status,
-                   jp.job_id
-            FROM job_postings jp
-            JOIN companies c ON c.company_id = jp.company_id
-            JOIN roles r ON r.role_id = jp.role_id
-            LEFT JOIN locations l ON l.location_id = jp.location_id
-            WHERE jp.data_tier = 1
-        """)
-        rows = _cur.fetchall()
-        _cur.close()
-        _conn.close()
-
-        active_cross_keys = {}  # (company, title, loc) -> job_id
-        expired_cross_map = {}  # (company, title, loc) -> job_id
-        for company, title, loc, status, job_id in rows:
-            key = (company, title, loc)
-            if status == 'raw':
-                active_cross_keys[key] = job_id
-            else:
-                expired_cross_map[key] = job_id
-
-        log.info(f"Loaded {len(active_cross_keys)} active + {len(expired_cross_map)} expired Tier 1 job keys for cross-source dedup")
-    except Exception as e:
-        log.warning(f"Could not load existing jobs for cross-source dedup: {e}")
-        active_cross_keys = set()
-        expired_cross_map = {}
-
-    cross_seen = set(active_cross_keys.keys())
-    deduped_final = []
-    reactivated = 0
-    _seen_job_ids = set()  # job_ids to touch last_seen_at in batch
-
-    for job in deduped:
-        if is_company_blocked(job.company):
-            continue
-        loc_key = _norm_location(job)
-        cross_key = (
-            job.company.lower().strip(),
-            job.title.lower().strip(),
-            loc_key
-        )
-        if cross_key in cross_seen:
-            # Already active in DB — collect job_id for batch last_seen_at update
-            if apply and cross_key in active_cross_keys:
-                _seen_job_ids.add(active_cross_keys[cross_key])
-            continue
-
-        if cross_key in expired_cross_map:
-            # Job was expired but is live again — reactivate by updating last_seen_at
-            if apply:
-                try:
-                    _conn = get_conn()
-                    _cur = _conn.cursor()
-                    _cur.execute("""
-                        UPDATE job_postings
-                        SET last_seen_at = now(), status = 'raw'
-                        WHERE job_id = %s
-                    """, (expired_cross_map[cross_key],))
-                    _conn.commit()
-                    _cur.close()
-                    _conn.close()
-                    reactivated += 1
-                except Exception as e:
-                    log.warning(f"Could not reactivate job {expired_cross_map[cross_key]}: {e}")
-            cross_seen.add(cross_key)
-            continue
-
-        cross_seen.add(cross_key)
-        deduped_final.append(job)
-
-    # Batch update last_seen_at for all deduped-but-active jobs
-    if apply and _seen_job_ids:
-        try:
-            _conn = get_conn()
-            _cur = _conn.cursor()
-            _cur.execute(
-                "UPDATE job_postings SET last_seen_at = now() WHERE job_id = ANY(%s)",
-                (list(_seen_job_ids),)
-            )
-            _conn.commit()
-            _cur.close()
-            _conn.close()
-            log.info(f"Touched last_seen_at for {len(_seen_job_ids)} deduped active jobs")
-        except Exception as e:
-            log.warning(f"Batch last_seen_at update failed: {e}")
-
-    removed = len(deduped) - len(deduped_final) - reactivated
-    if removed > 0:
-        log.info(f"Cross-source title+location dedup removed {removed} duplicate postings")
-    if reactivated > 0:
-        log.info(f"Cross-source dedup reactivated {reactivated} previously expired jobs")
-    deduped = deduped_final
-
-    log.info(f"After batch dedup: {len(deduped)} jobs")
+    # A source's requisition ID is the only safe identity key. Similar titles and
+    # locations are useful for canonical grouping, but are not proof of duplicates.
+    log.info(f"After source-ID dedup: {len(deduped)} jobs")
 
     if not apply:
         # Dry run — just show what would be inserted
@@ -3191,6 +3077,7 @@ def run_ingestion(source: str, apply: bool) -> None:
 
     for job in deduped:
         try:
+            cur.execute("SAVEPOINT ingest_one")
             was_inserted = ingest_job(cur, job)
             if was_inserted:
                 inserted += 1
@@ -3202,7 +3089,7 @@ def run_ingestion(source: str, apply: bool) -> None:
         except Exception as e:
             log.error(f"  ❌ Failed [{job.source}] {job.company} — {job.title}: {e}")
             log.error(f"     job_id={_md5_id('J', f'{job.source}|{job.source_id}')}")
-            conn.rollback()
+            cur.execute("ROLLBACK TO SAVEPOINT ingest_one")
             errors += 1
             continue
 
@@ -3230,28 +3117,6 @@ def run_ingestion(source: str, apply: bool) -> None:
         log.warning(f"Lever salary annualization failed: {e}")
         conn.rollback()
 
-    # ---- Remote dedup: keep latest posting per (company, role) for remote jobs ----
-    try:
-        cur.execute("""
-            UPDATE job_postings jp
-            SET status = 'ignored'
-            WHERE jp.status = 'raw'
-              AND jp.workplace_type = 'remote'
-              AND jp.job_id NOT IN (
-                SELECT DISTINCT ON (company_id, role_id) job_id
-                FROM job_postings
-                WHERE status = 'raw' AND workplace_type = 'remote'
-                ORDER BY company_id, role_id, date_found DESC, ingested_at DESC
-              )
-        """)
-        deduped_remote = cur.rowcount
-        if deduped_remote > 0:
-            log.info(f"Remote dedup: marked {deduped_remote} duplicate remote postings as ignored")
-        conn.commit()
-    except Exception as e:
-        log.warning(f"Remote dedup pass failed: {e}")
-        conn.rollback()
-
     # ---- Pipeline logging in a SEPARATE transaction so it can never roll back job data ----
     try:
         log_pipeline_run(cur, run_id, source, inserted, skipped, errors)
@@ -3262,6 +3127,9 @@ def run_ingestion(source: str, apply: bool) -> None:
 
     cur.close()
     conn.close()
+
+    if errors:
+        raise RuntimeError(f"{source} crawl had {errors} database write errors")
 
     log.info("Done. Run enrich_job_postings.py --apply --only-missing to enrich new records.")
 

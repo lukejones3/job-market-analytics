@@ -63,7 +63,8 @@ def _board_token(ats: str, tenant: str, server: Optional[str]) -> Optional[str]:
     if ats == "workday":
         if not server:
             return None   # no server → cannot build a valid harvester URL
-        return f"{tenant}/{server}/External"
+        server_name, _, board = server.partition("/")
+        return f"{tenant}/{server_name}/{board or 'External'}"
     return tenant
 
 

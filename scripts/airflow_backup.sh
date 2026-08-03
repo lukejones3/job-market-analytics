@@ -9,6 +9,7 @@ install -d -m 0770 "$backup_dir"
 rm -f "$temporary"
 pg_dump --format=custom --file="$temporary"
 pg_restore --list "$temporary" >/dev/null
+pg_restore --file=/dev/null "$temporary"
 chmod 0660 "$temporary"
 mv -f "$temporary" "$final"
 find "$backup_dir" -type f -name 'job_analytics_*.dump' -mtime +7 -delete

@@ -36,6 +36,7 @@ import psycopg2
 from psycopg2.extras import DictCursor
 import requests
 from dotenv import load_dotenv
+from role_taxonomy import is_target_role
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -118,15 +119,7 @@ _BLOCK_PATTERNS = [re.compile(p, re.IGNORECASE) for p in [
 
 
 def _is_target_role(title: str) -> bool:
-    if not title:
-        return False
-    for pat in _BLOCK_PATTERNS:
-        if pat.search(title):
-            return False
-    for pat in _PHRASE_PATTERNS:
-        if pat.search(title):
-            return True
-    return False
+    return is_target_role(title)
 
 
 US_SIGNALS = {
@@ -354,9 +347,9 @@ def validate_workday(row: Dict) -> Tuple[Optional[str], int, int, str]:
 
     us_jobs, data_ml_jobs = _wd_count_jobs(tenant, server, board)
     if us_jobs >= 5:
-        return server, us_jobs, data_ml_jobs, "active"
+        return f"{server}/{board}", us_jobs, data_ml_jobs, "active"
     elif us_jobs > 0:
-        return server, us_jobs, data_ml_jobs, "no_data_jobs"
+        return f"{server}/{board}", us_jobs, data_ml_jobs, "no_data_jobs"
     else:
         return server, 0, 0, "unreachable"
 

@@ -43,6 +43,7 @@ from psycopg2.extras import DictCursor
 
 sys.path.insert(0, str(Path(__file__).parent))
 from location_normalizer import normalize_location
+from role_taxonomy import SEARCH_TERMS, is_target_role
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -57,15 +58,7 @@ REQUEST_DELAY = 0.6
 REQUEST_TIMEOUT = 15
 USER_AGENT = "LanderJobBot/1.0 contact: jones31luke@gmail.com"
 
-SEARCH_KEYWORDS = [
-    "data analyst",
-    "data engineer",
-    "data scientist",
-    "machine learning",
-    "analytics engineer",
-    "business intelligence",
-    "quantitative analyst",
-]
+SEARCH_KEYWORDS = list(SEARCH_TERMS)
 
 # ============================================================
 # COMPANY LIST
@@ -173,11 +166,7 @@ _BLOCK_RE = re.compile(
 
 
 def _is_target_role(title: str) -> bool:
-    if not title:
-        return False
-    if _BLOCK_RE.search(title):
-        return False
-    return bool(_TARGET_RE.search(title))
+    return is_target_role(title)
 
 
 def get_conn():
@@ -332,75 +321,53 @@ def fetch_icims(company_name: str, slug: str) -> List[RawJob]:
     seen_ids: set = set()
 
     for keyword in SEARCH_KEYWORDS:
-        # iCIMS search — try GET with keyword param first
-        params = {
-            "keyword": keyword,
-            "ics": "1",
-            "iisN": "",
-            "iisNewline": "1",
-            "startrow": "1",
-            "endrow": "100",
-        }
-        html = _get_html(search_url, params=params)
-        time.sleep(REQUEST_DELAY)
-
-        if not html:
-            # Try POST form submit (older iCIMS versions)
-            html = _get_html(search_url, data={
-                "jSearch": "1",
-                "keyword": keyword,
-                "ics": "1",
-            })
+        startrow = 1
+        while True:
+            params = {"keyword": keyword, "ics": "1", "iisN": "",
+                "iisNewline": "1", "startrow": str(startrow),
+                "endrow": str(startrow + 99)}
+            html = _get_html(search_url, params=params)
             time.sleep(REQUEST_DELAY)
+            if not html and startrow == 1:
+                html = _get_html(search_url, data={"jSearch": "1", "keyword": keyword, "ics": "1"})
+                time.sleep(REQUEST_DELAY)
+            if not html:
+                break
 
-        if not html:
-            log.debug(f"  iCIMS [{company_name}] no response for keyword='{keyword}'")
-            continue
+            listings = _parse_icims_job_ids(html, slug)
+            log.debug(f"  iCIMS [{company_name}] keyword='{keyword}' row={startrow}: {len(listings)} candidates")
+            for job_id, title, location in listings:
+                if job_id in seen_ids or not title or not _is_target_role(title):
+                    continue
+                seen_ids.add(job_id)
+                desc, detail_location = _fetch_icims_description(base_url, job_id)
+                time.sleep(REQUEST_DELAY)
 
-        listings = _parse_icims_job_ids(html, slug)
-        log.debug(f"  iCIMS [{company_name}] keyword='{keyword}': {len(listings)} candidates")
+                if not location and detail_location:
+                    location = detail_location
 
-        for job_id, title, location in listings:
-            if job_id in seen_ids:
-                continue
-            if not title or not _is_target_role(title):
-                continue
-            seen_ids.add(job_id)
+                loc_lower = (location or "").lower()
+                if "remote" in loc_lower or "virtual" in loc_lower:
+                    workplace_type = "remote"
+                elif "hybrid" in loc_lower:
+                    workplace_type = "hybrid"
+                else:
+                    workplace_type = None
 
-            # Fetch full description
-            desc, detail_location = _fetch_icims_description(base_url, job_id)
-            time.sleep(REQUEST_DELAY)
+                if normalize_location(location, workplace_type).should_drop:
+                    continue
 
-            # Use detail location if search result didn't have one
-            if not location and detail_location:
-                location = detail_location
+                jobs.append(RawJob(
+                    source="icims", source_id=f"{slug}_{job_id}", title=title,
+                    company=company_name, location=location, description=desc,
+                    job_url=f"{base_url}/jobs/{job_id}/job",
+                    workplace_type=workplace_type,
+                    metadata={"slug": slug, "icims_job_id": job_id},
+                ))
 
-            # Workplace type from location string
-            loc_lower = (location or "").lower()
-            if "remote" in loc_lower or "virtual" in loc_lower:
-                workplace_type = "remote"
-            elif "hybrid" in loc_lower:
-                workplace_type = "hybrid"
-            else:
-                workplace_type = None
-
-            # US filter
-            if normalize_location(location, workplace_type).should_drop:
-                continue
-
-            job_url = f"{base_url}/jobs/{job_id}/job"
-
-            jobs.append(RawJob(
-                source="icims",
-                source_id=f"{slug}_{job_id}",
-                title=title,
-                company=company_name,
-                location=location,
-                description=desc,
-                job_url=job_url,
-                workplace_type=workplace_type,
-                metadata={"slug": slug, "icims_job_id": job_id},
-            ))
+            if len(listings) < 100:
+                break
+            startrow += 100
 
     log.info(f"  iCIMS [{company_name}]: {len(jobs)} target roles found")
     return jobs

@@ -6,6 +6,9 @@ from pathlib import Path
 import psycopg2
 from dotenv import load_dotenv
 
+INGEST_SOURCES = ("greenhouse", "lever", "ashby", "workday", "eightfold",
+    "amazon", "smartrecruiters", "workable", "icims", "taleo")
+
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 def connection():
@@ -20,7 +23,9 @@ def scalar(cursor, sql):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("gate", choices=("shadow", "ingest", "publish"))
-    gate = parser.parse_args().gate
+    parser.add_argument("--since", help="ISO timestamp marking the current orchestration run")
+    args = parser.parse_args()
+    gate = args.gate
     with connection() as conn, conn.cursor() as cursor:
         if gate == "shadow":
             total = scalar(cursor, "SELECT COUNT(*) FROM job_postings")
@@ -28,17 +33,19 @@ def main():
                 raise RuntimeError(f"implausibly small job table: {total}")
             print(f"shadow gate passed: jobs={total}")
         elif gate == "ingest":
-            seen = scalar(cursor, """SELECT COUNT(*) FROM job_postings
-                WHERE data_tier=1 AND last_seen_at >= now() - interval '12 hours'""")
-            sources = scalar(cursor, """SELECT COUNT(DISTINCT ingestion_source) FROM job_postings
-                WHERE data_tier=1 AND last_seen_at >= now() - interval '12 hours'""")
-            if seen < 50 or sources < 5:
-                raise RuntimeError(f"ingest gate failed: seen={seen}, sources={sources}")
-            print(f"ingest gate passed: seen={seen}, sources={sources}")
+            cursor.execute("""SELECT ingestion_source, COUNT(*) FROM job_postings
+                WHERE data_tier=1 AND last_seen_at >= COALESCE(%s::timestamptz, now() - interval '12 hours')
+                AND ingestion_source = ANY(%s) GROUP BY ingestion_source""",
+                (args.since, list(INGEST_SOURCES)))
+            counts = dict(cursor.fetchall())
+            missing = [source for source in INGEST_SOURCES if counts.get(source, 0) == 0]
+            if missing:
+                raise RuntimeError(f"ingest gate failed; no current-run rows for: {', '.join(missing)}")
+            print(f"ingest gate passed: " + ", ".join(f"{s}={counts[s]}" for s in INGEST_SOURCES))
         else:
-            active = scalar(cursor, "SELECT COUNT(*) FROM job_postings WHERE status != 'expired'")
+            active = scalar(cursor, "SELECT COUNT(*) FROM job_postings WHERE status='raw' AND data_tier=1")
             missing = scalar(cursor, """SELECT COUNT(*) FROM job_postings
-                WHERE status != 'expired' AND company_id IS NULL""")
+                WHERE status='raw' AND data_tier=1 AND company_id IS NULL""")
             if active < 1000 or missing > max(25, active // 100):
                 raise RuntimeError(f"publish gate failed: active={active}, missing_company={missing}")
             print(f"publish gate passed: active={active}, missing_company={missing}")

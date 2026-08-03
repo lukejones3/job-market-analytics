@@ -6,9 +6,13 @@ expiry is skipped entirely to avoid false positives from a bad run.
 Run nightly AFTER ingest_jobs.py completes.
 """
 import os
+import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 import psycopg2
+
+INGEST_SOURCES = ("greenhouse", "lever", "ashby", "workday", "eightfold",
+    "amazon", "smartrecruiters", "workable", "icims", "taleo")
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -22,23 +26,26 @@ def get_conn():
     )
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--since", help="ISO timestamp marking the current orchestration run")
+    args = parser.parse_args()
     conn = get_conn()
     try:
         with conn.cursor() as cur:
 
-            # Sanity check — was today's ingest healthy?
-            cur.execute("""
-                SELECT COUNT(*) FROM job_postings
-                WHERE last_seen_at >= now() - interval '4 hours'
-                AND data_tier = 1
-            """)
-            todays_seen = cur.fetchone()[0]
-
-            if todays_seen < 50:
-                print(f"⚠️ Only {todays_seen} jobs seen in last 4 hours — skipping expiry to avoid false positives")
+            # Expire only sources proven healthy during this crawl window. The
+            # Airflow gate requires all scheduled sources; this also makes the
+            # script safe when run independently after a partial crawl.
+            cur.execute("""SELECT ingestion_source, COUNT(*) FROM job_postings
+                WHERE last_seen_at >= COALESCE(%s::timestamptz, now() - interval '4 hours')
+                AND data_tier = 1 AND ingestion_source = ANY(%s)
+                GROUP BY ingestion_source""", (args.since, list(INGEST_SOURCES)))
+            counts = dict(cur.fetchall())
+            healthy_sources = [source for source in INGEST_SOURCES if counts.get(source, 0) > 0]
+            if not healthy_sources:
+                print("⚠️ No sources completed recently — skipping expiry")
                 return
-
-            print(f"✅ Ingest healthy — {todays_seen} jobs seen today. Running expiry...")
+            print(f"✅ Expiring only healthy sources: {', '.join(healthy_sources)}")
 
             # Log disappeared events BEFORE marking expired (so we capture last_seen_at)
             cur.execute("""
@@ -47,9 +54,10 @@ def main():
                 FROM job_postings jp
                 WHERE jp.data_tier = 1
                   AND jp.status != 'expired'
+                  AND jp.ingestion_source = ANY(%s)
                   AND jp.last_seen_at < now() - interval '1 day'
                 ON CONFLICT DO NOTHING
-            """)
+            """, (healthy_sources,))
             disappeared_events = cur.rowcount
 
             # Mark expired — not seen in today's run (missed last_seen_at update)
@@ -59,8 +67,9 @@ def main():
                     expired_reason = 'natural_cron'
                 WHERE data_tier = 1
                 AND status != 'expired'
+                AND ingestion_source = ANY(%s)
                 AND last_seen_at < now() - interval '1 day'
-            """)
+            """, (healthy_sources,))
             expired = cur.rowcount
             print(f"Marked expired: {expired}  (logged {disappeared_events} disappeared events)")
 

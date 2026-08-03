@@ -6,7 +6,7 @@
 
 ---
 
-Lander pulls job postings directly from company applicant tracking systems — Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Eightfold, Workable, iCIMS, and Amazon's hiring API — and layers structured intelligence on top of the raw data. No LinkedIn, no aggregator spam, no scraping grey area.
+Lander pulls job postings directly from company applicant tracking systems — Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Eightfold, Workable, iCIMS, Taleo, and Amazon's hiring API — and layers structured intelligence on top of the raw data. No LinkedIn, no aggregator spam, no scraping grey area.
 
 Every mainstream job platform (LinkedIn, Indeed, ZipRecruiter) makes its money from employers — the seeker is the product. Lander inverts that: free for casual browsers, paid for active job hunters, with the entire product designed around the person looking for work.
 
@@ -16,7 +16,7 @@ Every mainstream job platform (LinkedIn, Indeed, ZipRecruiter) makes its money f
 
 ## What it does
 
-- **Harvests 9 ATS systems nightly** — Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Eightfold, Workable, iCIMS, and Amazon, deduped across sources
+- **Harvests 10 ATS systems nightly** — Greenhouse, Lever, Ashby, Workday, SmartRecruiters, Eightfold, Workable, iCIMS, Taleo, and Amazon
 - **Ghost Job Index** — scores every posting on ghost-job probability from time-to-close patterns, re-post frequency, and lifecycle signals, then buckets it fresh / low / medium / high
 - **Honesty scores** — a per-posting signal built from freshness, salary disclosure, and posting behavior
 - **Semantic resume → job matching** — upload a resume, get top matches by meaning (not keywords) with skill-gap analysis, powered by pgvector + sentence-transformers
@@ -33,7 +33,7 @@ Live figures from the production warehouse (US-focused, multi-vertical):
 | Roles scored & indexed | 82,000+ |
 | Companies tracked | 8,000+ |
 | Companies hiring now | 2,800+ |
-| ATS sources | 9 |
+| ATS sources | 10 |
 | Salary transparency | ~45% |
 | Ghost Index | ~36% flagged high-risk |
 | Refresh cadence | Nightly |
@@ -44,7 +44,7 @@ Began with data & ML roles; now spans multiple verticals (engineering, finance, 
 
 - **Backend:** Python 3.12, FastAPI, PostgreSQL 16
 - **Data layer:** dbt — ~18 transformation models (staging → core marts), ~60 tables in the `analytics_analytics` schema
-- **Ingestion:** custom async harvesters for 9 ATS APIs, cron-scheduled with cross-source dedup and a company blocklist
+- **Ingestion:** custom harvesters for 10 ATS APIs, Airflow-orchestrated with source-ID identity and a company blocklist
 - **Enrichment (LLM-free in the cron path):** regex/heuristic salary parsing & annualization, experience inference, role classification, SQL-based skill extraction, location normalization, hiring-contact mapping
 - **ML:** `all-MiniLM-L6-v2` (384-dim) sentence embeddings with per-company boilerplate stripping; pgvector + HNSW indexes for semantic resume→job matching, live in production
 - **Frontend:** Next.js on Vercel (separate `lander` repo)
@@ -61,14 +61,13 @@ Began with data & ML roles; now spans multiple verticals (engineering, finance, 
 | `models/` | ML model artifacts and experiment status notes |
 | `scripts/` | Operational and one-off maintenance scripts |
 | `eval/` | Classifier / parser evaluation harnesses |
-| `crontab.txt` | The full production cron schedule |
 
 ## Daily pipeline (UTC)
 
 | Time | Step |
 |---|---|
 | 05:00 | `pg_dump` backup + prune backups older than 7 days |
-| 06:00 | Ingest — 9 ATS sources launch simultaneously |
+| 05:00 onward | Airflow serially ingests 10 ATS sources, then gates enrichment and publishing |
 | 06:15 | Domain reclassification (last 24h) |
 | 06:20 | Enforce company blocklist |
 | 06:30 | Annualize salaries + enrich (`--no-llm`, regex/heuristics) + SQL skill extraction |
@@ -77,12 +76,13 @@ Began with data & ML roles; now spans multiple verticals (engineering, finance, 
 | 07:20 | Refresh honesty scores + company discovery |
 | 07:30 | Cross-source dedup |
 | 07:40 | Expire stale jobs |
-| 07:50 | Sync discovered companies |
 | 08:00 | `dbt run` — ~18 models |
 | 08:30 | Morning report (email via Resend) |
 | every 5 min | Embed new resumes |
 
 The daily cron path is intentionally **LLM-free** — classification runs on regex, heuristics, and a cached label store.
+Airflow is the production orchestrator. Its weekly discovery DAG continuously
+expands the tenant universe before validation and activation.
 
 ## API
 
