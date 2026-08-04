@@ -601,7 +601,7 @@ def company_roles(
     return {
         "company": slug,
         "count":   cur.rowcount,
-        "results": [dict(r) for r in cur.fetchall()],
+        "results": [_add_repost_warning(dict(r)) for r in cur.fetchall()],
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -643,6 +643,17 @@ def company_skills(
     }
 
 # ── Roles List ────────────────────────────────────────────────────────────────
+def _add_repost_warning(role: dict) -> dict:
+    """Add a stable frontend contract for a verified disappear/reappear cycle."""
+    count = int(role.get("reappearance_count") or 0)
+    role["repost_warning"] = None if count == 0 else {
+        "label": "Reposted",
+        "message": "This posting previously disappeared and later reappeared.",
+        "count": count,
+    }
+    return role
+
+
 @app.get("/v1/roles", tags=["Role Intelligence"])
 def list_roles(
     family:     Optional[str] = Query(None),
@@ -719,7 +730,7 @@ def list_roles(
         LIMIT %(limit)s OFFSET %(offset)s
     """, params)
 
-    results = [dict(r) for r in cur.fetchall()]
+    results = [_add_repost_warning(dict(r)) for r in cur.fetchall()]
     return {
         "filters":      {k: v for k, v in params.items() if k not in ("limit","offset")},
         "count":        len(results),
@@ -763,7 +774,7 @@ def role_detail(
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{job_id}' not found.")
 
-    role = dict(role)
+    role = _add_repost_warning(dict(role))
 
     # Skills for this role
     cur.execute("""

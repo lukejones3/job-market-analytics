@@ -693,10 +693,21 @@ def _try_bare_range(tline: str):
     Uses finditer to try ALL matches — not just first — since description might
     have "$100 million in funding" before the actual salary range.
     """
+    def is_non_salary_money(match: re.Match) -> bool:
+        """Reject monetary ranges explicitly describing something other than pay."""
+        context = tline[max(0, match.start() - 80):min(len(tline), match.end() + 80)]
+        return bool(re.search(
+            r"\b(?:funding|fundraise|raised|revenue|budget|equity\s+(?:grant|award|value)|"
+            r"stock\s+(?:grant|award|value)|bonus\s+(?:range|ranges|of)|commission\s+(?:range|ranges|of))\b",
+            context, re.IGNORECASE,
+        ))
+
     # USD prefix - iterate all matches
     for m in re.finditer(
         r"USD\s+\$?\s*([\d,\.]+[kKmM]?)\s*" + _D + r"\s*\$?\s*([\d,\.]+[kKmM]?)",
         tline, re.IGNORECASE):
+        if is_non_salary_money(m):
+            continue
         v1, v2 = _scale_pair(m.group(1), m.group(2))
         if v1 and v2:
             lo, hi = min(v1, v2), max(v1, v2)
@@ -708,6 +719,8 @@ def _try_bare_range(tline: str):
     for m in re.finditer(
         r"CAD\s+\$?\s*([\d,\.]+[kKmM]?)\s*" + _D + r"\s*(?:CAD\s+)?\$?\s*([\d,\.]+[kKmM]?)",
         tline, re.IGNORECASE):
+        if is_non_salary_money(m):
+            continue
         v1, v2 = _scale_pair(m.group(1), m.group(2))
         if v1 and v2:
             lo, hi = min(v1, v2), max(v1, v2)
@@ -719,6 +732,8 @@ def _try_bare_range(tline: str):
     for m in re.finditer(
         r"\$\s*([\d,\.]+[kKmM]?)\s*" + _D + r"\s*\$?\s*([\d,\.]+[kKmM]?)",
         tline, re.IGNORECASE):
+        if is_non_salary_money(m):
+            continue
         v1, v2 = _scale_pair(m.group(1), m.group(2))
         if v1 and v2:
             lo, hi = min(v1, v2), max(v1, v2)
@@ -730,6 +745,8 @@ def _try_bare_range(tline: str):
     for m in re.finditer(
         r"\$\s*([\d,\.]+[kKmM]?)\s+to\s+\$?\s*([\d,\.]+[kKmM]?)",
         tline, re.IGNORECASE):
+        if is_non_salary_money(m):
+            continue
         v1, v2 = _scale_pair(m.group(1), m.group(2))
         if v1 and v2:
             lo, hi = min(v1, v2), max(v1, v2)

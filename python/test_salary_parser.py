@@ -78,17 +78,26 @@ TESTS = [
     ("Raymond James SALARY colon", "SALARY : $137,000 per year Education Work Experience. The total compensation for this position includes base salary or wages, and may include other components.", 137000, 137000, "year"),
     # Comcast: Base Pay single hourly value
     ("Comcast Base Pay hourly", "Compensation Base Pay: $32.00 Base pay is one part of the Total Rewards that Comcast provides.", 32, 32, "hour"),
+    # Non-salary monetary ranges must not become compensation.
+    ("funding range", "We raised $100,000 - $200,000 in seed funding last year.", None, None, None),
+    ("budget range", "You will manage a $150,000 - $250,000 annual marketing budget.", None, None, None),
+    ("bonus range", "Annual performance bonus ranges from $20,000 - $40,000.", None, None, None),
+    ("equity value range", "Equity grant value is $80,000 - $120,000 over four years.", None, None, None),
+    ("no disclosed amount", "We offer a competitive salary and equity package.", None, None, None),
 ]
 
 passed = failed = 0
 for name, text, exp_min, exp_max, exp_period in TESTS:
-    lo, hi, period = parse_salary_range(text)
-    ok = (
-        lo is not None and
-        abs(float(lo) - float(exp_min)) < 1 and
-        abs(float(hi) - float(exp_max)) < 1 and
-        period == exp_period
-    )
+    lo, hi, period = parse_salary_range(text, skip_llm=True)
+    if exp_min is None:
+        ok = lo is None and hi is None and period is None
+    else:
+        ok = (
+            lo is not None and
+            abs(float(lo) - float(exp_min)) < 1 and
+            abs(float(hi) - float(exp_max)) < 1 and
+            period == exp_period
+        )
     if ok:
         passed += 1
         print(f"  ✅ {name}")

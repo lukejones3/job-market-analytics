@@ -24,6 +24,13 @@ def test_ghost_model_uses_reposts_and_natural_closures():
     assert "public.vw_ghost_job_index" in mart
 
 
+def test_api_exposes_repost_warning_contract():
+    api = (ROOT / "python/api.py").read_text()
+    assert '"label": "Reposted"' in api
+    assert '"repost_warning"' in api
+    assert api.count("_add_repost_warning(") >= 4
+
+
 def test_changed_descriptions_invalidate_enrichment():
     ingest = (ROOT / "python/ingest_jobs.py").read_text()
     for field in ("domain=NULL", "role_category=NULL", "embedding=NULL",
@@ -40,6 +47,7 @@ def test_v2_experience_is_promoted_with_canonical_labels():
 if __name__ == "__main__":
     test_publication_predicate_and_total_are_consistent()
     test_ghost_model_uses_reposts_and_natural_closures()
+    test_api_exposes_repost_warning_contract()
     test_changed_descriptions_invalidate_enrichment()
     test_v2_experience_is_promoted_with_canonical_labels()
     print("publication/ghost pipeline tests passed")
