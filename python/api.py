@@ -346,9 +346,39 @@ def public_market(request: Request, conn=Depends(get_conn)):
     """, params)
     jobs = [dict(row) for row in cur.fetchall()]
 
+    cur.execute(f"""
+        SELECT c.company_slug AS slug
+        FROM job_postings jp
+        JOIN companies c ON c.company_id = jp.company_id
+        WHERE {PUBLIC_FEED_WHERE}
+          AND c.company_slug IS NOT NULL
+        GROUP BY c.company_id, c.company_slug
+        HAVING COUNT(*) >= 5
+        ORDER BY COUNT(*) DESC, c.company_slug
+        LIMIT 100
+    """, params)
+    top_company_slugs = [row["slug"] for row in cur.fetchall()]
+
+    cur.execute(f"""
+        SELECT LOWER(BTRIM(sk.skill_slug)) AS slug
+        FROM skills sk
+        JOIN job_skills js ON js.skill_id = sk.skill_id
+        JOIN job_postings jp ON jp.job_id = js.job_id
+        JOIN companies c ON c.company_id = jp.company_id
+        WHERE {PUBLIC_FEED_WHERE}
+          AND sk.skill_slug IS NOT NULL
+        GROUP BY LOWER(BTRIM(sk.skill_slug))
+        HAVING COUNT(DISTINCT jp.job_id) >= 5
+        ORDER BY COUNT(DISTINCT jp.job_id) DESC, slug
+        LIMIT 50
+    """, params)
+    top_skill_slugs = [row["slug"] for row in cur.fetchall()]
+
     return {
         "stats": stats,
         "jobs": jobs,
+        "top_company_slugs": top_company_slugs,
+        "top_skill_slugs": top_skill_slugs,
         "generated_at": datetime.now(timezone.utc),
     }
 
