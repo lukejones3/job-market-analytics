@@ -1592,6 +1592,19 @@ def ingest_job(cur, job: RawJob) -> bool:
 
     return inserted
 
+
+def _ingest_job_with_savepoint(cur, job: RawJob) -> bool:
+    """Isolate one write without retaining thousands of nested savepoints."""
+    cur.execute("SAVEPOINT ingest_one")
+    try:
+        inserted = ingest_job(cur, job)
+    except Exception:
+        cur.execute("ROLLBACK TO SAVEPOINT ingest_one")
+        cur.execute("RELEASE SAVEPOINT ingest_one")
+        raise
+    cur.execute("RELEASE SAVEPOINT ingest_one")
+    return inserted
+
 # ============================================================
 # PIPELINE RUN LOGGING
 # ============================================================
@@ -3147,8 +3160,7 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
 
     for job in deduped:
         try:
-            cur.execute("SAVEPOINT ingest_one")
-            was_inserted = ingest_job(cur, job)
+            was_inserted = _ingest_job_with_savepoint(cur, job)
             if was_inserted:
                 inserted += 1
                 if inserted <= 3:
@@ -3159,7 +3171,6 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
         except Exception as e:
             log.error(f"  ❌ Failed [{job.source}] {job.company} — {job.title}: {e}")
             log.error(f"     job_id={_md5_id('J', f'{job.source}|{job.source_id}')}")
-            cur.execute("ROLLBACK TO SAVEPOINT ingest_one")
             errors += 1
             continue
 
