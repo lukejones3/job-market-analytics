@@ -382,6 +382,126 @@ def public_market(request: Request, conn=Depends(get_conn)):
         "generated_at": datetime.now(timezone.utc),
     }
 
+
+PUBLIC_INSIGHT_SLUGS = {
+    "companies-with-lowest-ghost-rates",
+    "highest-paying-ai-engineering-jobs",
+    "remote-data-jobs-with-disclosed-salaries",
+    "sectors-with-most-salary-transparency",
+    "skill-salary-premiums",
+}
+
+
+@app.get("/v1/public/insights/{insight_slug}", tags=["Public"])
+@limiter.limit("60/minute")
+def public_insight(insight_slug: str, request: Request, conn=Depends(get_conn)):
+    if insight_slug not in PUBLIC_INSIGHT_SLUGS:
+        raise HTTPException(status_code=404, detail="Unknown public insight")
+
+    params = {
+        "us_states": list(PUBLIC_US_STATES),
+        "blocked_companies": list(PUBLIC_BLOCKED_COMPANY_FRAGMENTS),
+    }
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    if insight_slug == "companies-with-lowest-ghost-rates":
+        cur.execute(f"""
+            WITH company_agg AS (
+                SELECT
+                    c.company_name,
+                    SUM(CASE WHEN (
+                        CASE
+                            WHEN mgi.ghost_probability::double precision > 1
+                                THEN mgi.ghost_probability::double precision / 100.0
+                            ELSE mgi.ghost_probability::double precision
+                        END
+                    ) > 0.7 THEN 1 ELSE 0 END)::double precision AS ghost_hits,
+                    COUNT(*)::int AS active_postings
+                FROM analytics_analytics.mart_ghost_job_index mgi
+                JOIN job_postings jp ON jp.job_id = mgi.job_id
+                JOIN companies c ON c.company_id = jp.company_id
+                WHERE {PUBLIC_FEED_WHERE}
+                GROUP BY c.company_name
+                HAVING COUNT(*) >= 20
+            )
+            SELECT company_name, ghost_hits / NULLIF(active_postings, 0) AS ghost_rate,
+                   active_postings
+            FROM company_agg
+            ORDER BY ghost_rate ASC NULLS LAST, active_postings DESC
+            LIMIT 25
+        """, params)
+    elif insight_slug == "highest-paying-ai-engineering-jobs":
+        cur.execute(f"""
+            SELECT r.role_name AS title, c.company_name, jp.role_category,
+                   (jp.salary_min_annual::double precision + jp.salary_max_annual::double precision) / 2 AS mid_salary,
+                   jp.workplace_type
+            FROM job_postings jp
+            JOIN companies c ON c.company_id = jp.company_id
+            JOIN roles r ON r.role_id = jp.role_id
+            WHERE {PUBLIC_FEED_WHERE}
+              AND jp.domain IN ('data_ml', 'engineering')
+              AND LOWER(BTRIM(jp.role_category)) = ANY(%(role_categories)s::text[])
+              AND jp.salary_min_annual IS NOT NULL AND jp.salary_max_annual IS NOT NULL
+            ORDER BY mid_salary DESC NULLS LAST
+            LIMIT 25
+        """, {**params, "role_categories": ["ml_engineering", "ai_research", "data_science", "analytics_engineering", "data_engineering"]})
+    elif insight_slug == "remote-data-jobs-with-disclosed-salaries":
+        cur.execute(f"""
+            SELECT r.role_name AS title, c.company_name,
+                   jp.salary_min_annual AS salary_min, jp.salary_max_annual AS salary_max,
+                   jp.posted_date::text AS posted_date
+            FROM job_postings jp
+            JOIN companies c ON c.company_id = jp.company_id
+            JOIN roles r ON r.role_id = jp.role_id
+            WHERE {PUBLIC_FEED_WHERE}
+              AND jp.domain = 'data_ml'
+              AND LOWER(TRIM(COALESCE(jp.workplace_type, ''))) = 'remote'
+              AND jp.salary_min_annual IS NOT NULL AND jp.salary_max_annual IS NOT NULL
+            ORDER BY COALESCE(jp.posted_date::timestamptz, jp.date_found::timestamptz) DESC NULLS LAST
+            LIMIT 30
+        """, params)
+    elif insight_slug == "sectors-with-most-salary-transparency":
+        cur.execute(f"""
+            SELECT COALESCE(NULLIF(TRIM(c.sector), ''), 'Unknown') AS sector,
+                   AVG(CASE WHEN jp.salary_min_annual IS NOT NULL AND jp.salary_max_annual IS NOT NULL
+                       THEN 1.0 ELSE 0.0 END)::double precision AS disclosure_rate,
+                   COUNT(*)::int AS job_count
+            FROM job_postings jp
+            JOIN companies c ON c.company_id = jp.company_id
+            WHERE {PUBLIC_FEED_WHERE}
+            GROUP BY 1
+            HAVING COUNT(*) >= 25
+            ORDER BY disclosure_rate DESC NULLS LAST, job_count DESC
+            LIMIT 15
+        """, params)
+    else:
+        cur.execute(f"""
+            WITH scoped_jobs AS (
+                SELECT jp.job_id,
+                       (jp.salary_min_annual::numeric + jp.salary_max_annual::numeric) / 2 AS mid_salary
+                FROM job_postings jp
+                JOIN companies c ON c.company_id = jp.company_id
+                WHERE {PUBLIC_FEED_WHERE}
+                  AND jp.salary_min_annual IS NOT NULL AND jp.salary_max_annual IS NOT NULL
+            )
+            SELECT s.skill_name,
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY sj.mid_salary)::numeric AS median_salary_annual,
+                   COUNT(*)::int AS sample_size
+            FROM scoped_jobs sj
+            JOIN job_skills js ON js.job_id = sj.job_id
+            JOIN skills s ON s.skill_id = js.skill_id
+            GROUP BY s.skill_name
+            HAVING COUNT(*) >= 10
+            ORDER BY median_salary_annual DESC NULLS LAST
+            LIMIT 20
+        """, params)
+
+    return {
+        "slug": insight_slug,
+        "rows": [dict(row) for row in cur.fetchall()],
+        "generated_at": datetime.now(timezone.utc),
+    }
+
 # ── Market Overview ───────────────────────────────────────────────────────────
 @app.get("/v1/market/overview", tags=["Market Intelligence"])
 def market_overview(key: dict = Depends(verify_api_key), conn=Depends(get_conn)):
