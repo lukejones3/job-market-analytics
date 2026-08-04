@@ -136,6 +136,53 @@ CASE
 END
 """
 
+# Keep this public-market scope aligned with the Lander Browse All feed. The
+# marketing site consumes this endpoint so its headline count is measured from
+# the product universe, not a manually maintained number.
+PUBLIC_US_STATES = (
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+    "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
+    "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+    "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+    "WI", "WY", "DC", "PR", "VI", "GU", "AS", "MP",
+)
+PUBLIC_BLOCKED_COMPANY_FRAGMENTS = (
+    "cgsfederal", "accenture federal", "booz allen", "mantech", "saic", "caci",
+    "prosidian", "guidehouse", "gdit", "leidos", "northrop grumman",
+    "parsons federal", "serco federal", "deloitte federal", "parsons",
+    "invisible agency", "cermaticom", "jobs for humanity", "devoteam", "canonical",
+    "nxp semiconductors", "relx", "bosch group", "about you se", "sixt",
+    "scalablegmbh",
+)
+
+PUBLIC_FEED_WHERE = """
+    jp.data_tier = 1
+    AND jp.status = 'raw'
+    AND jp.domain IS NOT NULL
+    AND (jp.loc_country IS NULL OR jp.loc_country <> 'foreign')
+    AND NOT EXISTS (
+        SELECT 1
+        FROM unnest(%(blocked_companies)s::text[]) AS blocked_company(match)
+        WHERE LOWER(c.company_name) LIKE '%%' || blocked_company.match || '%%'
+    )
+    AND (
+        (
+            jp.loc_country IN ('US', 'United States', 'USA')
+            AND (jp.loc_state IS NULL OR UPPER(jp.loc_state) = ANY(%(us_states)s::text[]))
+        )
+        OR (jp.loc_country IS NULL AND UPPER(COALESCE(jp.loc_state, '')) = ANY(%(us_states)s::text[]))
+        OR (
+            jp.loc_country = 'unknown'
+            AND LOWER(COALESCE(jp.ingestion_source, '')) IN ('greenhouse', 'lever', 'ashby')
+        )
+        OR (
+            jp.loc_country = 'unknown'
+            AND LOWER(COALESCE(jp.ingestion_source, '')) = 'workday'
+            AND LOWER(COALESCE(jp.workplace_type, '')) = 'remote'
+        )
+    )
+"""
+
 # ── Auth ──────────────────────────────────────────────────────────────────────
 TIER_LIMITS = {
     "free":       100,
@@ -243,6 +290,66 @@ def me(key: dict = Depends(verify_api_key)):
         "rate_limit_day": key["rate_limit_day"],
         "requests_today": key["requests_today"],
         "total_requests": key["total_requests"],
+    }
+
+# ── Public Market Pulse ──────────────────────────────────────────────────────
+@app.get("/v1/public/market", tags=["Public"])
+@limiter.limit("60/minute")
+def public_market(request: Request, conn=Depends(get_conn)):
+    """Exact Browse All counts plus a small fresh-job preview for landerjob.com."""
+    params = {
+        "us_states": list(PUBLIC_US_STATES),
+        "blocked_companies": list(PUBLIC_BLOCKED_COMPANY_FRAGMENTS),
+    }
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute(f"""
+        SELECT
+            COUNT(*)::int AS active_jobs,
+            COUNT(DISTINCT jp.company_id)::int AS companies,
+            COUNT(DISTINCT NULLIF(LOWER(BTRIM(jp.ingestion_source)), ''))::int AS ats_sources,
+            COUNT(DISTINCT jp.domain)::int AS verticals,
+            COALESCE(
+                AVG((jp.salary_min_annual IS NOT NULL OR jp.salary_max_annual IS NOT NULL)::int),
+                0
+            )::double precision AS salary_disclosure_rate,
+            COUNT(*) FILTER (
+                WHERE COALESCE(jp.posted_date::timestamptz, jp.date_found::timestamptz)
+                    >= NOW() - INTERVAL '24 hours'
+            )::int AS fresh_today,
+            MAX(jp.date_found) AS indexed_at
+        FROM job_postings jp
+        JOIN companies c ON c.company_id = jp.company_id
+        WHERE {PUBLIC_FEED_WHERE}
+    """, params)
+    stats = dict(cur.fetchone())
+
+    cur.execute(f"""
+        SELECT
+            jp.job_id::text AS job_id,
+            r.role_name AS title,
+            c.company_name,
+            COALESCE(NULLIF(BTRIM(l.location), ''), 'United States') AS location,
+            jp.workplace_type,
+            jp.experience_level,
+            jp.salary_min_annual::double precision,
+            jp.salary_max_annual::double precision,
+            jp.posted_date,
+            jp.job_url
+        FROM job_postings jp
+        JOIN companies c ON c.company_id = jp.company_id
+        JOIN roles r ON r.role_id = jp.role_id
+        LEFT JOIN locations l ON l.location_id = jp.location_id
+        WHERE {PUBLIC_FEED_WHERE}
+          AND (jp.salary_min_annual IS NOT NULL OR jp.salary_max_annual IS NOT NULL)
+        ORDER BY COALESCE(jp.posted_date, jp.date_found) DESC NULLS LAST, jp.job_id
+        LIMIT 6
+    """, params)
+    jobs = [dict(row) for row in cur.fetchall()]
+
+    return {
+        "stats": stats,
+        "jobs": jobs,
+        "generated_at": datetime.now(timezone.utc),
     }
 
 # ── Market Overview ───────────────────────────────────────────────────────────
