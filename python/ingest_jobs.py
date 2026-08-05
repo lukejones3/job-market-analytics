@@ -2538,7 +2538,18 @@ async def _fetch_workday_tenant_async(
 
 def _load_workday_list() -> List[Tuple[str, str, str, str]]:
     """Return [(name, tenant, board, wd_server), ...] — hardcoded + discovered_companies."""
-    workday_list = list(WORKDAY_COMPANIES)
+    # The historical hand-maintained list accumulated duplicate locators. Keep
+    # its first display name but never crawl the same tenant/server/board twice.
+    workday_list: List[Tuple[str, str, str, str]] = []
+    known_tokens = set()
+    for row in WORKDAY_COMPANIES:
+        name, tenant, board, server = row
+        token = f"{tenant}/{server}/{board}"
+        if token in known_tokens:
+            continue
+        known_tokens.add(token)
+        workday_list.append(row)
+    hardcoded_unique = len(workday_list)
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -2551,7 +2562,6 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
         rows = cur.fetchall()
         cur.close()
         conn.close()
-        known_tokens = {f"{tenant}/{server}/{board}" for _, tenant, board, server in WORKDAY_COMPANIES}
         added = 0
         for company_name, board_token in rows:
             parts = board_token.split("/")
@@ -2564,7 +2574,8 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
                     known_tokens.add(board_token)
                     added += 1
         log.info(
-            f"Workday: {len(WORKDAY_COMPANIES)} hardcoded + {added} dynamic "
+            f"Workday: {hardcoded_unique} unique hardcoded "
+            f"({len(WORKDAY_COMPANIES) - hardcoded_unique} duplicates removed) + {added} dynamic "
             f"= {len(workday_list)} total tenants"
         )
     except Exception as e:
