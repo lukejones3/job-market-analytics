@@ -39,6 +39,9 @@ job_analytics_*.sql
 # local provenance input for role taxonomy fixture regen
 python/_role_corpus.tsv
 
+# dbt CLI per-machine identity
+dbt/**/.user.yml
+
 # === JOB SEARCH (personal; keep out of git entirely) ===
 job_results*.md
 job_results*.csv
