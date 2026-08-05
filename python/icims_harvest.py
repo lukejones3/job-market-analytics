@@ -330,69 +330,67 @@ def _fetch_icims_description(base_url: str, job_id: str) -> Tuple[str, str]:
 
 def fetch_icims(company_name: str, slug: str) -> List[RawJob]:
     """
-    Pull all data/ML jobs from an iCIMS career board.
-    Searches with multiple keywords, deduplicates by job ID.
+    Pull all admitted jobs from an iCIMS career board.
+
+    Current iCIMS search endpoints frequently ignore searchKeyword and return
+    the same paginated board for every term. Crawl the board exactly once and
+    apply the shared role admission taxonomy locally; repeating 48 nominal
+    searches made one small tenant take nearly an hour with no added coverage.
     """
     base_url = f"https://{slug}.icims.com"
     search_url = f"{base_url}/jobs/search"
     jobs: List[RawJob] = []
     seen_ids: set = set()
 
-    for keyword in SEARCH_KEYWORDS:
-        startrow = 1
-        while True:
-            # iCIMS moved current search pages into an iframe and renamed the
-            # query field from `keyword` to `searchKeyword`. `pr` is a
-            # zero-based page index on the current portal.
-            params = {
-                "in_iframe": "1",
-                "ss": "1",
-                "searchKeyword": keyword,
-                "searchRelation": "keyword_all",
-                "pr": str((startrow - 1) // 50),
-            }
-            html = _get_html(search_url, params=params)
+    page = 0
+    while True:
+        params = {
+            "in_iframe": "1",
+            "pr": str(page),
+            "searchRelation": "keyword_all",
+        }
+        html = _get_html(search_url, params=params)
+        time.sleep(REQUEST_DELAY)
+        if not html:
+            break
+
+        listings = _parse_icims_job_ids(html, slug)
+        new_listings = [listing for listing in listings if listing[0] not in seen_ids]
+        log.debug(f"  iCIMS [{company_name}] page={page + 1}: {len(listings)} candidates")
+        if page and not new_listings:
+            break
+        for job_id, title, location in new_listings:
+            seen_ids.add(job_id)
+            if not title or not _is_target_role(title):
+                continue
+            desc, detail_location = _fetch_icims_description(base_url, job_id)
             time.sleep(REQUEST_DELAY)
-            if not html and startrow == 1:
-                html = _get_html(search_url, data={"jSearch": "1", "keyword": keyword, "ics": "1"})
-                time.sleep(REQUEST_DELAY)
-            if not html:
-                break
 
-            listings = _parse_icims_job_ids(html, slug)
-            log.debug(f"  iCIMS [{company_name}] keyword='{keyword}' row={startrow}: {len(listings)} candidates")
-            for job_id, title, location in listings:
-                if job_id in seen_ids or not title or not _is_target_role(title):
-                    continue
-                seen_ids.add(job_id)
-                desc, detail_location = _fetch_icims_description(base_url, job_id)
-                time.sleep(REQUEST_DELAY)
+            if not location and detail_location:
+                location = detail_location
 
-                if not location and detail_location:
-                    location = detail_location
+            loc_lower = (location or "").lower()
+            if "remote" in loc_lower or "virtual" in loc_lower:
+                workplace_type = "remote"
+            elif "hybrid" in loc_lower:
+                workplace_type = "hybrid"
+            else:
+                workplace_type = None
 
-                loc_lower = (location or "").lower()
-                if "remote" in loc_lower or "virtual" in loc_lower:
-                    workplace_type = "remote"
-                elif "hybrid" in loc_lower:
-                    workplace_type = "hybrid"
-                else:
-                    workplace_type = None
+            if normalize_location(location, workplace_type).should_drop:
+                continue
 
-                if normalize_location(location, workplace_type).should_drop:
-                    continue
+            jobs.append(RawJob(
+                source="icims", source_id=f"{slug}_{job_id}", title=title,
+                company=company_name, location=location, description=desc,
+                job_url=f"{base_url}/jobs/{job_id}/job",
+                workplace_type=workplace_type,
+                metadata={"slug": slug, "icims_job_id": job_id},
+            ))
 
-                jobs.append(RawJob(
-                    source="icims", source_id=f"{slug}_{job_id}", title=title,
-                    company=company_name, location=location, description=desc,
-                    job_url=f"{base_url}/jobs/{job_id}/job",
-                    workplace_type=workplace_type,
-                    metadata={"slug": slug, "icims_job_id": job_id},
-                ))
-
-            if len(listings) < 50:
-                break
-            startrow += 50
+        if len(listings) < 50:
+            break
+        page += 1
 
     log.info(f"  iCIMS [{company_name}]: {len(jobs)} target roles found")
     return jobs
