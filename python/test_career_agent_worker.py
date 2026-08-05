@@ -24,3 +24,10 @@ def test_merge_marks_cross_source_contact():
     merged = worker.merge_contacts([{**base, "source_kind": "lander"}], [{**base, "evidence_urls": ["b"]}])
     assert merged[0]["source_kind"] == "both"
     assert merged[0]["evidence_urls"] == ["a", "b"]
+
+
+def test_selection_reserves_space_for_independent_recruiters():
+    lander = [{"full_name": f"Manager {i}", "firm": "Company", "source_kind": "lander", "score": 90 - i} for i in range(20)]
+    web = [{"full_name": f"Recruiter {i}", "firm": "Search Firm", "source_kind": "web", "score": 60 - i} for i in range(8)]
+    selected = worker.select_contacts(lander + web, 20)
+    assert sum(item["source_kind"] == "web" for item in selected) == 8

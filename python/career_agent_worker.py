@@ -114,26 +114,24 @@ def target_jobs(cur, requirements: dict, limit: int = 160) -> list[dict]:
     where = ["jp.status='raw'", "jp.data_tier=1", "COALESCE(jp.source,'') <> 'adzuna'"]
     if terms:
         values.append(terms)
-        p = len(values)
-        where.append(f"EXISTS (SELECT 1 FROM unnest(%s::text[]) term WHERE lower(COALESCE(r.role_name,'') || ' ' || COALESCE(jp.role_category,'') || ' ' || COALESCE(jp.description,'')) LIKE '%%' || lower(term) || '%%')" % f"${p}")
+        where.append("EXISTS (SELECT 1 FROM unnest(%s::text[]) term WHERE lower(COALESCE(r.role_name,'') || ' ' || COALESCE(jp.role_category,'') || ' ' || COALESCE(jp.description_text,'')) LIKE '%%' || lower(term) || '%%')")
     if locations:
         values.append(locations)
-        p = len(values)
-        where.append(f"EXISTS (SELECT 1 FROM unnest(${p}::text[]) loc WHERE lower(COALESCE(l.city,'') || ' ' || COALESCE(l.state,'') || ' ' || COALESCE(jp.location_raw,'')) LIKE '%%' || lower(loc) || '%%') OR lower(COALESCE(jp.workplace_type,''))='remote'")
+        where.append("EXISTS (SELECT 1 FROM unnest(%s::text[]) loc WHERE lower(COALESCE(jp.loc_city,'') || ' ' || COALESCE(jp.loc_state,'') || ' ' || COALESCE(l.location,'')) LIKE '%%' || lower(loc) || '%%') OR lower(COALESCE(jp.workplace_type,''))='remote'")
     if min_salary:
         values.append(float(min_salary) * 0.8)
-        where.append(f"(jp.salary_max_annual IS NULL OR jp.salary_max_annual >= ${len(values)})")
+        where.append("(jp.salary_max_annual IS NULL OR jp.salary_max_annual >= %s)")
     values.append(limit)
     cur.execute(
         f"""
         SELECT jp.job_id::text,COALESCE(r.role_name,jp.role_category,'Role') AS title,c.company_id::text,
                c.company_name,jp.job_url,jp.posted_date::text,jp.workplace_type,
                jp.salary_min_annual,jp.salary_max_annual,jp.domain,
-               COALESCE(l.city,'') AS city,COALESCE(l.state,'') AS state
+               COALESCE(jp.loc_city,'') AS city,COALESCE(jp.loc_state,l.state,'') AS state
         FROM job_postings jp JOIN companies c ON c.company_id=jp.company_id
         LEFT JOIN roles r ON r.role_id=jp.role_id LEFT JOIN locations l ON l.location_id=jp.location_id
         WHERE {' AND '.join(where)}
-        ORDER BY jp.posted_date DESC NULLS LAST LIMIT ${len(values)}
+        ORDER BY jp.posted_date DESC NULLS LAST LIMIT %s
         """, values
     )
     return [dict(row) for row in cur.fetchall()]
@@ -158,6 +156,17 @@ def lander_contacts(cur, jobs: list[dict]) -> list[dict]:
     contacts = []
     for row in cur.fetchall():
         item = dict(row)
+        title = str(item.get("title") or "")
+        # A live opening does not make an unrelated executive a useful lead.
+        if not re.search(
+            r"recruit|talent|staffing|sourc|people partner|human resources|"
+            r"hiring manager|data engineer|analytics engineer|machine learning|"
+            r"artificial intelligence|\bAI\b|data science|data platform|engineering manager|"
+            r"head of (data|analytics|engineering)|director of (data|analytics|engineering)",
+            title,
+            re.I,
+        ):
+            continue
         openings = by_company.get(item["company_id"], [])[:3]
         item.update({
             "source_kind": "lander", "evidence_urls": [opening["job_url"] for opening in openings if opening.get("job_url")],
@@ -290,6 +299,22 @@ def score_contact(contact: dict, requirements: dict) -> float:
     return min(99.0, score)
 
 
+def select_contacts(contacts: list[dict], limit: int = MAX_LEADS) -> list[dict]:
+    """Keep independent discovery first-class alongside job-grounded leads."""
+    ranked = sorted(contacts, key=lambda item: item["score"], reverse=True)
+    web = [item for item in ranked if item.get("source_kind") in {"web", "both"}]
+    lander = [item for item in ranked if item.get("source_kind") == "lander"]
+    selected = web[: min(10, limit)]
+    selected_keys = {contact_key(item) for item in selected}
+    for item in lander + ranked:
+        if len(selected) >= limit:
+            break
+        if contact_key(item) not in selected_keys:
+            selected.append(item)
+            selected_keys.add(contact_key(item))
+    return sorted(selected, key=lambda item: item["score"], reverse=True)
+
+
 def draft_leads(contacts: list[dict], requirements: dict, summary: str, links: dict) -> tuple[dict[str, dict], dict]:
     compact = [{"id": contact_key(c), "name": c.get("full_name"), "firm": c.get("firm"), "title": c.get("title"), "evidence": c.get("evidence"), "openings": c.get("openings", [])[:2]} for c in contacts]
     try:
@@ -347,7 +372,7 @@ def process(db, campaign: dict):
             contacts = merge_contacts(l_contacts, w_contacts)
             for contact in contacts:
                 contact["score"] = score_contact(contact, requirements)
-            contacts = sorted(contacts, key=lambda item: item["score"], reverse=True)[:MAX_LEADS]
+            contacts = select_contacts(contacts)
             event(cur, campaign_id, "drafting", f"Preparing {len(contacts)} sourced contacts for approval", {"web_contacts": len(w_contacts), "lander_contacts": len(l_contacts)})
             db.commit()
 
