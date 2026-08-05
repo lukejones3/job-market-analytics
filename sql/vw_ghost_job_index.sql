@@ -30,11 +30,23 @@ global_baseline AS (
     SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY days_to_close) AS median_days,
            count(*) AS sample_size FROM reference_closures
 ),
+verified_reappearances AS (
+    SELECT re.job_id, re.gap_days
+    FROM job_posting_events re
+    LEFT JOIN LATERAL (
+        SELECT d.posted_date
+        FROM job_posting_events d
+        WHERE d.job_id=re.job_id AND d.event_type='disappeared'
+          AND d.observed_at<re.observed_at
+        ORDER BY d.observed_at DESC LIMIT 1
+    ) prior ON TRUE
+    WHERE re.event_type='reappeared'
+      AND re.posted_date>prior.posted_date
+),
 event_signals AS (
-    SELECT job_id,
-           count(*) FILTER (WHERE event_type='reappeared') AS reappearance_count,
-           max(gap_days) FILTER (WHERE event_type='reappeared') AS longest_gap_days
-    FROM job_posting_events GROUP BY job_id
+    SELECT job_id, count(*) AS reappearance_count,
+           max(gap_days) AS longest_gap_days
+    FROM verified_reappearances GROUP BY job_id
 ),
 canonical_signals AS (
     SELECT canonical_opportunity_id, count(DISTINCT job_id)-1 AS related_posting_count,

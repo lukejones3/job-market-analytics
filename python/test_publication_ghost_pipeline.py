@@ -19,6 +19,7 @@ def test_ghost_model_uses_reposts_and_natural_closures():
     mart = (ROOT / "dbt/job_analytics_dbt/models/marts/core/mart_ghost_job_index.sql").read_text()
     assert "expired_reason='natural_cron'" in ghost
     assert "reappearance_count" in ghost and "related_posting_count" in ghost
+    assert "re.posted_date>prior.posted_date" in ghost
     assert "GREATEST(CURRENT_DATE-jp.posted_date, 0)" in ghost
     assert "'unscored'" in ghost and "score_confidence" in ghost
     assert "public.vw_ghost_job_index" in mart

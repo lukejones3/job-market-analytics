@@ -917,7 +917,7 @@ def _add_repost_warning(role: dict) -> dict:
     count = int(role.get("reappearance_count") or 0)
     role["repost_warning"] = None if count == 0 else {
         "label": "Reposted",
-        "message": "This posting previously disappeared and later reappeared.",
+        "message": "This requisition disappeared and returned with a newer published date.",
         "count": count,
     }
     return role
