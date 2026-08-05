@@ -4,7 +4,7 @@ set -euo pipefail
 # Repair service boundaries without killing active ingestion transactions.
 config=/etc/postgresql/16/main/postgresql.conf
 postgres_changed=0
-if ! grep -qx "listen_addresses = '*'" "$config"; then
+if ! grep -Fqx "listen_addresses = '*'" "$config"; then
   sed -i "s|^listen_addresses = .*|listen_addresses = '*'|" "$config"
   postgres_changed=1
 fi
