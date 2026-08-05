@@ -153,46 +153,42 @@ def match_jobs(
     if use_embedding:
         emb_str = '[' + ','.join(str(x) for x in resume_embedding) + ']'
         db_cursor.execute("""
-            SELECT
-                jp.job_id,
-                jp.experience_level,
-                jp.salary_min_annual,
-                jp.salary_max_annual,
-                jp.workplace_type,
-                jp.ingested_at,
-                jp.job_url,
-                jp.loc_city,
-                jp.loc_state,
-                jp.loc_country,
-                r.role_name,
-                c.company_name,
-                c.sector,
+            WITH nearest AS MATERIALIZED (
+              SELECT
+                jp.job_id, jp.experience_level, jp.salary_min_annual, jp.salary_max_annual,
+                jp.workplace_type, jp.ingested_at, jp.job_url, jp.loc_city, jp.loc_state,
+                jp.loc_country, r.role_name, c.company_name, c.sector,
                 jh.honesty_score AS quality_score,
-                1 - (jp.embedding <=> %s::vector) AS semantic_similarity,
+                1 - (jp.embedding <=> %s::vector) AS semantic_similarity
+              FROM job_postings jp
+              JOIN roles r ON r.role_id = jp.role_id
+              JOIN companies c ON c.company_id = jp.company_id
+              LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
+              WHERE jp.status = 'raw'
+                AND COALESCE(jp.data_tier, 1) = 1
+                AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
+                AND jp.domain IS NOT NULL
+                AND jp.role_category IS NOT NULL
+                AND jp.role_category != 'non_data'
+                AND jp.embedding IS NOT NULL
+                AND LOWER(c.company_name) != ALL(%s)
+              ORDER BY jp.embedding <=> %s::vector
+              LIMIT 200
+            )
+            SELECT
+                nearest.*,
                 COALESCE(
                     ARRAY_AGG(DISTINCT js.skill_id) FILTER (WHERE js.skill_id IS NOT NULL),
                     '{}'::text[]
                 ) AS skill_ids
-            FROM job_postings jp
-            JOIN roles r ON r.role_id = jp.role_id
-            LEFT JOIN companies c ON c.company_id = jp.company_id
-            LEFT JOIN job_skills js ON js.job_id = jp.job_id
-            LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
-            WHERE jp.status = 'raw'
-              AND COALESCE(jp.data_tier, 1) = 1
-              AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
-              AND jp.domain IS NOT NULL
-              AND jp.role_category IS NOT NULL
-              AND jp.role_category != 'non_data'
-              AND jp.embedding IS NOT NULL
-              AND LOWER(c.company_name) != ALL(%s)
-            GROUP BY
-                jp.job_id, jp.experience_level, jp.salary_min_annual, jp.salary_max_annual,
-                jp.workplace_type, jp.ingested_at, jp.job_url,
-                jp.loc_city, jp.loc_state, jp.loc_country,
-                r.role_name, c.company_name, c.sector, jh.honesty_score, jp.embedding
-            ORDER BY jp.embedding <=> %s::vector
-            LIMIT 200
+            FROM nearest
+            LEFT JOIN job_skills js ON js.job_id = nearest.job_id
+            GROUP BY nearest.job_id, nearest.experience_level, nearest.salary_min_annual,
+                nearest.salary_max_annual, nearest.workplace_type, nearest.ingested_at,
+                nearest.job_url, nearest.loc_city, nearest.loc_state, nearest.loc_country,
+                nearest.role_name, nearest.company_name, nearest.sector,
+                nearest.quality_score, nearest.semantic_similarity
+            ORDER BY nearest.semantic_similarity DESC
         """, (emb_str, _BLOCKED_LOWER, emb_str))
     else:
         # Fallback: skill-overlap-only path (no embedding required)
