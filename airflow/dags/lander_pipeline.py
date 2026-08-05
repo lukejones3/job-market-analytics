@@ -36,11 +36,13 @@ with DAG(dag_id="lander_nightly",
         empty_flag = " --accept-empty" if source in ("jobvite", "bamboohr", "taleo") else ""
         ingest = command(f"ingest_{source}",
             f"{PYTHON} python/ingest_jobs.py --apply --source {source} "
-            f"--orchestration-run-id '{{{{ dag_run.start_date.isoformat() }}}}'{empty_flag}")
+            # A DagRun's start_date changes when a failed run is cleared. Its
+            # run_id does not, so use the latter as the durable crawl identity.
+            f"--orchestration-run-id '{{{{ dag_run.run_id }}}}'{empty_flag}")
         observability_schema >> ingest
         ingests.append(ingest)
     ingest_gate = command("ingest_quality_gate",
-        f"{PYTHON} python/airflow_quality_gate.py ingest --since '{{{{ dag_run.start_date.isoformat() }}}}'",
+        f"{PYTHON} python/airflow_quality_gate.py ingest --since '{{{{ dag_run.run_id }}}}'",
         trigger_rule="all_done")
     scope_report = command("role_scope_report",
         f"{PYTHON} python/role_scope_report.py", trigger_rule="all_done")
