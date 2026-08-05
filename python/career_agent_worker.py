@@ -158,14 +158,7 @@ def lander_contacts(cur, jobs: list[dict]) -> list[dict]:
         item = dict(row)
         title = str(item.get("title") or "")
         # A live opening does not make an unrelated executive a useful lead.
-        if not re.search(
-            r"recruit|talent|staffing|sourc|people partner|human resources|"
-            r"hiring manager|data engineer|analytics engineer|machine learning|"
-            r"artificial intelligence|\bAI\b|data science|data platform|engineering manager|"
-            r"head of (data|analytics|engineering)|director of (data|analytics|engineering)",
-            title,
-            re.I,
-        ):
+        if not re.search(r"recruit|talent acquisition|talent partner|staffing|sourc|people partner|human resources", title, re.I):
             continue
         openings = by_company.get(item["company_id"], [])[:3]
         item.update({

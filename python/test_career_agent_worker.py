@@ -31,3 +31,11 @@ def test_selection_reserves_space_for_independent_recruiters():
     web = [{"full_name": f"Recruiter {i}", "firm": "Search Firm", "source_kind": "web", "score": 60 - i} for i in range(8)]
     selected = worker.select_contacts(lander + web, 20)
     assert sum(item["source_kind"] == "web" for item in selected) == 8
+
+
+def test_recruiter_filter_does_not_admit_department_heads():
+    allowed = r"recruit|talent acquisition|talent partner|staffing|sourc|people partner|human resources"
+    assert worker.re.search(allowed, "Senior Technical Recruiter", worker.re.I)
+    assert worker.re.search(allowed, "Talent Acquisition Partner", worker.re.I)
+    assert not worker.re.search(allowed, "Head of Data", worker.re.I)
+    assert not worker.re.search(allowed, "Director of AI", worker.re.I)
