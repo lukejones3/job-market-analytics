@@ -29,7 +29,11 @@ with DAG(dag_id="lander_nightly",
     ingests = []
     for source in ("greenhouse", "lever", "ashby", "workday", "eightfold", "amazon",
                    "smartrecruiters", "workable", "icims", "taleo", "jobvite", "bamboohr"):
-        empty_flag = " --accept-empty" if source in ("jobvite", "bamboohr") else ""
+        # Taleo's formerly configured enterprise tenants have migrated away
+        # from their legacy *.taleo.net hosts. Keep the source observable and
+        # discovery-ready, but do not block all healthy ingestion while there
+        # are no validated live tenants.
+        empty_flag = " --accept-empty" if source in ("jobvite", "bamboohr", "taleo") else ""
         ingest = command(f"ingest_{source}",
             f"{PYTHON} python/ingest_jobs.py --apply --source {source} "
             f"--orchestration-run-id '{{{{ dag_run.start_date.isoformat() }}}}'{empty_flag}")

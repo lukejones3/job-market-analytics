@@ -209,7 +209,11 @@ def _get_html(url: str, params: dict = None, data: dict = None) -> Optional[str]
 # ICIMS PARSER
 # ============================================================
 
-_ICIMS_JOB_ID_RE = re.compile(r'/jobs/(\d+)/job', re.IGNORECASE)
+# Current iCIMS portals usually include an SEO title slug between the numeric
+# identifier and the final /job segment. Older portals omit it. Accept both:
+#   /jobs/1234/job
+#   /jobs/1234/data-engineer/job?in_iframe=1
+_ICIMS_JOB_ID_RE = re.compile(r'/jobs/(\d+)/(?:[^/?#]+/)?job(?:[/?#]|$)', re.IGNORECASE)
 
 
 def _parse_icims_job_ids(html: str, slug: str) -> List[Tuple[str, str, str]]:
@@ -236,8 +240,11 @@ def _parse_icims_job_ids(html: str, slug: str) -> List[Tuple[str, str, str]]:
             continue
         seen_ids.add(job_id)
 
-        # Title: try the link text, then nearest heading
-        title = _clean(a.get_text())
+        # Current cards include screen-reader labels such as "Requisition
+        # Title" inside the anchor. Prefer the visible heading so those labels
+        # do not become part of the normalized role name.
+        heading = a.find(re.compile(r"h[1-6]"))
+        title = _clean(heading.get_text()) if heading else _clean(a.get_text())
         if not title or len(title) < 3:
             parent = a.find_parent(["li", "tr", "div", "article"])
             if parent:
@@ -247,13 +254,24 @@ def _parse_icims_job_ids(html: str, slug: str) -> List[Tuple[str, str, str]]:
 
         # Location: look for location-like content near the job link
         location = ""
-        parent = a.find_parent(["li", "tr", "div", "article"])
+        parent = a.find_parent(["li", "tr", "article"]) or a.find_parent("div")
         if parent:
             # Try common iCIMS location patterns
             loc_el = parent.find(class_=re.compile(r"location|city|address", re.I))
             if loc_el:
                 location = _clean(loc_el.get_text())
-            else:
+            if not location:
+                # Job cards label the location for screen readers, followed by
+                # a sibling span containing the actual value.
+                label = parent.find(
+                    class_=re.compile(r"field-label", re.I),
+                    string=re.compile(r"job locations?", re.I),
+                )
+                if label:
+                    value = label.find_next_sibling()
+                    if value:
+                        location = _clean(value.get_text())
+            if not location:
                 # Fallback: look for text matching "City, ST" pattern in sibling text
                 text = parent.get_text()
                 loc_m = re.search(r'([A-Za-z ]+,\s*[A-Z]{2})', text)
@@ -323,9 +341,16 @@ def fetch_icims(company_name: str, slug: str) -> List[RawJob]:
     for keyword in SEARCH_KEYWORDS:
         startrow = 1
         while True:
-            params = {"keyword": keyword, "ics": "1", "iisN": "",
-                "iisNewline": "1", "startrow": str(startrow),
-                "endrow": str(startrow + 99)}
+            # iCIMS moved current search pages into an iframe and renamed the
+            # query field from `keyword` to `searchKeyword`. `pr` is a
+            # zero-based page index on the current portal.
+            params = {
+                "in_iframe": "1",
+                "ss": "1",
+                "searchKeyword": keyword,
+                "searchRelation": "keyword_all",
+                "pr": str((startrow - 1) // 50),
+            }
             html = _get_html(search_url, params=params)
             time.sleep(REQUEST_DELAY)
             if not html and startrow == 1:
@@ -365,9 +390,9 @@ def fetch_icims(company_name: str, slug: str) -> List[RawJob]:
                     metadata={"slug": slug, "icims_job_id": job_id},
                 ))
 
-            if len(listings) < 100:
+            if len(listings) < 50:
                 break
-            startrow += 100
+            startrow += 50
 
     log.info(f"  iCIMS [{company_name}]: {len(jobs)} target roles found")
     return jobs
