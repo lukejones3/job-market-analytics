@@ -212,6 +212,8 @@ def public_email_from_results(results: list[dict], full_name: str = "", firm: st
     for result in results:
         haystack = " ".join(str(result.get(key) or "") for key in ("title", "snippet"))
         lower_haystack = haystack.lower()
+        if not re.search(r"recruit|talent|staffing|sourc", lower_haystack):
+            continue
         if first and first not in lower_haystack:
             continue
         if last and last not in lower_haystack:
