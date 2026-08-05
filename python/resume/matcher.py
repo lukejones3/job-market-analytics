@@ -153,14 +153,21 @@ def match_jobs(
     if use_embedding:
         emb_str = '[' + ','.join(str(x) for x in resume_embedding) + ']'
         db_cursor.execute("""
-            WITH nearest AS MATERIALIZED (
+            WITH vector_candidates AS MATERIALIZED (
+              SELECT jp.job_id, 1 - (jp.embedding <=> %s::vector) AS semantic_similarity
+              FROM job_postings jp
+              WHERE jp.embedding IS NOT NULL
+              ORDER BY jp.embedding <=> %s::vector
+              LIMIT 2000
+            ), nearest AS MATERIALIZED (
               SELECT
                 jp.job_id, jp.experience_level, jp.salary_min_annual, jp.salary_max_annual,
                 jp.workplace_type, jp.ingested_at, jp.job_url, jp.loc_city, jp.loc_state,
                 jp.loc_country, r.role_name, c.company_name, c.sector,
                 jh.honesty_score AS quality_score,
-                1 - (jp.embedding <=> %s::vector) AS semantic_similarity
-              FROM job_postings jp
+                vc.semantic_similarity
+              FROM vector_candidates vc
+              JOIN job_postings jp ON jp.job_id = vc.job_id
               JOIN roles r ON r.role_id = jp.role_id
               JOIN companies c ON c.company_id = jp.company_id
               LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
@@ -172,7 +179,7 @@ def match_jobs(
                 AND jp.role_category != 'non_data'
                 AND jp.embedding IS NOT NULL
                 AND LOWER(c.company_name) != ALL(%s)
-              ORDER BY jp.embedding <=> %s::vector
+              ORDER BY vc.semantic_similarity DESC
               LIMIT 200
             )
             SELECT
@@ -189,7 +196,7 @@ def match_jobs(
                 nearest.role_name, nearest.company_name, nearest.sector,
                 nearest.quality_score, nearest.semantic_similarity
             ORDER BY nearest.semantic_similarity DESC
-        """, (emb_str, _BLOCKED_LOWER, emb_str))
+        """, (emb_str, emb_str, _BLOCKED_LOWER))
     else:
         # Fallback: skill-overlap-only path (no embedding required)
         db_cursor.execute("""
