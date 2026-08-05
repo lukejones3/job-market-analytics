@@ -41,7 +41,10 @@ def main():
             if bad:
                 raise RuntimeError(f"ingest gate failed; incomplete crawl outcome for: {', '.join(bad)}")
             cursor.execute("""SELECT ingestion_source, COUNT(*) FROM job_postings
-                WHERE data_tier=1 AND last_seen_at >= COALESCE(%s::timestamptz, now() - interval '12 hours')
+                WHERE data_tier=1 AND last_seen_at >= COALESCE(
+                    (SELECT MIN(started_at) FROM ingestion_crawl_runs
+                     WHERE orchestration_run_id=%s),
+                    now() - interval '12 hours')
                 AND ingestion_source = ANY(%s) GROUP BY ingestion_source""",
                 (args.since, list(INGEST_SOURCES)))
             counts = dict(cursor.fetchall())
