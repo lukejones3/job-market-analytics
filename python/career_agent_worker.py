@@ -199,6 +199,47 @@ def serper_search(query: str) -> list[dict]:
     return response.json().get("organic", [])
 
 
+EMAIL_RE = re.compile(r"(?i)(?<![\w.+-])[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9.-]+\.[a-z]{2,}(?![\w.-])")
+
+
+def public_email_from_results(results: list[dict]) -> tuple[str | None, str | None]:
+    """Return only an address literally present in public search evidence."""
+    rejected = {"example.com", "email.com", "domain.com"}
+    for result in results:
+        haystack = " ".join(str(result.get(key) or "") for key in ("title", "snippet"))
+        for email in EMAIL_RE.findall(haystack):
+            normalized = email.lower().strip(".,;:()[]{}<>")
+            local, domain = normalized.rsplit("@", 1)
+            if domain in rejected or local in {"noreply", "no-reply", "support", "privacy", "info"}:
+                continue
+            return normalized, result.get("link")
+    return None, None
+
+
+def enrich_recruiter_emails(contacts: list[dict], limit: int = 24) -> tuple[list[dict], int]:
+    queries = 0
+    for contact in contacts[:limit]:
+        if contact.get("business_email"):
+            continue
+        name = str(contact.get("full_name") or "").strip()
+        firm = str(contact.get("firm") or "").replace("Independent / verify", "").strip()
+        if not name:
+            continue
+        query = f'"{name}" recruiter email' + (f' "{firm}"' if firm else "")
+        try:
+            results = serper_search(query)
+            queries += 1
+            email, source_url = public_email_from_results(results)
+            if email:
+                contact["business_email"] = email
+                if source_url:
+                    contact["evidence_urls"] = list(dict.fromkeys(contact.get("evidence_urls", []) + [source_url]))
+                contact["evidence"] = f"{contact.get('evidence') or ''} Public business email found in cited web evidence.".strip()
+        except Exception as exc:
+            log.warning("Recruiter email search failed for %s: %s", name, exc)
+    return contacts, queries
+
+
 def extract_json(text: str) -> Any:
     cleaned = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     return json.loads(cleaned)
@@ -312,7 +353,7 @@ def draft_leads(contacts: list[dict], requirements: dict, summary: str, links: d
     compact = [{"id": contact_key(c), "name": c.get("full_name"), "firm": c.get("firm"), "title": c.get("title"), "evidence": c.get("evidence"), "openings": c.get("openings", [])[:2]} for c in contacts]
     try:
         parsed, model_usage = model_json(
-            "Write concise, specific recruiter outreach using only supplied facts. Do not use inflated praise. Return JSON object with key drafts, an array of: id, subject, body, connection_message, match_reason. Body should be 110-180 words, direct, human, and mention the strongest true evidence. The candidate is asking to connect or enter the recruiter's candidate pool, not claiming entitlement to a role.",
+            "Write concise, specific recruiter outreach using only supplied facts. Do not use inflated praise. Return JSON object with key drafts, an array of: id, subject, body, connection_message, match_reason. Body should be 110-180 words, direct, human, and mention the strongest true evidence. connection_message must be 200 characters or fewer. The candidate is asking to connect or enter the recruiter's candidate pool, not claiming entitlement to a role.",
             {"requirements": requirements, "candidate_summary": summary[:5000], "links": links, "contacts": compact},
         )
         return {item["id"]: item for item in parsed.get("drafts", []) if item.get("id")}, model_usage
@@ -363,6 +404,10 @@ def process(db, campaign: dict):
             if extraction_usage:
                 usage(cur, campaign_id, "openai", "evidence_extraction", extraction_usage.get("total_tokens", 0), estimated_model_cost(extraction_usage), extraction_usage)
             contacts = merge_contacts(l_contacts, w_contacts)
+            event(cur, campaign_id, "email_search", f"Searching public sources for recruiter email addresses", {"contacts": len(contacts)})
+            db.commit()
+            contacts, email_queries = enrich_recruiter_emails(contacts)
+            usage(cur, campaign_id, "serper", "public_email_search", email_queries, 0, {"contacts_checked": min(len(contacts), 24)})
             for contact in contacts:
                 contact["score"] = score_contact(contact, requirements)
             contacts = select_contacts(contacts)
@@ -392,7 +437,7 @@ def process(db, campaign: dict):
                        VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT(campaign_id,contact_id) DO UPDATE SET rank=EXCLUDED.rank,score=EXCLUDED.score,source_kind=EXCLUDED.source_kind,
                          match_reason=EXCLUDED.match_reason,relevant_openings=EXCLUDED.relevant_openings,draft_subject=EXCLUDED.draft_subject,draft_body=EXCLUDED.draft_body,connection_message=EXCLUDED.connection_message,updated_at=now()""",
-                    (campaign_id, cid, rank, contact["score"], contact.get("source_kind", "web"), draft.get("match_reason") or contact.get("evidence"), [opening.get("job_id") for opening in contact.get("openings", []) if opening.get("job_id")], Json(contact.get("openings", [])), draft.get("subject"), draft.get("body"), draft.get("connection_message")),
+                    (campaign_id, cid, rank, contact["score"], contact.get("source_kind", "web"), draft.get("match_reason") or contact.get("evidence"), [opening.get("job_id") for opening in contact.get("openings", []) if opening.get("job_id")], Json(contact.get("openings", [])), draft.get("subject"), draft.get("body"), (draft.get("connection_message") or "")[:200]),
                 )
 
             cur.execute(

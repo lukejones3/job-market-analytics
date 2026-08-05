@@ -39,3 +39,18 @@ def test_recruiter_filter_does_not_admit_department_heads():
     assert worker.re.search(allowed, "Talent Acquisition Partner", worker.re.I)
     assert not worker.re.search(allowed, "Head of Data", worker.re.I)
     assert not worker.re.search(allowed, "Director of AI", worker.re.I)
+
+
+def test_public_email_requires_literal_search_evidence():
+    email, url = worker.public_email_from_results([
+        {"title": "Jane Recruiter", "snippet": "Contact Jane at jane@searchfirm.com", "link": "https://searchfirm.com/jane"}
+    ])
+    assert email == "jane@searchfirm.com"
+    assert url == "https://searchfirm.com/jane"
+
+
+def test_public_email_rejects_generic_contact_inbox():
+    email, _ = worker.public_email_from_results([
+        {"title": "Contact", "snippet": "Email info@searchfirm.com", "link": "https://searchfirm.com"}
+    ])
+    assert email is None
