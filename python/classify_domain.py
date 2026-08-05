@@ -407,12 +407,6 @@ def _run_classify(title, description, alias_map, use_llm, llm_cache):
     if title and _NULL_BLOCKLIST.search(title) and not _DATA_SCIENTIST_EXEMPT.search(title):
         return None, [], "null_blocked"
 
-    # Stage 0b: Hardware engineering without software context → NULL
-    # Prevents mechanical/electrical engineers from scoring into finance via
-    # incidental Anaplan / financial-modeling skill matches.
-    if title and _HARDWARE_ENGINEER_RE.search(title) and not _SOFTWARE_CONTEXT_RE.search(title):
-        return None, [], "null_blocked"
-
     # Strip parenthetical qualifiers before title classification so that
     # "CX/UX Designer (Tax & Accounting)" doesn't gain a finance score.
     clean_title = _PAREN_RE.sub("", title).strip() if title else title

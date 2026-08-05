@@ -7,7 +7,7 @@ import psycopg2
 from dotenv import load_dotenv
 
 INGEST_SOURCES = ("greenhouse", "lever", "ashby", "workday", "eightfold",
-    "amazon", "smartrecruiters", "workable", "icims", "taleo")
+    "amazon", "smartrecruiters", "workable", "icims", "taleo", "jobvite", "bamboohr")
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 

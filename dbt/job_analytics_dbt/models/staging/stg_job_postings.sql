@@ -86,7 +86,10 @@ final as (
     salary_max as salary_max_original,
 
     -- canonical, now always populated when possible
-    pay_period_c as pay_period,
+    case
+      when pay_period_c = 'month' then 'year'
+      else pay_period_c
+    end as pay_period,
     is_hourly_c as is_hourly,
     pay_min_raw_c as pay_min_raw,
     pay_max_raw_c as pay_max_raw,
@@ -94,14 +97,20 @@ final as (
 
     case
       when pay_min_raw_c is null then null
+      when pay_period_c = 'month' and pay_min_raw_c * 12 < 10000 then null
+      when pay_period_c = 'month' then pay_min_raw_c * 12
       when is_hourly_c = true then pay_min_raw_c * annualization_hours_c
+      when is_hourly_c = false and pay_min_raw_c < 10000 then null
       when is_hourly_c = false then pay_min_raw_c
       else null
     end as salary_min_annual,
 
     case
       when pay_max_raw_c is null then null
+      when pay_period_c = 'month' and pay_max_raw_c * 12 < 10000 then null
+      when pay_period_c = 'month' then pay_max_raw_c * 12
       when is_hourly_c = true then pay_max_raw_c * annualization_hours_c
+      when is_hourly_c = false and pay_max_raw_c < 10000 then null
       when is_hourly_c = false then pay_max_raw_c
       else null
     end as salary_max_annual

@@ -53,7 +53,8 @@ def run(apply: bool, limit, since_hours=None):
     since_clause = f"AND jp.ingested_at >= NOW() - INTERVAL '{since_hours} hours'" if since_hours else ""
     q = f"""
         SELECT jp.job_id, r.role_name AS title, jp.description_text,
-               jp.domain AS current_domain
+               jp.domain AS current_domain,
+               jp.domain_classification_method AS current_method
         FROM job_postings jp
         LEFT JOIN roles r ON r.role_id = jp.role_id
         WHERE jp.status = 'raw' AND jp.data_tier = 1
@@ -67,7 +68,7 @@ def run(apply: bool, limit, since_hours=None):
     total = len(jobs)
     print(f"Classifying {total:,} survivors (title + skill, no LLM)...")
 
-    results = []          # (job_id, new_domain, new_secondary) — changed rows only
+    results = []          # (job_id, new_domain, new_secondary, method)
     samples: list[tuple[str, str, str]] = []  # (old, new, title) — for dry-run display
     # Targeted samples for the data_ml audit
     dm_to_null_samples: list[tuple[str, str]] = []   # (title, snippet) — noise we're clearing
@@ -96,8 +97,8 @@ def run(apply: bool, limit, since_hours=None):
         old_to_new[old][dk] = old_to_new[old].get(dk, 0) + 1
 
         desc_snippet = (job["description_text"] or "")[:120].replace("\n", " ")
-        if dk != old:
-            results.append((job["job_id"], domain, secondary or None))
+        if dk != old or job["current_method"] != method:
+            results.append((job["job_id"], domain, secondary or None, method))
             if len(samples) < 20:
                 samples.append((old, dk, job["title"] or ""))
             if old == "data_ml" and dk == "NULL" and len(dm_to_null_samples) < 20:
@@ -183,10 +184,11 @@ def run(apply: bool, limit, since_hours=None):
             UPDATE job_postings
             SET domain               = %s,
                 domain_secondary     = %s,
+                domain_classification_method = %s,
                 domain_classified_at = now()
             WHERE job_id = %s
             """,
-            [(domain, secondary, job_id) for job_id, domain, secondary in batch],
+            [(domain, secondary, method, job_id) for job_id, domain, secondary, method in batch],
             page_size=BATCH_SIZE,
         )
         conn.commit()

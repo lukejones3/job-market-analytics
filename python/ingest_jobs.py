@@ -59,6 +59,14 @@ try:
     from taleo_harvest import fetch_all_taleo as _fetch_all_taleo
 except ImportError:
     _fetch_all_taleo = None
+try:
+    from jobvite_harvest import fetch_all_jobvite as _fetch_all_jobvite
+except ImportError:
+    _fetch_all_jobvite = None
+try:
+    from bamboohr_harvest import fetch_all_bamboohr as _fetch_all_bamboohr
+except ImportError:
+    _fetch_all_bamboohr = None
 
 from psycopg2.extras import DictCursor
 
@@ -1364,7 +1372,8 @@ def ensure_schema_columns(cur):
           ADD COLUMN IF NOT EXISTS source_id        text,
           ADD COLUMN IF NOT EXISTS crawl_tenant     text,
           ADD COLUMN IF NOT EXISTS description_quality text DEFAULT 'full',
-          ADD COLUMN IF NOT EXISTS job_url          text
+          ADD COLUMN IF NOT EXISTS job_url          text,
+          ADD COLUMN IF NOT EXISTS domain_classification_method text
     """)
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_jp_source
@@ -1576,7 +1585,7 @@ def ingest_job(cur, job: RawJob) -> bool:
     if inserted and _DOMAIN_CLASSIFIER_AVAILABLE:
         alias_map = _get_alias_map(cur.connection)
         if alias_map:
-            domain, secondary, _ = _classify_domain(
+            domain, secondary, method = _classify_domain(
                 job.title or "", job.description or "", alias_map
             )
             cur.execute(
@@ -1584,10 +1593,11 @@ def ingest_job(cur, job: RawJob) -> bool:
                 UPDATE job_postings
                 SET domain               = %s,
                     domain_secondary     = %s,
+                    domain_classification_method = %s,
                     domain_classified_at = now()
                 WHERE job_id = %s AND domain IS NULL
                 """,
-                (domain, secondary if secondary else None, job_id),
+                (domain, secondary if secondary else None, method, job_id),
             )
 
     return inserted
@@ -2536,13 +2546,12 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
             SELECT company_name, board_token FROM discovered_companies
             WHERE ats_source = 'workday'
               AND enabled = true
-              AND discovery_source IN ('serper_dork', 'workday_probe', 'workday_dork', 'manual')
               AND board_token LIKE '%wd%'
         """)
         rows = cur.fetchall()
         cur.close()
         conn.close()
-        hardcoded_tenants = {t for _, t, _, _ in WORKDAY_COMPANIES}
+        known_tokens = {f"{tenant}/{server}/{board}" for _, tenant, board, server in WORKDAY_COMPANIES}
         added = 0
         for company_name, board_token in rows:
             parts = board_token.split("/")
@@ -2550,8 +2559,9 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
                 tenant, wd_server, board = parts
                 if board.lower() in ("en-us", "fr-ca", "en-gb", "ja-jp", "de-de"):
                     continue
-                if tenant not in hardcoded_tenants:
+                if board_token not in known_tokens:
                     workday_list.append((company_name, tenant, board, wd_server))
+                    known_tokens.add(board_token)
                     added += 1
         log.info(
             f"Workday: {len(WORKDAY_COMPANIES)} hardcoded + {added} dynamic "
@@ -3097,6 +3107,16 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
             all_jobs.extend(_fetch_all_taleo())
         else:
             log.warning("Taleo harvester not available (taleo_harvest.py missing)")
+    if source in ("jobvite", "all"):
+        if _fetch_all_jobvite:
+            all_jobs.extend(_fetch_all_jobvite())
+        else:
+            log.warning("Jobvite harvester not available (jobvite_harvest.py missing)")
+    if source in ("bamboohr", "all"):
+        if _fetch_all_bamboohr:
+            all_jobs.extend(_fetch_all_bamboohr())
+        else:
+            log.warning("BambooHR harvester not available (bamboohr_harvest.py missing)")
 
     log.info(f"Total fetched across all sources: {len(all_jobs)}")
 
@@ -3242,7 +3262,7 @@ def main():
     ap = argparse.ArgumentParser(description="Multi-source job ingestion pipeline.")
     ap.add_argument(
         "--source",
-        choices=["greenhouse", "lever", "ashby", "workday", "amazon", "eightfold", "smartrecruiters", "workable", "icims", "taleo", "all"],
+        choices=["greenhouse", "lever", "ashby", "workday", "amazon", "eightfold", "smartrecruiters", "workable", "icims", "taleo", "jobvite", "bamboohr", "all"],
         default="all",
         help="Which source to pull from (default: all)"
     )

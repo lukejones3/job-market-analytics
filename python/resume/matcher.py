@@ -91,16 +91,21 @@ def _freshness_quality(quality: Optional[float], ingested_at: Optional[datetime]
 
 
 def _skill_overlap_pct(resume_skill_ids: Set[str], job_skill_ids: Set[str]) -> float:
-    """How much of the job's required skill set does the resume cover?
+    """Balanced resume/job skill fit (F1), not one-sided job coverage.
 
-    Anti-inflation: shallow skill lists (1-2 skills) get capped at 0.5 — they
-    don't carry enough signal to award full credit even on a perfect match.
+    The old denominator contained only job skills, so a posting with four generic
+    skills could score 100% against a fifteen-skill resume. F1 retains coverage
+    while penalizing shallow, generic matches.
     """
     n_job = len(job_skill_ids)
     if n_job == 0:
         return 0.0  # no signal
     overlap = resume_skill_ids & job_skill_ids
-    raw = len(overlap) / n_job
+    if not overlap or not resume_skill_ids:
+        return 0.0
+    job_recall = len(overlap) / n_job
+    resume_precision = len(overlap) / len(resume_skill_ids)
+    raw = 2 * job_recall * resume_precision / (job_recall + resume_precision)
     if n_job == 1:
         return min(raw, 0.40)
     if n_job == 2:
@@ -176,7 +181,9 @@ def match_jobs(
             WHERE jp.status = 'raw'
               AND COALESCE(jp.data_tier, 1) = 1
               AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
-              AND (jp.role_category IS NULL OR jp.role_category != 'non_data')
+              AND jp.domain IS NOT NULL
+              AND jp.role_category IS NOT NULL
+              AND jp.role_category != 'non_data'
               AND jp.embedding IS NOT NULL
               AND LOWER(c.company_name) != ALL(%s)
             GROUP BY
@@ -217,7 +224,9 @@ def match_jobs(
             WHERE jp.status = 'raw'
               AND COALESCE(jp.data_tier, 1) = 1
               AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
-              AND (jp.role_category IS NULL OR jp.role_category != 'non_data')
+              AND jp.domain IS NOT NULL
+              AND jp.role_category IS NOT NULL
+              AND jp.role_category != 'non_data'
               AND LOWER(c.company_name) != ALL(%s)
             GROUP BY
                 jp.job_id, jp.experience_level, jp.salary_min_annual, jp.salary_max_annual,

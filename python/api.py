@@ -190,6 +190,18 @@ TIER_LIMITS = {
     "enterprise": 50000,
 }
 
+LANDER_INTERNAL_API_KEY = os.getenv("LANDER_INTERNAL_API_KEY", "")
+
+
+async def verify_resume_client(request: Request, conn=Depends(get_conn)) -> dict:
+    """Authenticate browser-server resume requests without treating user ids as API keys."""
+    supplied = request.headers.get("X-Lander-Internal-Key", "")
+    if LANDER_INTERNAL_API_KEY and supplied and hmac.compare_digest(supplied, LANDER_INTERNAL_API_KEY):
+        requested_tier = request.headers.get("X-Lander-User-Tier", "free").lower()
+        tier = requested_tier if requested_tier in {"free", "pro"} else "free"
+        return {"key_id": "lander-web", "tier": tier, "client_name": "lander-web", "active": True}
+    return await verify_api_key(request=request, conn=conn)
+
 def hash_key(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode()).hexdigest()
 
@@ -1628,7 +1640,7 @@ def _skills_payload(skills_dict):
 @app.post("/v1/resume/upload", tags=["Resume"])
 async def upload_resume_v1(
     file: UploadFile = File(...),
-    key: dict = Depends(verify_api_key_or_preview),
+    key: dict = Depends(verify_resume_client),
     conn=Depends(get_conn),
 ):
     filename = file.filename or ""
@@ -1664,39 +1676,36 @@ async def upload_resume_v1(
     cur = None
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
-        log.info(
-            "resume_upload_debug: cursor_type=%s filename=%r",
-            type(cur).__name__,
-            filename,
-        )
-        log.info(
-            "resume_upload_debug: text_len=%d text_preview=%r",
-            len(text),
-            text[:1500],
-        )
-        cur.execute("SELECT 1 AS test")
-        probe = cur.fetchone()
-        log.info(
-            "resume_upload_debug: db_cursor_probe=%s probe_repr_type=%s",
-            probe,
-            type(probe).__name__,
-        )
+        # Never emit resume contents into application logs.
+        log.info("resume_upload: parsed filename=%r text_len=%d", filename, len(text))
         try:
             skills = extract_skills(text, cur) or {}
         except Exception:
-            log.exception("resume_upload_debug: extract_skills raised")
+            log.exception("resume_upload: extract_skills raised")
             raise
-        log.info(
-            "resume_upload_debug: extract_skills_skill_count=%d",
-            len(skills),
-        )
+        log.info("resume_upload: extracted_skill_count=%d", len(skills))
         exp_level = infer_experience_level(text) or "mid"
+        # The matcher has a semantic path, but the former upload endpoint never
+        # supplied an embedding and therefore ranked generic skill overlap across
+        # unrelated domains. Supply the semantic vector so the first response is useful.
+        try:
+            from sentence_transformers import SentenceTransformer
+            model = getattr(app.state, "resume_embedding_model", None)
+            if model is None:
+                model = SentenceTransformer("all-MiniLM-L6-v2")
+                model.max_seq_length = 256
+                app.state.resume_embedding_model = model
+            resume_embedding = model.encode(text[:2500], convert_to_numpy=True).tolist()
+        except Exception:
+            log.exception("resume_upload: semantic embedding failed")
+            resume_embedding = None
         matched_jobs = match_jobs(
             resume_skills=skills,
             exp_level=exp_level,
             salary_floor=0,
             db_cursor=cur,
             top_n=50,
+            resume_embedding=resume_embedding,
         ) or []
 
         tier = key.get("tier", "free") if isinstance(key, dict) else "free"

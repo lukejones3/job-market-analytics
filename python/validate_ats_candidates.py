@@ -25,6 +25,7 @@ Usage:
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 import os
 import re
@@ -56,7 +57,11 @@ REQUEST_TIMEOUT = 12
 BATCH_DELAY     = 0.3   # seconds between candidates
 REQUEST_DELAY   = 0.8   # seconds between API pages within same candidate
 
-WD_SERVERS = ["wd1", "wd5", "wd3", "wd12", "wd103", "wd1480"]
+WD_SERVERS = [
+    "wd1", "wd2", "wd3", "wd5", "wd10", "wd12", "wd102", "wd103",
+    "wd104", "wd105", "wd106", "wd107", "wd108", "wd501", "wd502",
+    "wd503", "wd1480",
+]
 COMMON_WD_BOARDS = [
     "External", "Careers", "External_Career_Site", "JobSearch", "Global",
     "Search", "US", "CareerSite",
@@ -211,12 +216,16 @@ def load_pending(
     ats_filter: Optional[str] = None,
     revalidate: bool = False,
     limit: Optional[int] = None,
+    retry_stale_hours: Optional[int] = None,
 ) -> List[Dict]:
     conn = get_conn()
     cur = conn.cursor(cursor_factory=DictCursor)
     where_parts = []
     params = []
-    if not revalidate:
+    if retry_stale_hours is not None:
+        where_parts.append("(status = 'pending' OR (status IN ('unreachable','no_data_jobs') AND (last_validated_at IS NULL OR last_validated_at < NOW() - (%s * INTERVAL '1 hour'))))")
+        params.append(retry_stale_hours)
+    elif not revalidate:
         where_parts.append("status = 'pending'")
     else:
         where_parts.append("status NOT IN ('integrated')")
@@ -351,11 +360,16 @@ def _wd_count_jobs(tenant: str, server: str, board: str) -> Tuple[int, int]:
 def validate_workday(row: Dict) -> Tuple[Optional[str], int, int, str]:
     """Returns (resolved_server, us_jobs, data_ml_jobs, status)."""
     tenant = row["tenant"]
-    server = _wd_resolve_server(tenant, row.get("server"))
+    # Validation stores a successful Workday locator as "server/board". Older
+    # revalidation fed that entire string back as the hostname, making every
+    # previously checked candidate look unreachable.
+    locator = (row.get("server") or "").strip()
+    known_server, _, known_board = locator.partition("/")
+    server = _wd_resolve_server(tenant, known_server or None)
     if not server:
         return None, 0, 0, "unreachable"
 
-    board = _wd_find_board(tenant, server, None)
+    board = _wd_find_board(tenant, server, known_board or None)
     if not board:
         return server, 0, 0, "unreachable"
 
@@ -620,6 +634,35 @@ def validate_jobvite(row: Dict) -> Tuple[Optional[str], int, int, str]:
     return None, 0, 0, "unreachable"
 
 
+def validate_bamboohr(row: Dict) -> Tuple[Optional[str], int, int, str]:
+    tenant = row["tenant"]
+    url = f"https://{tenant}.bamboohr.com/careers/list"
+    try:
+        r = requests.get(url, timeout=REQUEST_TIMEOUT,
+                         headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        if r.status_code == 200:
+            jobs = r.json().get("result", [])
+            us_jobs = target = 0
+            for job in jobs:
+                location = job.get("location") or {}
+                ats_location = job.get("atsLocation") or {}
+                country = ats_location.get("country") or location.get("addressCountry") or ""
+                state = ats_location.get("state") or ats_location.get("province") or location.get("state") or ""
+                remote = bool(job.get("isRemote"))
+                if remote or _is_us_job(", ".join(filter(None, [country, state]))):
+                    us_jobs += 1
+                    target += int(_is_target_role(job.get("jobOpeningName", "")))
+            # Listing rows frequently omit country; keep an otherwise healthy
+            # board eligible for harvesting, where detail records provide it.
+            if jobs and not us_jobs:
+                target = sum(1 for job in jobs if _is_target_role(job.get("jobOpeningName", "")))
+                return None, len(jobs), target, _candidate_status(len(jobs), target)
+            return None, us_jobs, target, _candidate_status(us_jobs, target)
+    except Exception:
+        pass
+    return None, 0, 0, "unreachable"
+
+
 # ============================================================
 # SMARTRECRUITERS VALIDATION
 # ============================================================
@@ -662,9 +705,11 @@ VALIDATORS = {
     "taleo":          validate_taleo,
     "eightfold":      validate_eightfold,
     "smartrecruiters":validate_smartrecruiters,
+    "jobvite":         validate_jobvite,
+    "bamboohr":        validate_bamboohr,
 }
 
-DISCOVERABLE_NOT_HARVESTED = {"jobvite", "successfactors", "bamboohr"}
+DISCOVERABLE_NOT_HARVESTED = {"successfactors"}
 
 
 def validate_candidate(row: Dict) -> Tuple[Optional[str], int, int, str]:
@@ -742,8 +787,10 @@ def print_report() -> None:
 # MAIN VALIDATION LOOP
 # ============================================================
 
-def run_validation(apply: bool, ats_filter: Optional[str], limit: Optional[int], revalidate: bool) -> None:
-    pending = load_pending(ats_filter=ats_filter, revalidate=revalidate, limit=limit)
+def run_validation(apply: bool, ats_filter: Optional[str], limit: Optional[int], revalidate: bool,
+                   retry_stale_hours: Optional[int] = None, workers: int = 1) -> None:
+    pending = load_pending(ats_filter=ats_filter, revalidate=revalidate, limit=limit,
+                           retry_stale_hours=retry_stale_hours)
     log.info(f"Loaded {len(pending)} candidates to validate")
 
     if not pending:
@@ -758,13 +805,30 @@ def run_validation(apply: bool, ats_filter: Optional[str], limit: Optional[int],
         conn = get_conn()
         cur = conn.cursor()
 
-    for i, row in enumerate(pending):
+    def check(row: Dict):
+        try:
+            return row, validate_candidate(row), None
+        except Exception as exc:
+            return row, None, exc
+
+    if workers > 1:
+        pool = ThreadPoolExecutor(max_workers=workers)
+        futures = [pool.submit(check, row) for row in pending]
+        checked = (future.result() for future in as_completed(futures))
+    else:
+        pool = None
+        checked = (check(row) for row in pending)
+
+    for i, checked_result in enumerate(checked):
+        row, validation, validation_error = checked_result
         ats = row["ats"]
         tenant = row["tenant"]
         log.info(f"[{i+1}/{len(pending)}] {ats}/{tenant}")
 
         try:
-            server, us_jobs, data_ml_jobs, status = validate_candidate(row)
+            if validation_error:
+                raise validation_error
+            server, us_jobs, data_ml_jobs, status = validation
             results[status] = results.get(status, 0) + 1
 
             if status == "active":
@@ -789,7 +853,11 @@ def run_validation(apply: bool, ats_filter: Optional[str], limit: Optional[int],
                 except Exception:
                     pass
 
-        time.sleep(BATCH_DELAY)
+        if workers == 1:
+            time.sleep(BATCH_DELAY)
+
+    if pool:
+        pool.shutdown()
 
     if apply and conn:
         cur.close()
@@ -820,6 +888,10 @@ def main():
                     help="Only validate this ATS (e.g. greenhouse, lever, workday)")
     ap.add_argument("--limit",      type=int, default=None, metavar="N",
                     help="Max candidates to validate")
+    ap.add_argument("--retry-stale-hours", type=int, default=None, metavar="N",
+                    help="Also retry unreachable/no-target candidates older than N hours")
+    ap.add_argument("--workers", type=int, default=1, metavar="N",
+                    help="Concurrent network validators (default: 1)")
     args = ap.parse_args()
 
     if args.report:
@@ -830,7 +902,9 @@ def main():
     if not apply:
         log.info("DRY RUN — use --apply to write to DB")
 
-    run_validation(apply=apply, ats_filter=args.ats, limit=args.limit, revalidate=args.revalidate)
+    run_validation(apply=apply, ats_filter=args.ats, limit=args.limit,
+                   revalidate=args.revalidate, retry_stale_hours=args.retry_stale_hours,
+                   workers=max(1, args.workers))
 
 
 if __name__ == "__main__":

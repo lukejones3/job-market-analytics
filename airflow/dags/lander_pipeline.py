@@ -21,16 +21,23 @@ with DAG(dag_id="lander_nightly",
     dagrun_timeout=timedelta(hours=18),
     tags=["lander", "production"]) as nightly:
     backup = command("verified_backup", "scripts/airflow_backup.sh")
-    previous = backup
+    observability_schema = command("ensure_observability_schema",
+        "psql -v ON_ERROR_STOP=1 -f sql/ingestion_observability.sql "
+        "-f sql/domain_classification_observability.sql "
+        "-f sql/ingestion_publication_funnel.sql")
+    backup >> observability_schema
+    ingests = []
     for source in ("greenhouse", "lever", "ashby", "workday", "eightfold", "amazon",
-                   "smartrecruiters", "workable", "icims", "taleo"):
+                   "smartrecruiters", "workable", "icims", "taleo", "jobvite", "bamboohr"):
+        empty_flag = " --accept-empty" if source in ("jobvite", "bamboohr") else ""
         ingest = command(f"ingest_{source}",
             f"{PYTHON} python/ingest_jobs.py --apply --source {source} "
-            "--orchestration-run-id '{{ dag_run.start_date.isoformat() }}'")
-        previous >> ingest
-        previous = ingest
+            f"--orchestration-run-id '{{{{ dag_run.start_date.isoformat() }}}}'{empty_flag}")
+        observability_schema >> ingest
+        ingests.append(ingest)
     ingest_gate = command("ingest_quality_gate",
-        f"{PYTHON} python/airflow_quality_gate.py ingest --since '{{{{ dag_run.start_date.isoformat() }}}}'")
+        f"{PYTHON} python/airflow_quality_gate.py ingest --since '{{{{ dag_run.start_date.isoformat() }}}}'",
+        trigger_rule="all_done")
     reclassify = command("reclassify_domains",
         f"{PYTHON} python/reclassify_domains.py --apply --since-hours 24")
     blocklist = command("enforce_blocklist", f"{PYTHON} python/enforce_blocklist.py")
@@ -54,17 +61,23 @@ with DAG(dag_id="lander_nightly",
     expiry = command("expire_jobs",
         f"{PYTHON} python/expire_jobs.py --since '{{{{ dag_run.start_date.isoformat() }}}}'")
     dbt_build = command("dbt_build",
-        f"cd {ROOT}/dbt/job_analytics_dbt; {DBT} build --no-use-colors")
+        f"cd {ROOT}/dbt/job_analytics_dbt; "
+        f"{DBT} build --profiles-dir {ROOT}/dbt/job_analytics_dbt "
+        f"--log-path {ROOT}/logs/dbt --target-path /opt/airflow/dbt-target "
+        "--no-use-colors")
     publish_gate = command("publish_quality_gate",
         f"{PYTHON} python/airflow_quality_gate.py publish")
     report = command("morning_report", f"{PYTHON} python/morning_report.py")
-    previous >> ingest_gate >> reclassify >> blocklist >> annualize
+    funnel_report = command("ingestion_funnel_report",
+        f"{PYTHON} python/ingestion_funnel_report.py")
+    ingests >> ingest_gate >> reclassify >> blocklist >> annualize
     # Domain classification must commit before domain-aware skill extraction.
     # The oldest-first enrichment batch drains backlog without starving rows.
     annualize >> enrich >> skills
     enrich >> embeddings >> experience
     [experience, skills] >> honesty
-    honesty >> discover >> dedup >> canonicalize >> expiry >> dbt_build >> publish_gate >> report
+    honesty >> discover >> dedup >> canonicalize >> expiry >> dbt_build >> publish_gate
+    publish_gate >> [report, funnel_report]
 
 with DAG(dag_id="lander_ats_discovery",
     description="Discover, validate, and activate new ATS tenants",
@@ -79,7 +92,30 @@ with DAG(dag_id="lander_ats_discovery",
         f"{PYTHON} python/integrate_ats_candidates.py --apply")
     health_report = command("ats_discovery_health",
         f"{PYTHON} python/ats_discovery_health.py --report")
-    discover_tenants >> validate_tenants >> integrate_tenants >> health_report
+    discover_workday_crawl = command("discover_workday_commoncrawl",
+        f"{PYTHON} python/discover_workday_tenants.py --source commoncrawl --apply")
+    validate_workday_crawl = command("validate_workday_commoncrawl",
+        f"{PYTHON} python/validate_workday_tenants.py --apply")
+    integrate_workday_crawl = command("integrate_workday_commoncrawl",
+        f"{PYTHON} python/validate_workday_tenants.py --integrate")
+    discover_tenants >> validate_tenants >> integrate_tenants
+    discover_workday_crawl >> validate_workday_crawl >> integrate_workday_crawl
+    [integrate_tenants, integrate_workday_crawl] >> health_report
+
+with DAG(dag_id="lander_ats_discovery_daily",
+    description="Daily broad-domain ATS discovery and stale-candidate recovery",
+    schedule="0 11 * * *", start_date=datetime(2026, 8, 5), catchup=False,
+    max_active_runs=1, max_active_tasks=1, default_args=DEFAULT_ARGS,
+    dagrun_timeout=timedelta(hours=4), tags=["lander", "discovery"]) as ats_discovery_daily:
+    discover_daily = command("discover_serper_daily",
+        f"{PYTHON} python/discover_ats_aggressive.py --source serper --apply")
+    validate_daily = command("validate_daily_candidates",
+        f"{PYTHON} python/validate_ats_candidates.py --apply --limit 500 --workers 8 --retry-stale-hours 168")
+    integrate_daily = command("integrate_daily_candidates",
+        f"{PYTHON} python/integrate_ats_candidates.py --apply")
+    report_daily = command("ats_discovery_health_daily",
+        f"{PYTHON} python/ats_discovery_health.py --report")
+    discover_daily >> validate_daily >> integrate_daily >> report_daily
 
 with DAG(dag_id="lander_resume_embeddings",
     description="Process newly uploaded resumes without overlapping workers",

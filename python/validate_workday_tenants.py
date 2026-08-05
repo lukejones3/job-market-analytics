@@ -67,7 +67,11 @@ COMMON_BOARDS = [
 ]
 
 # WD servers to try if server is unknown
-WD_SERVERS = ["wd1", "wd5", "wd3", "wd12", "wd103", "wd1480"]
+WD_SERVERS = [
+    "wd1", "wd2", "wd3", "wd5", "wd10", "wd12", "wd102", "wd103",
+    "wd104", "wd105", "wd106", "wd107", "wd108", "wd501", "wd502",
+    "wd503", "wd1480",
+]
 
 # US location signals (must match at least one)
 US_SIGNALS = {
@@ -498,20 +502,21 @@ def integrate_active() -> None:
                     (company_id, company_name, ats_source, board_token,
                      discovery_source, active_roles, total_seen, enabled)
                 VALUES (%s, %s, 'workday', %s, 'workday_probe', %s, %s, true)
-                ON CONFLICT (ats_source, board_token) DO NOTHING
+                ON CONFLICT (ats_source, board_token) DO UPDATE SET
+                    company_name = COALESCE(NULLIF(EXCLUDED.company_name, ''), discovered_companies.company_name),
+                    active_roles = GREATEST(discovered_companies.active_roles, EXCLUDED.active_roles),
+                    total_seen = GREATEST(discovered_companies.total_seen, EXCLUDED.total_seen),
+                    enabled = true,
+                    last_seen_at = now()
                 """,
                 (company_id, name, board_token, dml, dml),
             )
-            if cur.rowcount > 0:
-                # Mark as integrated
-                cur.execute(
-                    "UPDATE workday_tenants_candidates SET status='integrated' WHERE tenant=%s",
-                    (tenant,),
-                )
-                integrated += 1
-                log.info(f"  ✅ {name} ({tenant}.{server}/{board}) — {dml} data/ML jobs")
-            else:
-                log.info(f"  ⏭️  {name} ({board_token}) already in discovered_companies")
+            cur.execute(
+                "UPDATE workday_tenants_candidates SET status='integrated' WHERE tenant=%s",
+                (tenant,),
+            )
+            integrated += 1
+            log.info(f"  ✅ {name} ({tenant}.{server}/{board}) — {dml} target jobs")
         except Exception as e:
             log.warning(f"  Failed to integrate {tenant}: {e}")
             conn.rollback()

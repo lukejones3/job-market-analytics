@@ -1,3 +1,19 @@
+with discovered as (
+  select
+    lower(company_name) as company_name_key,
+    max(sector) filter (where sector is not null) as sector
+  from {{ source('job_analytics', 'discovered_companies') }}
+  group by lower(company_name)
+),
+
+headcount as (
+  select
+    lower(company_name) as company_name_key,
+    max(employee_count) as employee_count
+  from {{ source('job_analytics', 'company_headcount') }}
+  group by lower(company_name)
+)
+
 select
   c.company_id,
   c.company_name,
@@ -30,10 +46,10 @@ select
     else null
   end as intensity_label
 from {{ ref('stg_companies') }} c
-left join {{ source('job_analytics', 'discovered_companies') }} dc
-  on lower(c.company_name) = lower(dc.company_name)
-left join {{ source('job_analytics', 'company_headcount') }} ch
-  on lower(c.company_name) = lower(ch.company_name)
+left join discovered dc
+  on lower(c.company_name) = dc.company_name_key
+left join headcount ch
+  on lower(c.company_name) = ch.company_name_key
 left join (
   select company_id, count(*) as active_roles
   from {{ source('job_analytics', 'job_postings') }}

@@ -130,18 +130,20 @@ def integrate_active(
                     (company_id, company_name, ats_source, board_token,
                      discovery_source, active_roles, total_seen, enabled)
                 VALUES (%s, %s, %s, %s, 'ats_aggressive', %s, %s, true)
-                ON CONFLICT (ats_source, board_token) DO NOTHING
+                ON CONFLICT (ats_source, board_token) DO UPDATE SET
+                    company_name = COALESCE(NULLIF(EXCLUDED.company_name, ''), discovered_companies.company_name),
+                    active_roles = GREATEST(discovered_companies.active_roles, EXCLUDED.active_roles),
+                    total_seen = GREATEST(discovered_companies.total_seen, EXCLUDED.total_seen),
+                    enabled = true,
+                    last_seen_at = now()
                 """,
                 (company_id, name, ats, board_token, us_jobs, us_jobs),
             )
-            if cur.rowcount > 0:
-                cur.execute(
-                    "UPDATE ats_tenants_candidates SET status='integrated' WHERE ats=%s AND tenant=%s",
-                    (ats, tenant),
-                )
-                integrated += 1
-            else:
-                skipped_existing += 1
+            cur.execute(
+                "UPDATE ats_tenants_candidates SET status='integrated' WHERE ats=%s AND tenant=%s",
+                (ats, tenant),
+            )
+            integrated += 1
 
             conn.commit()
         except Exception as e:

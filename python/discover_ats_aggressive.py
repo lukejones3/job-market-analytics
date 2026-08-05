@@ -107,7 +107,7 @@ NAME_SUFFIXES = re.compile(
 # ============================================================
 
 ATS_URL_RE: Dict[str, re.Pattern] = {
-    "workday":        re.compile(r'([a-z0-9_-]+)\.(wd\d+)\.myworkdayjobs\.com', re.I),
+    "workday":        re.compile(r'([a-z0-9_-]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[a-z]{2}-[A-Z]{2}/)?([a-z0-9_-]+)?', re.I),
     "greenhouse":     re.compile(r'(?:boards|job-boards)\.greenhouse\.io/(?:v1/boards/)?([a-z0-9_-]+)', re.I),
     "lever":          re.compile(r'jobs\.lever\.co/([a-z0-9_-]+)', re.I),
     "ashby":          re.compile(r'jobs\.ashbyhq\.com/([a-z0-9_-]+)', re.I),
@@ -116,6 +116,7 @@ ATS_URL_RE: Dict[str, re.Pattern] = {
     "taleo":          re.compile(r'([a-z0-9][a-z0-9_-]+)\.taleo\.net', re.I),
     "eightfold":      re.compile(r'([a-z0-9][a-z0-9_-]+)\.eightfold\.ai', re.I),
     "jobvite":        re.compile(r'jobs\.jobvite\.com/([a-z0-9_-]+)', re.I),
+    "bamboohr":       re.compile(r'(?:https?://)?([a-z0-9][a-z0-9_-]+)\.bamboohr\.com/careers', re.I),
     "successfactors": re.compile(r'([a-z0-9][a-z0-9_-]+)\.successfactors\.com', re.I),
     "smartrecruiters":re.compile(r'careers\.smartrecruiters\.com/([a-z0-9_-]+)', re.I),
 }
@@ -162,8 +163,12 @@ def load_known_candidates() -> Dict[str, Set[str]]:
     try:
         conn = get_conn()
         cur = conn.cursor()
-        cur.execute("SELECT ats, tenant FROM ats_tenants_candidates")
-        for ats, tenant in cur.fetchall():
+        cur.execute("SELECT ats, tenant, server FROM ats_tenants_candidates")
+        for ats, tenant, server in cur.fetchall():
+            # Keep retrying unresolved Workday candidates until discovery finds
+            # the actual server/board locator.
+            if ats == "workday" and (not server or "/" not in server):
+                continue
             known.setdefault(ats, set()).add(tenant.lower())
         cur.execute("""
             SELECT ats_source, board_token FROM discovered_companies
@@ -204,7 +209,22 @@ def _save_candidates_sync(candidates: List[Dict]) -> int:
                 INSERT INTO ats_tenants_candidates
                     (ats, tenant, server, source, company_name)
                 VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (ats, tenant) DO NOTHING
+                ON CONFLICT (ats, tenant) DO UPDATE SET
+                    server = CASE
+                        WHEN ats_tenants_candidates.ats = 'workday'
+                             AND POSITION('/' IN COALESCE(ats_tenants_candidates.server, '')) > 0
+                             AND POSITION('/' IN COALESCE(EXCLUDED.server, '')) = 0
+                            THEN ats_tenants_candidates.server
+                        ELSE COALESCE(EXCLUDED.server, ats_tenants_candidates.server)
+                    END,
+                    company_name = COALESCE(EXCLUDED.company_name, ats_tenants_candidates.company_name),
+                    source = EXCLUDED.source,
+                    status = CASE
+                        WHEN ats_tenants_candidates.status = 'integrated' THEN 'integrated'
+                        WHEN POSITION('/' IN COALESCE(EXCLUDED.server, '')) > 0
+                             AND EXCLUDED.server IS DISTINCT FROM ats_tenants_candidates.server THEN 'pending'
+                        ELSE ats_tenants_candidates.status
+                    END
                 """,
                 (c["ats"], c["tenant"], c.get("server"), c["source"], c.get("company_name")),
             )
@@ -339,7 +359,7 @@ async def fetch_ct_logs(
     limit: Optional[int] = None,
 ) -> List[Dict]:
     candidates: List[Dict] = []
-    seen: Set[Tuple[str, str]] = set()
+    seen: Set[Tuple[str, ...]] = set()
 
     for ats, ct_pattern, name_re in CT_LOG_TARGETS:
         known_ats = known.get(ats, set())
@@ -381,7 +401,11 @@ async def fetch_ct_logs(
                 if key in seen or c["tenant"] in known_ats:
                     continue
                 seen.add(key)
-                known.setdefault(ats, set()).add(c["tenant"])
+                # CT logs reveal the Workday server but never the career-site
+                # board. Do not mark that partial locator as fully known; the
+                # later Serper pass can still upgrade it to server/board.
+                if ats != "workday":
+                    known.setdefault(ats, set()).add(c["tenant"])
                 candidates.append(c)
                 batch.append(c)
                 new_this_ats += 1
@@ -402,14 +426,14 @@ async def fetch_ct_logs(
 # SOURCE 4: SERPER JOB BOARD SCRAPING
 # ============================================================
 
+_DISCOVERY_ROLE_TERMS = (
+    "data engineer", "software engineer", "product manager", "product designer",
+    "financial analyst", "accountant", "operations manager", "project manager",
+    "marketing manager", "account executive", "business analyst", "supply chain",
+)
+
 SERPER_QUERIES = [
-    ("workday",   'site:myworkdayjobs.com "data engineer"'),
-    ("workday",   'site:myworkdayjobs.com "data scientist"'),
-    ("workday",   'site:myworkdayjobs.com "machine learning engineer"'),
-    ("workday",   'site:myworkdayjobs.com "analytics engineer"'),
-    ("workday",   'site:myworkdayjobs.com "data analyst"'),
-    ("workday",   'site:myworkdayjobs.com "applied scientist"'),
-    ("workday",   'site:myworkdayjobs.com "ml engineer"'),
+    *[("workday", f'site:myworkdayjobs.com "{term}"') for term in _DISCOVERY_ROLE_TERMS],
     ("greenhouse", 'site:boards.greenhouse.io "data engineer"'),
     ("greenhouse", 'site:boards.greenhouse.io "data scientist"'),
     ("greenhouse", 'site:boards.greenhouse.io "machine learning engineer"'),
@@ -435,6 +459,16 @@ SERPER_QUERIES = [
     ("taleo",      '"taleo.net" "data scientist" site:taleo.net'),
     ("smartrecruiters", 'site:careers.smartrecruiters.com "data engineer"'),
     ("smartrecruiters", 'site:careers.smartrecruiters.com "data scientist"'),
+    ("smartrecruiters", 'site:careers.smartrecruiters.com "financial analyst"'),
+    ("smartrecruiters", 'site:careers.smartrecruiters.com "operations manager"'),
+    ("icims", 'site:icims.com "financial analyst" "apply"'),
+    ("icims", 'site:icims.com "operations manager" "apply"'),
+    ("taleo", 'site:taleo.net "financial analyst"'),
+    ("taleo", 'site:taleo.net "operations manager"'),
+    ("workable", 'site:apply.workable.com "financial analyst"'),
+    ("workable", 'site:apply.workable.com "operations manager"'),
+    *[("jobvite", f'site:jobs.jobvite.com "{term}"') for term in _DISCOVERY_ROLE_TERMS],
+    *[("bamboohr", f'site:bamboohr.com/careers "{term}"') for term in _DISCOVERY_ROLE_TERMS],
 ]
 
 
@@ -445,6 +479,9 @@ def _extract_ats_from_text(text: str) -> List[Tuple[str, str, Optional[str]]]:
             if ats == "workday":
                 tenant = m.group(1).lower()
                 server = m.group(2).lower()
+                board = m.group(3) if m.lastindex and m.lastindex >= 3 else None
+                if board and board.lower() not in {"job", "jobs", "apply", "wday", "cxs"}:
+                    server = f"{server}/{board}"
             else:
                 tenant = m.group(1).lower()
                 server = None
@@ -460,7 +497,7 @@ async def fetch_serper_ats(
     limit: Optional[int] = None,
 ) -> List[Dict]:
     candidates: List[Dict] = []
-    seen: Set[Tuple[str, str]] = set()
+    seen: Set[Tuple[str, ...]] = set()
     query_count = 0
 
     for ats, query in SERPER_QUERIES:
@@ -496,11 +533,14 @@ async def fetch_serper_ats(
                 result.get("title", ""),
             ])
             for detected_ats, tenant, server in _extract_ats_from_text(search_text):
-                key = (detected_ats, tenant)
+                # Workday board paths are material: a hostname-only hit is not
+                # equivalent to a resolved server/board hit later in the run.
+                key = (detected_ats, tenant, server or "") if detected_ats == "workday" else (detected_ats, tenant)
                 if key in seen or tenant in known.get(detected_ats, set()):
                     continue
                 seen.add(key)
-                known.setdefault(detected_ats, set()).add(tenant)
+                if detected_ats != "workday" or (server and "/" in server):
+                    known.setdefault(detected_ats, set()).add(tenant)
                 c = {"ats": detected_ats, "tenant": tenant, "server": server, "source": "serper"}
                 candidates.append(c)
                 batch.append(c)
