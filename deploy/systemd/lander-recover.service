@@ -1,0 +1,8 @@
+[Unit]
+Description=Restore Lander API boundaries without interrupting data workloads
+After=network-online.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/lander-recover

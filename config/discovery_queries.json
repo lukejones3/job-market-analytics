@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "description": "Domain-balanced public ATS discovery seeds. These locate employers; role_scope.json decides admission.",
+  "domains": {
+    "data_ml": ["data engineer", "analytics engineer", "data scientist", "machine learning engineer", "business intelligence analyst"],
+    "engineering": ["software engineer", "backend engineer", "frontend engineer", "platform engineer", "security engineer"],
+    "finance": ["financial analyst", "fp&a analyst", "accountant", "treasury analyst", "risk analyst", "internal auditor"],
+    "marketing": ["marketing manager", "product marketing manager", "growth marketing", "marketing operations", "consumer insights"],
+    "product": ["product manager", "product operations", "product analyst", "technical product manager"],
+    "sales": ["account executive", "sales development representative", "solutions engineer", "customer success manager", "revenue operations"],
+    "design": ["product designer", "ux researcher", "visual designer", "motion designer", "design operations"],
+    "ops": ["business operations", "operations analyst", "supply chain analyst", "procurement manager", "demand planner", "program manager"]
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "description": "Admission policy for Lander. Taxonomy classifies accepted jobs; this file decides which listings may enter, require description evidence, or must be rejected.",
+  "hard_exclusions": [
+    {"id": "non_knowledge_frontline", "pattern": "\\b(?:cashier|barista|server|bartender|cook|dishwasher|stocker|warehouse\\s+(?:associate|worker|operator)|delivery\\s+driver|courier|retail\\s+associate|sales\\s+associate|shift\\s+(?:lead|leader|manager))\\b"},
+    {"id": "licensed_clinical", "pattern": "\\b(?:registered\\s+nurse|nurse\\s+practitioner|physician|physical\\s+therapist|occupational\\s+therapist|licensed\\s+therapist|medical\\s+assistant|pharmacy\\s+technician)\\b"},
+    {"id": "trades_and_field_service", "pattern": "\\b(?:mechanic|electrician|plumber|welder|carpenter|hvac|maintenance\\s+technician|field\\s+service\\s+technician|construction\\s+laborer)\\b"},
+    {"id": "clerical_data", "pattern": "\\b(?:data\\s+entry|data\\s+processor|document\\s+processor|records\\s+clerk)\\b"},
+    {"id": "commission_field_sales", "pattern": "\\b(?:roofing|solar|automotive|insurance)\\s+(?:sales|agent|advisor)\\b"}
+  ],
+  "core_rules": [
+    {"id": "finance_treasury", "domain": "finance", "category": "treasury", "pattern": "\\b(?:treasury|cash\\s+management)\\s+(?:analyst|associate|manager|director|specialist)\\b"},
+    {"id": "finance_audit", "domain": "finance", "category": "audit", "pattern": "\\b(?:internal\\s+|it\\s+|technology\\s+)?audit(?:or|\\s+(?:analyst|manager|director|associate))\\b"},
+    {"id": "finance_risk", "domain": "finance", "category": "risk", "pattern": "\\b(?:financial|credit|market|enterprise|operational|model)\\s+risk\\s+(?:analyst|associate|manager|director)\\b|\\brisk\\s+(?:analyst|manager|director)\\b"},
+    {"id": "finance_investment", "domain": "finance", "category": "investment", "pattern": "\\b(?:investment|portfolio|equity|fixed\\s+income)\\s+(?:analyst|associate|researcher|manager)\\b"},
+    {"id": "finance_actuarial", "domain": "finance", "category": "risk", "pattern": "\\bactuar(?:y|ial\\s+(?:analyst|associate|consultant|manager))\\b"},
+    {"id": "product_ops", "domain": "product", "category": "product_ops", "pattern": "\\bproduct\\s+operations?\\b|\\bproduct\\s+ops\\b"},
+    {"id": "product_analytics", "domain": "product", "category": "product_analytics", "pattern": "\\bproduct\\s+(?:analyst|analytics)\\b"},
+    {"id": "design_motion", "domain": "design", "category": "motion", "pattern": "\\b(?:motion|animation)\\s+design(?:er)?\\b"},
+    {"id": "design_ops", "domain": "design", "category": "design_ops", "pattern": "\\bdesign\\s+operations?\\b|\\bdesign\\s+ops\\b"},
+    {"id": "design_interaction", "domain": "design", "category": "interaction", "pattern": "\\b(?:interaction|service)\\s+design(?:er)?\\b|\\bux\\s+writer\\b|\\bcontent\\s+designer\\b"},
+    {"id": "ops_supply_chain", "domain": "ops", "category": "supply_chain", "pattern": "\\b(?:supply\\s+chain|demand\\s+planning|inventory\\s+planning|logistics)\\s+(?:analyst|planner|manager|director|specialist)\\b"},
+    {"id": "ops_procurement", "domain": "ops", "category": "supply_chain", "pattern": "\\b(?:procurement|strategic\\s+sourcing)\\s+(?:analyst|associate|manager|director|specialist)\\b|\\bcategory\\s+manager\\b"},
+    {"id": "ops_process", "domain": "ops", "category": "business_ops", "pattern": "\\b(?:business\\s+operations|strategy\\s+(?:and|&)\\s+operations|process\\s+improvement|operational\\s+excellence)\\b"},
+    {"id": "marketing_brand", "domain": "marketing", "category": "brand", "pattern": "\\bbrand\\s+(?:strategist|manager|director|lead|marketing)\\b"},
+    {"id": "marketing_research", "domain": "marketing", "category": "growth", "pattern": "\\b(?:market\\s+research|consumer\\s+insights|customer\\s+insights)\\s+(?:analyst|manager|director|researcher)\\b"}
+  ],
+  "evidence_rules": [
+    {
+      "id": "generic_operations_manager",
+      "domain": "ops",
+      "category": "business_ops",
+      "pattern": "\\boperations?\\s+manager\\b|\\bgeneral\\s+manager\\b",
+      "required_any": ["business operations", "strategy", "process improvement", "cross-functional", "program management", "analytics", "kpi", "planning"],
+      "negative_any": ["store", "restaurant", "warehouse", "shift", "clinical", "facility", "fleet", "branch", "retail"],
+      "minimum_positive": 1
+    },
+    {
+      "id": "generic_program_project_manager",
+      "domain": "ops",
+      "category": "business_ops",
+      "pattern": "\\b(?:program|project)\\s+manager\\b",
+      "required_any": ["software", "technical", "product", "data", "technology", "business operations", "portfolio", "cross-functional"],
+      "negative_any": ["construction", "clinical", "installation", "field service"],
+      "minimum_positive": 1
+    },
+    {
+      "id": "generic_systems_engineer",
+      "domain": "engineering",
+      "category": "general",
+      "pattern": "\\bsystems?\\s+engineer\\b",
+      "required_any": ["software", "cloud", "distributed systems", "linux", "python", "api", "platform", "infrastructure", "kubernetes"],
+      "negative_any": ["electrical", "avionics", "weapons", "mechanical", "manufacturing", "clearance"],
+      "minimum_positive": 1
+    },
+    {
+      "id": "generic_facilities",
+      "domain": "ops",
+      "category": "facilities",
+      "pattern": "\\bfacilit(?:y|ies)\\s+(?:manager|director|planner|analyst)\\b",
+      "required_any": ["portfolio", "vendor management", "workplace", "budget", "real estate", "planning"],
+      "negative_any": ["maintenance technician", "repair", "hvac"],
+      "minimum_positive": 1
+    },
+    {
+      "id": "generic_research",
+      "domain": "data_ml",
+      "category": "ai_research",
+      "pattern": "\\bresearch(?:er|\\s+scientist|\\s+associate)\\b",
+      "required_any": ["machine learning", "artificial intelligence", "statistical", "computer science", "nlp", "computer vision", "experimentation"],
+      "negative_any": ["clinical trial", "wet lab", "patient", "biological"],
+      "minimum_positive": 1
+    },
+    {
+      "id": "unknown_knowledge_candidate",
+      "pattern": "\\b(?:analyst|engineer|developer|architect|scientist|researcher|designer|strategist|planner|accountant|auditor)\\b",
+      "required_any": [],
+      "negative_any": [],
+      "minimum_positive": 999,
+      "quarantine_only": true
+    }
+  ]
+}

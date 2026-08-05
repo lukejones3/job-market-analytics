@@ -426,11 +426,9 @@ async def fetch_ct_logs(
 # SOURCE 4: SERPER JOB BOARD SCRAPING
 # ============================================================
 
-_DISCOVERY_ROLE_TERMS = (
-    "data engineer", "software engineer", "product manager", "product designer",
-    "financial analyst", "accountant", "operations manager", "project manager",
-    "marketing manager", "account executive", "business analyst", "supply chain",
-)
+from role_scope import discovery_terms
+
+_DISCOVERY_ROLE_TERMS = discovery_terms()
 
 SERPER_QUERIES = [
     *[("workday", f'site:myworkdayjobs.com "{term}"') for term in _DISCOVERY_ROLE_TERMS],

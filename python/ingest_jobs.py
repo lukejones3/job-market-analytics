@@ -68,7 +68,8 @@ try:
 except ImportError:
     _fetch_all_bamboohr = None
 
-from psycopg2.extras import DictCursor
+from psycopg2.extras import DictCursor, Json
+from role_scope import ScopeDecision, evaluate_role
 
 try:
     from classify_domain import build_alias_map as _build_alias_map, classify_domain as _classify_domain
@@ -1373,7 +1374,10 @@ def ensure_schema_columns(cur):
           ADD COLUMN IF NOT EXISTS crawl_tenant     text,
           ADD COLUMN IF NOT EXISTS description_quality text DEFAULT 'full',
           ADD COLUMN IF NOT EXISTS job_url          text,
-          ADD COLUMN IF NOT EXISTS domain_classification_method text
+          ADD COLUMN IF NOT EXISTS domain_classification_method text,
+          ADD COLUMN IF NOT EXISTS scope_status text,
+          ADD COLUMN IF NOT EXISTS scope_rule_id text,
+          ADD COLUMN IF NOT EXISTS scope_confidence double precision
     """)
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_jp_source
@@ -1385,6 +1389,27 @@ def ensure_schema_columns(cur):
 # DB: INGESTION
 # ============================================================
 
+def _record_scope_decision(cur, job: RawJob, decision: ScopeDecision) -> None:
+    crawl_tenant = str(job.metadata.get("board_token") or job.metadata.get("slug") or
+                       job.metadata.get("tenant") or job.metadata.get("workable_company_id") or "") or None
+    cur.execute("""
+        INSERT INTO role_scope_decisions
+            (source, source_id, title, company, crawl_tenant, status, rule_id,
+             domain, role_category, confidence, positive_signals, negative_signals)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (source, source_id) DO UPDATE SET
+            title=EXCLUDED.title, company=EXCLUDED.company,
+            crawl_tenant=EXCLUDED.crawl_tenant, status=EXCLUDED.status,
+            rule_id=EXCLUDED.rule_id, domain=EXCLUDED.domain,
+            role_category=EXCLUDED.role_category, confidence=EXCLUDED.confidence,
+            positive_signals=EXCLUDED.positive_signals,
+            negative_signals=EXCLUDED.negative_signals,
+            last_seen_at=now(), seen_count=role_scope_decisions.seen_count+1
+    """, (job.source, job.source_id, job.title, job.company, crawl_tenant,
+          decision.status, decision.rule_id, decision.domain, decision.category,
+          decision.confidence, Json(list(decision.positive_signals)),
+          Json(list(decision.negative_signals))))
+
 def ingest_job(cur, job: RawJob) -> bool:
     """
     Insert a single RawJob into job_postings.
@@ -1393,7 +1418,10 @@ def ingest_job(cur, job: RawJob) -> bool:
     """
     if is_company_blocked(job.company):
         return False
-    if not _is_knowledge_worker_title(job.title):
+
+    scope_decision = evaluate_role(job.title, _strip_html(job.description or ""))
+    _record_scope_decision(cur, job, scope_decision)
+    if not scope_decision.admitted:
         return False
 
     job_id = _md5_id("J", f"{job.source}|{job.source_id}")
@@ -1509,6 +1537,16 @@ def ingest_job(cur, job: RawJob) -> bool:
     )
 
     inserted = cur.rowcount > 0
+    cur.execute("""UPDATE job_postings
+        SET scope_status=%s, scope_rule_id=%s, scope_confidence=%s,
+            domain=COALESCE(domain, %s),
+            role_category=COALESCE(role_category, %s),
+            role_classified_at=CASE WHEN role_category IS NULL AND %s IS NOT NULL
+                THEN now() ELSE role_classified_at END
+        WHERE job_id=%s""",
+        (scope_decision.status, scope_decision.rule_id,
+         scope_decision.confidence, scope_decision.domain,
+         scope_decision.category, scope_decision.category, job_id))
 
     # Derived values are a cache of source inputs.  A changed description must
     # invalidate them or an old classification/embedding can be published with
@@ -3189,7 +3227,8 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
     skipped  = 0
     errors   = 0
 
-    for job in deduped:
+    batch_size = max(25, int(os.getenv("INGEST_COMMIT_BATCH_SIZE", "250")))
+    for position, job in enumerate(deduped, start=1):
         try:
             was_inserted = _ingest_job_with_savepoint(cur, job)
             if was_inserted:
@@ -3204,6 +3243,12 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
             log.error(f"     job_id={_md5_id('J', f'{job.source}|{job.source_id}')}")
             errors += 1
             continue
+
+        # Bound transaction/WAL size and make ingestion resilient to service
+        # restarts: a later interruption cannot roll back an entire large ATS.
+        if position % batch_size == 0:
+            conn.commit()
+            log.info(f"Committed ingestion batch through {position}/{len(deduped)}")
 
     # ---- COMMIT job inserts FIRST before anything else ----
     conn.commit()

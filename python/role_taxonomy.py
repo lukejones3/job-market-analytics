@@ -7,6 +7,8 @@ import re
 from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
 
+from role_scope import discovery_terms, is_title_candidate, reload as reload_role_scope
+
 _DEFAULT_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              "config", "role_taxonomy.json")
 
@@ -27,6 +29,7 @@ def reload() -> None:
     cross_domain_fallbacks.cache_clear()
     data_title_patterns.cache_clear()
     target_title_patterns.cache_clear()
+    reload_role_scope()
 
 
 def domains() -> List[str]:
@@ -86,19 +89,9 @@ def role_label(slug: str) -> Optional[str]:
     return None
 
 
-# Broad queries maximize recall; the taxonomy-backed matcher below provides the
-# precise acceptance decision consistently during harvesting and validation.
-# Search adapters use these only to discover candidates; ``is_target_role`` is
-# still the acceptance boundary. Keep aliases that do not share an obvious word
-# with their role family so source-side search does not hide valid taxonomy hits.
-SEARCH_TERMS = (
-    "data", "analytics", "machine learning", "software engineer", "developer",
-    "solutions architect", "security", "product", "design", "ux", "researcher",
-    "marketing", "copywriter", "content", "sales", "account executive",
-    "customer success", "finance", "accounting", "controller", "auditor",
-    "recruiter", "human resources", "people", "operations", "project manager",
-    "program manager", "supply chain", "procurement",
-)
+# Compatibility export for source adapters. The canonical values now live in
+# config/discovery_queries.json rather than being hidden in Python.
+SEARCH_TERMS = discovery_terms()
 
 
 @lru_cache(maxsize=1)
@@ -117,4 +110,4 @@ _NON_KNOWLEDGE_WORK = re.compile(
 
 def is_target_role(title: str) -> bool:
     return bool(title and not _NON_KNOWLEDGE_WORK.search(title)
-                and any(pattern.search(title) for pattern in target_title_patterns()))
+                and is_title_candidate(title))

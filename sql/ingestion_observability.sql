@@ -37,6 +37,33 @@ ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS canonical_opportunity_id text;
 ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS crawl_tenant text;
 ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS enrichment_input_hash text;
 ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS expired_reason text;
+ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS scope_status text;
+ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS scope_rule_id text;
+ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS scope_confidence double precision;
+
+CREATE TABLE IF NOT EXISTS role_scope_decisions (
+    source text NOT NULL,
+    source_id text NOT NULL,
+    title text NOT NULL,
+    company text,
+    crawl_tenant text,
+    status text NOT NULL CHECK (status IN
+        ('accepted_core', 'accepted_evidence', 'quarantine', 'rejected')),
+    rule_id text NOT NULL,
+    domain text,
+    role_category text,
+    confidence double precision NOT NULL,
+    positive_signals jsonb NOT NULL DEFAULT '[]'::jsonb,
+    negative_signals jsonb NOT NULL DEFAULT '[]'::jsonb,
+    first_seen_at timestamptz NOT NULL DEFAULT now(),
+    last_seen_at timestamptz NOT NULL DEFAULT now(),
+    seen_count integer NOT NULL DEFAULT 1,
+    PRIMARY KEY (source, source_id)
+);
+CREATE INDEX IF NOT EXISTS idx_role_scope_decisions_review
+    ON role_scope_decisions (status, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_role_scope_decisions_rule
+    ON role_scope_decisions (rule_id, status);
 
 CREATE TABLE IF NOT EXISTS job_posting_events (
     event_id bigserial PRIMARY KEY,
