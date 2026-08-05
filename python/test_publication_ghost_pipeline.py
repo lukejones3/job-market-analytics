@@ -45,6 +45,12 @@ def test_v2_experience_is_promoted_with_canonical_labels():
     assert "experience_level_v2 = %s, experience_level = %s" in classifier
 
 
+def test_canonicalizer_does_not_hold_schema_lock_during_backfill():
+    source = (ROOT / "python" / "canonicalize_opportunities.py").read_text()
+    assert "ALTER TABLE job_postings" not in source
+    assert "lock_timeout" in source
+
+
 if __name__ == "__main__":
     test_publication_predicate_and_total_are_consistent()
     test_ghost_model_uses_reposts_and_natural_closures()

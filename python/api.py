@@ -1676,6 +1676,10 @@ async def upload_resume_v1(
     cur = None
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
+        # Interactive matching must fail before the edge proxy's hard timeout,
+        # particularly while nightly maintenance is touching job_postings.
+        cur.execute("SET LOCAL lock_timeout = '8s'")
+        cur.execute("SET LOCAL statement_timeout = '45s'")
         # Never emit resume contents into application logs.
         log.info("resume_upload: parsed filename=%r text_len=%d", filename, len(text))
         try:
@@ -1734,9 +1738,10 @@ async def upload_resume_v1(
     except HTTPException:
         raise
     except Exception as e:
+        log.exception("resume_upload: matching failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Resume matching failed: {str(e)}",
+            detail="Resume matching is temporarily unavailable. Please try again shortly.",
         )
     finally:
         if cur is not None:

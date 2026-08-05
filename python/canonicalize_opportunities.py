@@ -21,7 +21,11 @@ def main():
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args()
     with connection() as conn, conn.cursor() as cur:
-        cur.execute("ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS canonical_opportunity_id text")
+        # Schema changes belong to migrations (sql/ingestion_observability.sql).
+        # Even an IF NOT EXISTS ALTER takes ACCESS EXCLUSIVE and, when kept in
+        # this transaction, blocks every API read for the duration of the large
+        # canonicalization update below.
+        cur.execute("SET LOCAL lock_timeout = '5s'")
         # Prefer a requisition identifier embedded in the source id. Otherwise use
         # stable employer/title/description/location evidence. This groups likely
         # mirrors while retaining every posting and every source-specific URL.
