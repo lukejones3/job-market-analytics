@@ -1534,16 +1534,27 @@ def _first_cancellable_subscription(customer_id: str):
     return None
 
 
+async def verify_billing_client(request: Request, conn=Depends(get_conn)) -> dict:
+    """Accept either a user's legacy API key or Lander's authenticated server."""
+    supplied = request.headers.get("X-Lander-Internal-Key", "")
+    if LANDER_INTERNAL_API_KEY and supplied and hmac.compare_digest(supplied, LANDER_INTERNAL_API_KEY):
+        email = request.headers.get("X-Lander-User-Email", "").strip().lower()
+        if not email:
+            raise HTTPException(status_code=400, detail="Authenticated billing email is required.")
+        return {"key_id": "lander-web", "billing_email": email}
+    return await verify_api_key(request=request, conn=conn)
+
+
 @app.post("/stripe/create-portal")
 async def create_portal(
     request: Request,
-    key: dict = Depends(verify_api_key),
+    key: dict = Depends(verify_billing_client),
     conn=Depends(get_conn),
 ):
     body = await request.json()
     lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
     return_url = body.get("return_url", f"{lander_base}/settings")
-    email = _client_email_for_key(conn, key)
+    email = key.get("billing_email") or _client_email_for_key(conn, key)
     customer_id = _stripe_customer_id_for_email(email)
     try:
         session = stripe.billing_portal.Session.create(
