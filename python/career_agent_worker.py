@@ -202,15 +202,29 @@ def serper_search(query: str) -> list[dict]:
 EMAIL_RE = re.compile(r"(?i)(?<![\w.+-])[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9.-]+\.[a-z]{2,}(?![\w.-])")
 
 
-def public_email_from_results(results: list[dict]) -> tuple[str | None, str | None]:
+def public_email_from_results(results: list[dict], full_name: str = "", firm: str = "") -> tuple[str | None, str | None]:
     """Return only an address literally present in public search evidence."""
     rejected = {"example.com", "email.com", "domain.com"}
+    name_tokens = [re.sub(r"[^a-z0-9]", "", token.lower()) for token in full_name.split() if len(token) > 1]
+    first = name_tokens[0] if name_tokens else ""
+    last = name_tokens[-1] if len(name_tokens) > 1 else ""
+    firm_token = re.sub(r"[^a-z0-9]", "", firm.lower())
     for result in results:
         haystack = " ".join(str(result.get(key) or "") for key in ("title", "snippet"))
+        lower_haystack = haystack.lower()
+        if first and first not in lower_haystack:
+            continue
+        if last and last not in lower_haystack:
+            continue
         for email in EMAIL_RE.findall(haystack):
             normalized = email.lower().strip(".,;:()[]{}<>")
             local, domain = normalized.rsplit("@", 1)
-            if domain in rejected or local in {"noreply", "no-reply", "support", "privacy", "info"}:
+            compact_local = re.sub(r"[^a-z0-9]", "", local)
+            compact_domain = re.sub(r"[^a-z0-9]", "", domain.rsplit(".", 1)[0])
+            generic = {"noreply", "support", "privacy", "info", "recruitment", "recruiting", "careers", "jobs"}
+            person_match = bool(first and (first in compact_local or (last and last in compact_local)))
+            firm_match = bool(firm_token and len(firm_token) >= 5 and (firm_token in compact_domain or compact_domain in firm_token))
+            if domain in rejected or compact_local in generic or not (person_match or firm_match):
                 continue
             return normalized, result.get("link")
     return None, None
@@ -229,7 +243,7 @@ def enrich_recruiter_emails(contacts: list[dict], limit: int = 24) -> tuple[list
         try:
             results = serper_search(query)
             queries += 1
-            email, source_url = public_email_from_results(results)
+            email, source_url = public_email_from_results(results, name, firm)
             if email:
                 contact["business_email"] = email
                 if source_url:

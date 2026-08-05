@@ -44,7 +44,7 @@ def test_recruiter_filter_does_not_admit_department_heads():
 def test_public_email_requires_literal_search_evidence():
     email, url = worker.public_email_from_results([
         {"title": "Jane Recruiter", "snippet": "Contact Jane at jane@searchfirm.com", "link": "https://searchfirm.com/jane"}
-    ])
+    ], "Jane Recruiter", "Search Firm")
     assert email == "jane@searchfirm.com"
     assert url == "https://searchfirm.com/jane"
 
@@ -52,5 +52,12 @@ def test_public_email_requires_literal_search_evidence():
 def test_public_email_rejects_generic_contact_inbox():
     email, _ = worker.public_email_from_results([
         {"title": "Contact", "snippet": "Email info@searchfirm.com", "link": "https://searchfirm.com"}
-    ])
+    ], "Jane Recruiter", "Search Firm")
+    assert email is None
+
+
+def test_public_email_rejects_other_person_in_same_result():
+    email, _ = worker.public_email_from_results([
+        {"title": "Zorik Shtikel", "snippet": "Page also lists thomas@kidscanfish.net", "link": "https://example.org/zorik"}
+    ], "Zorik Shtikel", "")
     assert email is None
