@@ -1,0 +1,16 @@
+[Unit]
+Description=Lander Career Agent research worker
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/job-market-analytics
+EnvironmentFile=/opt/job-market-analytics/.env
+ExecStart=/opt/job-market-analytics/.venv/bin/python /opt/job-market-analytics/python/career_agent_worker.py
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
