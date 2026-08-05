@@ -205,7 +205,7 @@ EMAIL_RE = re.compile(r"(?i)(?<![\w.+-])[a-z0-9][a-z0-9._%+-]{0,63}@[a-z0-9.-]+\
 def public_email_from_results(results: list[dict], full_name: str = "", firm: str = "") -> tuple[str | None, str | None]:
     """Return only an address literally present in public search evidence."""
     rejected = {"example.com", "email.com", "domain.com"}
-    name_tokens = [re.sub(r"[^a-z0-9]", "", token.lower()) for token in full_name.split() if len(token) > 1]
+    name_tokens = [cleaned for token in full_name.split() if len(cleaned := re.sub(r"[^a-z0-9]", "", token.lower())) >= 2]
     first = name_tokens[0] if name_tokens else ""
     last = name_tokens[-1] if len(name_tokens) > 1 else ""
     firm_token = re.sub(r"[^a-z0-9]", "", firm.lower())

@@ -61,3 +61,10 @@ def test_public_email_rejects_other_person_in_same_result():
         {"title": "Zorik Shtikel", "snippet": "Page also lists thomas@kidscanfish.net", "link": "https://example.org/zorik"}
     ], "Zorik Shtikel", "")
     assert email is None
+
+
+def test_public_email_does_not_match_single_letter_surname():
+    email, _ = worker.public_email_from_results([
+        {"title": "Rob L.", "snippet": "Rob L. recruiter; l2globalsolutionsllc@gmail.com", "link": "https://example.org/rob"}
+    ], "Rob L.", "")
+    assert email is None
