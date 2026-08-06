@@ -40,6 +40,28 @@ class IngestSavepointTests(unittest.TestCase):
             ],
         )
 
+    @patch("ingest_jobs.time.sleep")
+    @patch("ingest_jobs.ingest_job")
+    def test_deadlock_retries_the_row(self, ingest_job_mock, sleep_mock):
+        deadlock = RuntimeError("deadlock detected")
+        deadlock.pgcode = "40P01"
+        ingest_job_mock.side_effect = [deadlock, True]
+
+        self.assertTrue(_ingest_job_with_savepoint(self.cursor, self.job))
+
+        self.assertEqual(ingest_job_mock.call_count, 2)
+        sleep_mock.assert_called_once_with(0.25)
+        self.assertEqual(
+            self.cursor.execute.call_args_list,
+            [
+                unittest.mock.call("SAVEPOINT ingest_one"),
+                unittest.mock.call("ROLLBACK TO SAVEPOINT ingest_one"),
+                unittest.mock.call("RELEASE SAVEPOINT ingest_one"),
+                unittest.mock.call("SAVEPOINT ingest_one"),
+                unittest.mock.call("RELEASE SAVEPOINT ingest_one"),
+            ],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

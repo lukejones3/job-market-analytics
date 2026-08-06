@@ -1642,16 +1642,29 @@ def ingest_job(cur, job: RawJob) -> bool:
 
 
 def _ingest_job_with_savepoint(cur, job: RawJob) -> bool:
-    """Isolate one write without retaining thousands of nested savepoints."""
-    cur.execute("SAVEPOINT ingest_one")
-    try:
-        inserted = ingest_job(cur, job)
-    except Exception:
-        cur.execute("ROLLBACK TO SAVEPOINT ingest_one")
+    """Isolate one write and retry transient cross-source write conflicts."""
+    max_attempts = max(1, int(os.getenv("INGEST_ROW_WRITE_ATTEMPTS", "3")))
+    for attempt in range(1, max_attempts + 1):
+        cur.execute("SAVEPOINT ingest_one")
+        try:
+            inserted = ingest_job(cur, job)
+        except Exception as exc:
+            cur.execute("ROLLBACK TO SAVEPOINT ingest_one")
+            cur.execute("RELEASE SAVEPOINT ingest_one")
+            # Parallel ATS tasks can touch the same company/role rows. A
+            # deadlock or serialization victim is transient, not a bad job.
+            if getattr(exc, "pgcode", None) in {"40P01", "40001"} and attempt < max_attempts:
+                delay = 0.25 * attempt
+                log.warning(
+                    "Transient database conflict for %s/%s; retrying in %.2fs (%s/%s)",
+                    job.source, job.source_id, delay, attempt + 1, max_attempts,
+                )
+                time.sleep(delay)
+                continue
+            raise
         cur.execute("RELEASE SAVEPOINT ingest_one")
-        raise
-    cur.execute("RELEASE SAVEPOINT ingest_one")
-    return inserted
+        return inserted
+    raise RuntimeError("unreachable ingestion retry state")
 
 # ============================================================
 # PIPELINE RUN LOGGING
@@ -3255,24 +3268,30 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
     log.info(f"Ingestion complete — inserted: {inserted} | skipped: {skipped} | errors: {errors}")
 
     # ---- Annualize Lever salary fields (salary_min/max -> salary_min/max_annual) ----
-    try:
-        cur.execute("""
-            UPDATE job_postings
-            SET salary_min_annual = salary_min,
-                salary_max_annual = salary_max
-            WHERE ingestion_source = 'lever'
-            AND salary_min IS NOT NULL
-            AND salary_max IS NOT NULL
-            AND salary_period = 'year'
-            AND salary_min_annual IS NULL
-        """)
-        annualized = cur.rowcount
-        if annualized > 0:
-            log.info(f"Annualized salary for {annualized} Lever records")
-        conn.commit()
-    except Exception as e:
-        log.warning(f"Lever salary annualization failed: {e}")
-        conn.rollback()
+    # This belongs only to the Lever crawl. Running it after every ATS created
+    # unrelated failure coupling (for example, Greenhouse inheriting a legacy
+    # Lever salary defect).
+    if source in ("lever", "all"):
+        try:
+            cur.execute("""
+                UPDATE job_postings
+                SET salary_min_annual = salary_min,
+                    salary_max_annual = salary_max
+                WHERE ingestion_source = 'lever'
+                AND salary_min IS NOT NULL
+                AND salary_max IS NOT NULL
+                AND salary_period = 'year'
+                AND salary_min_annual IS NULL
+                AND salary_min <= 1000000
+                AND salary_max <= 1000000
+            """)
+            annualized = cur.rowcount
+            if annualized > 0:
+                log.info(f"Annualized salary for {annualized} Lever records")
+            conn.commit()
+        except Exception as e:
+            log.warning(f"Lever salary annualization failed: {e}")
+            conn.rollback()
 
     # ---- Pipeline logging in a SEPARATE transaction so it can never roll back job data ----
     try:
