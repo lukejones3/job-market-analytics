@@ -20,6 +20,7 @@ from experience_level_v3 import VERSION, classify_experience
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
+BATCH_SIZE = 2000
 
 
 def get_conn():
@@ -95,18 +96,18 @@ def classify_jobs(conn, apply: bool, all_rows: bool, limit: int | None) -> None:
         total = 0
         distribution = Counter()
         with conn.cursor(name="experience_v3_shadow") as cur:
-            cur.itersize = 500
+            cur.itersize = BATCH_SIZE
             query = base_query + (" LIMIT %s" if limit else "")
             params = predicate_params + ((limit,) if limit else ())
             cur.execute(query, params)
             while True:
-                rows = cur.fetchmany(500)
+                rows = cur.fetchmany(BATCH_SIZE)
                 if not rows:
                     break
                 _, batch_dist = _classify_rows(rows)
                 distribution.update(batch_dist)
                 total += len(rows)
-                if total % 5000 == 0:
+                if total % 10000 == 0:
                     log.info("Shadow-classified %s rows", total)
         log.info("v3 shadow distribution for %s rows: %s", total, dict(distribution))
         return
@@ -115,7 +116,7 @@ def classify_jobs(conn, apply: bool, all_rows: bool, limit: int | None) -> None:
     distribution = Counter()
     remaining_limit = limit
     while remaining_limit is None or remaining_limit > 0:
-        batch_limit = min(500, remaining_limit) if remaining_limit else 500
+        batch_limit = min(BATCH_SIZE, remaining_limit) if remaining_limit else BATCH_SIZE
         with conn.cursor() as cur:
             cur.execute(base_query + " LIMIT %s", predicate_params + (batch_limit,))
             rows = cur.fetchall()
