@@ -78,9 +78,10 @@ async def lifespan(app: FastAPI):
     if os.getenv("PRELOAD_RESUME_MODEL", "1") == "1":
         async def warm_resume_model():
             try:
-                from sentence_transformers import SentenceTransformer
-
                 def load_resume_model():
+                    # Import torch/transformers inside the worker thread too;
+                    # the import itself is the majority of cold-start time.
+                    from sentence_transformers import SentenceTransformer
                     model = SentenceTransformer("all-MiniLM-L6-v2")
                     model.max_seq_length = 256
                     return model
