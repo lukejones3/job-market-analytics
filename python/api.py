@@ -76,18 +76,24 @@ async def lifespan(app: FastAPI):
     # Load the semantic model before traffic arrives. Previously the first resume
     # request downloaded/initialized it inside Cloudflare's request timeout.
     if os.getenv("PRELOAD_RESUME_MODEL", "1") == "1":
-        try:
-            from sentence_transformers import SentenceTransformer
+        async def warm_resume_model():
+            try:
+                from sentence_transformers import SentenceTransformer
 
-            def load_resume_model():
-                model = SentenceTransformer("all-MiniLM-L6-v2")
-                model.max_seq_length = 256
-                return model
+                def load_resume_model():
+                    model = SentenceTransformer("all-MiniLM-L6-v2")
+                    model.max_seq_length = 256
+                    return model
 
-            app.state.resume_embedding_model = await asyncio.to_thread(load_resume_model)
-            log.info("Resume embedding model preloaded")
-        except Exception:
-            log.exception("Resume model preload failed; skill matching remains available")
+                app.state.resume_embedding_model = await asyncio.to_thread(load_resume_model)
+                log.info("Resume embedding model preloaded")
+            except Exception:
+                log.exception("Resume model preload failed; skill matching remains available")
+
+        # Model initialization performs network/cache checks and previously held
+        # the entire API in startup for ~12 seconds. Warm in the background so
+        # health and non-resume traffic are available immediately.
+        app.state.resume_model_task = asyncio.create_task(warm_resume_model())
     yield
     pool.closeall()
     log.info("DB pool closed")
@@ -1839,6 +1845,10 @@ async def upload_resume_v1(
         # unrelated domains. Supply the semantic vector so the first response is useful.
         try:
             model = getattr(app.state, "resume_embedding_model", None)
+            warm_task = getattr(app.state, "resume_model_task", None)
+            if model is None and warm_task is not None and not warm_task.done():
+                await warm_task
+                model = getattr(app.state, "resume_embedding_model", None)
             if model is None:
                 from sentence_transformers import SentenceTransformer
                 model = SentenceTransformer("all-MiniLM-L6-v2")
