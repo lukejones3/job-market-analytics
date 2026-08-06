@@ -537,7 +537,17 @@ def _period_from_context(text: str, lo: Optional[Decimal] = None) -> Optional[st
          would false-match. Magnitude is more reliable for big numbers.
       2) Explicit period keywords (per year, hourly, etc.)
     """
-    # Magnitude-first check — most reliable for parseable values
+    # Explicit pay-period language wins. This matters for shorthand annual
+    # bands such as "$140-$175 annually", which otherwise look hourly by size.
+    t = text.lower()
+    if re.search(r"\b(per\s*year|/yr|yearly|annually|annual|per\s*annum|a\s+year)\b", t):
+        return "year"
+    if re.search(r"\b(per\s*hour|/hr|/hour|hourly|an\s+hour)\b", t):
+        return "hour"
+    if re.search(r"\b(per\s*month|/mo|monthly|a\s+month)\b", t):
+        return "month"
+
+    # Magnitude fallback for postings that omit period words.
     if lo is not None:
         if lo >= 15000:
             return "year"
@@ -546,14 +556,6 @@ def _period_from_context(text: str, lo: Optional[Decimal] = None) -> Optional[st
         if Decimal("7") <= lo < Decimal("1000"):
             return "hour"
 
-    # Fall back to keyword detection for ambiguous values
-    t = text.lower()
-    if re.search(r"\b(per\s*year|/yr|yearly|annually|annual|per\s*annum|a\s+year)\b", t):
-        return "year"
-    if re.search(r"\b(per\s*hour|/hr|/hour|hourly|an\s+hour)\b", t):
-        return "hour"
-    if re.search(r"\b(per\s*month|/mo|monthly|a\s+month)\b", t):
-        return "month"
     return None
 
 
@@ -618,6 +620,16 @@ def _try_labeled_range(tline: str, window: str):
         if m:
             v1, v2 = _scale_pair(m.group(2), m.group(3))
             if v1 and v2:
+                # Employers often omit "k" in compact annual bands. Labels
+                # plus values >=80 are sufficiently specific; lower ranges
+                # remain hourly unless annual language explicitly says otherwise.
+                explicit_annual = bool(re.search(
+                    r"\b(annual|annually|per\s*year|/yr)\b", target, re.IGNORECASE))
+                explicit_hourly = bool(re.search(
+                    r"\b(hourly|per\s*hour|/hr)\b", target, re.IGNORECASE))
+                if not explicit_hourly and v1 < 1000 and v2 < 1000 and (v1 >= 80 or explicit_annual):
+                    v1 *= 1000
+                    v2 *= 1000
                 lo, hi = min(v1, v2), max(v1, v2)
                 period = _period_from_context(target, lo)
                 if period and _sanity(lo, hi, period):
@@ -698,7 +710,8 @@ def _try_bare_range(tline: str):
         context = tline[max(0, match.start() - 80):min(len(tline), match.end() + 80)]
         return bool(re.search(
             r"\b(?:funding|fundraise|raised|revenue|budget|equity\s+(?:grant|award|value)|"
-            r"stock\s+(?:grant|award|value)|bonus\s+(?:range|ranges|of)|commission\s+(?:range|ranges|of))\b",
+            r"stock\s+(?:grant|award|value)|bonus\s+(?:range|ranges|of)|commission\s+(?:range|ranges|of)|"
+            r"arr\b|deal(?:s|\s+size)|contract\s+value)\b",
             context, re.IGNORECASE,
         ))
 

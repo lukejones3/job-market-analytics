@@ -50,7 +50,8 @@ def annualize(value: Decimal, period: str) -> Decimal | None:
     return result if Decimal("15000") <= result <= Decimal("1000000") else None
 
 
-def extract(*, apply: bool, limit: int | None = None, since_hours: int | None = None) -> dict:
+def extract(*, apply: bool, limit: int | None = None, since_hours: int | None = None,
+            repair_periods: bool = False) -> dict:
     conn = get_conn()
     conn.autocommit = False
     cur = conn.cursor()
@@ -64,6 +65,11 @@ def extract(*, apply: bool, limit: int | None = None, since_hours: int | None = 
         limit_sql = "LIMIT %s"
         params.append(limit)
 
+    salary_state_sql = (
+        "AND salary_period IN ('hour', 'month')"
+        if repair_periods else
+        "AND salary_min_annual IS NULL AND salary_max_annual IS NULL"
+    )
     cur.execute(
         f"""
         SELECT job_id, ingestion_source, description_text,
@@ -73,8 +79,7 @@ def extract(*, apply: bool, limit: int | None = None, since_hours: int | None = 
         WHERE status = 'raw'
           AND COALESCE(data_tier, 1) = 1
           AND description_text IS NOT NULL
-          AND salary_min_annual IS NULL
-          AND salary_max_annual IS NULL
+          {salary_state_sql}
           AND description_text LIKE '%%$%%'
           AND description_text ~* '(salary|compensation|pay[[:space:]]+(range|rate|band)|base[[:space:]]+pay|hourly[[:space:]]+rate|wage|hiring[[:space:]]+range)'
           {since_sql}
@@ -94,10 +99,12 @@ def extract(*, apply: bool, limit: int | None = None, since_hours: int | None = 
         if not relevant_text:
             continue
         lo, hi, period = parse_salary_range(relevant_text, skip_llm=True)
-        # Structured ATS compensation wins when present; parsing is the fallback.
-        lo = raw_min if raw_min is not None else lo
-        hi = raw_max if raw_max is not None else hi
-        period = raw_period or period
+        # Structured ATS compensation wins on the normal path. Repair mode
+        # deliberately reinterprets old heuristic hourly/monthly classifications.
+        if not repair_periods:
+            lo = raw_min if raw_min is not None else lo
+            hi = raw_max if raw_max is not None else hi
+            period = raw_period or period
         if lo is None or hi is None or period not in ANNUAL_MULTIPLIER:
             continue
         ann_lo, ann_hi = annualize(Decimal(lo), period), annualize(Decimal(hi), period)
@@ -108,9 +115,13 @@ def extract(*, apply: bool, limit: int | None = None, since_hours: int | None = 
         by_period[period] += 1
 
     if apply and updates:
-        execute_batch(
-            cur,
+        update_sql = (
             """
+            UPDATE job_postings
+            SET salary_min = %s, salary_max = %s, salary_period = %s,
+                salary_min_annual = %s, salary_max_annual = %s
+            WHERE job_id = %s
+            """ if repair_periods else """
             UPDATE job_postings
             SET salary_min = COALESCE(salary_min, %s),
                 salary_max = COALESCE(salary_max, %s),
@@ -118,7 +129,10 @@ def extract(*, apply: bool, limit: int | None = None, since_hours: int | None = 
                 salary_min_annual = COALESCE(salary_min_annual, %s),
                 salary_max_annual = COALESCE(salary_max_annual, %s)
             WHERE job_id = %s
-            """,
+            """
+        )
+        execute_batch(
+            cur, update_sql,
             updates,
             page_size=500,
         )
@@ -139,9 +153,12 @@ def main() -> None:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--limit", type=int)
     parser.add_argument("--since-hours", type=int)
+    parser.add_argument("--repair-periods", action="store_true",
+                        help="Reparse and overwrite heuristic hourly/monthly rows")
     args = parser.parse_args()
     started = time.monotonic()
-    result = extract(apply=args.apply, limit=args.limit, since_hours=args.since_hours)
+    result = extract(apply=args.apply, limit=args.limit, since_hours=args.since_hours,
+                     repair_periods=args.repair_periods)
     mode = "updated" if args.apply else "would update"
     print(
         f"Salary extraction: scanned {result['candidates']:,}; {mode} "

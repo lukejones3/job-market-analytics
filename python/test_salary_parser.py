@@ -84,6 +84,10 @@ TESTS = [
     ("bonus range", "Annual performance bonus ranges from $20,000 - $40,000.", None, None, None),
     ("equity value range", "Equity grant value is $80,000 - $120,000 over four years.", None, None, None),
     ("no disclosed amount", "We offer a competitive salary and equity package.", None, None, None),
+    ("annual shorthand", "The estimated base salary range is $140-$175 annually.", 140000, 175000, "year"),
+    ("pay shorthand USD", "Pay Range $140 - $150 USD", 140000, 150000, "year"),
+    ("hourly shorthand stays hourly", "Hourly salary range is $100 - $200", 100, 200, "hour"),
+    ("ARR before salary", "Reps close $10K-$50K ARR deals. Salary range: $120,000-$160,000 annually.", 120000, 160000, "year"),
 ]
 
 passed = failed = 0
