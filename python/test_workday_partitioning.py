@@ -35,3 +35,10 @@ def test_workday_query_pages_never_cross_safe_window(monkeypatch):
     assert postings
     assert max(offset for offset, _, _ in calls) < ingest_jobs._WD_SAFE_RESULT_WINDOW
     assert all(search == "data analyst" for _, _, search in calls)
+
+
+def test_workday_rejects_obvious_foreign_locations_before_detail_fetch():
+    assert ingest_jobs._wd_is_obviously_non_us("Pune, Maharashtra, India")
+    assert ingest_jobs._wd_is_obviously_non_us("Taguig, Philippines")
+    assert not ingest_jobs._wd_is_obviously_non_us("Seattle, WA")
+    assert not ingest_jobs._wd_is_obviously_non_us("United States, Remote")
