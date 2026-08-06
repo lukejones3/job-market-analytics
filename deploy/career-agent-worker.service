@@ -16,7 +16,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/job-market-analytics /var/log/lander
+ReadWritePaths=/opt/job-market-analytics/logs
 
 [Install]
 WantedBy=multi-user.target
