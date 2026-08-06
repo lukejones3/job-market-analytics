@@ -55,7 +55,7 @@ with DAG(dag_id="lander_nightly",
         salary_max_annual=salary_max WHERE salary_period='year' AND salary_max_annual IS NULL
         AND salary_max <= 1000000;" """)
     extract_salaries = command("extract_salaries",
-        f"{PYTHON} python/extract_salaries.py --apply")
+        f"{PYTHON} python/extract_salaries.py --apply --since-hours 72")
     enrich = command("enrich_jobs",
         f"{PYTHON} python/enrich_job_postings.py --apply --only-missing --no-llm --limit 5000")
     # A 72-hour overlap catches retries without rescanning the same 15k

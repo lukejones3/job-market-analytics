@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "python"))
 
-from extract_salaries import annualize
+from extract_salaries import annualize, salary_windows
 
 
 def test_annualizes_supported_periods():
@@ -17,3 +17,11 @@ def test_rejects_implausible_annual_values():
     assert annualize(Decimal("2"), "hour") is None
     assert annualize(Decimal("90000"), "month") is None
     assert annualize(Decimal("50"), "week") is None
+
+
+def test_salary_windows_keeps_pay_context_and_drops_unrelated_money():
+    text = "Raised $20,000,000 in funding. " + ("about us " * 200) + "Salary range: $90,000 - $120,000 annually."
+    result = salary_windows(text)
+    assert "Salary range" in result
+    assert "$90,000" in result
+    assert "funding" not in result

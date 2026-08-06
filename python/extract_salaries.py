@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import re
 import time
 from decimal import Decimal
 
@@ -23,6 +24,22 @@ ANNUAL_MULTIPLIER = {
     "month": Decimal("12"),
     "hour": Decimal("2080"),
 }
+SALARY_LANGUAGE = re.compile(
+    r"salary|compensation|pay\s+(?:range|rate|band)|base\s+pay|hourly\s+rate|wage|hiring\s+range",
+    re.IGNORECASE,
+)
+
+
+def salary_windows(description: str) -> str:
+    """Keep bounded context around money amounts instead of reparsing huge ads."""
+    windows: list[str] = []
+    for match in re.finditer(r"\$", description or ""):
+        window = description[max(0, match.start() - 350):match.start() + 700]
+        if SALARY_LANGUAGE.search(window):
+            windows.append(window)
+        if len(windows) >= 20:
+            break
+    return "\n".join(windows)
 
 
 def annualize(value: Decimal, period: str) -> Decimal | None:
@@ -33,12 +50,16 @@ def annualize(value: Decimal, period: str) -> Decimal | None:
     return result if Decimal("15000") <= result <= Decimal("1000000") else None
 
 
-def extract(*, apply: bool, limit: int | None = None) -> dict:
+def extract(*, apply: bool, limit: int | None = None, since_hours: int | None = None) -> dict:
     conn = get_conn()
     conn.autocommit = False
     cur = conn.cursor()
     params: list[object] = []
     limit_sql = ""
+    since_sql = ""
+    if since_hours is not None:
+        since_sql = "AND ingested_at >= now() - (%s * interval '1 hour')"
+        params.append(since_hours)
     if limit:
         limit_sql = "LIMIT %s"
         params.append(limit)
@@ -55,6 +76,8 @@ def extract(*, apply: bool, limit: int | None = None) -> dict:
           AND salary_min_annual IS NULL
           AND salary_max_annual IS NULL
           AND description_text LIKE '%%$%%'
+          AND description_text ~* '(salary|compensation|pay[[:space:]]+(range|rate|band)|base[[:space:]]+pay|hourly[[:space:]]+rate|wage|hiring[[:space:]]+range)'
+          {since_sql}
         ORDER BY ingested_at DESC
         {limit_sql}
         """,
@@ -67,7 +90,10 @@ def extract(*, apply: bool, limit: int | None = None) -> dict:
 
     for (job_id, source, description, raw_min, raw_max, raw_period,
          annual_min, annual_max) in rows:
-        lo, hi, period = parse_salary_range(description, skip_llm=True)
+        relevant_text = salary_windows(description)
+        if not relevant_text:
+            continue
+        lo, hi, period = parse_salary_range(relevant_text, skip_llm=True)
         # Structured ATS compensation wins when present; parsing is the fallback.
         lo = raw_min if raw_min is not None else lo
         hi = raw_max if raw_max is not None else hi
@@ -112,9 +138,10 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--since-hours", type=int)
     args = parser.parse_args()
     started = time.monotonic()
-    result = extract(apply=args.apply, limit=args.limit)
+    result = extract(apply=args.apply, limit=args.limit, since_hours=args.since_hours)
     mode = "updated" if args.apply else "would update"
     print(
         f"Salary extraction: scanned {result['candidates']:,}; {mode} "
