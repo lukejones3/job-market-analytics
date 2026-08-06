@@ -24,13 +24,24 @@ def _base(content: str) -> str:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="color-scheme" content="dark">
+  <meta name="supported-color-schemes" content="dark">
+  <style>
+    @media only screen and (max-width: 620px) {{
+      .email-shell {{ padding:18px 10px !important; }}
+      .email-card {{ border-radius:14px !important; }}
+      .email-pad {{ padding-left:24px !important; padding-right:24px !important; }}
+      .email-title {{ font-size:30px !important; }}
+      .email-button {{ display:block !important; text-align:center !important; }}
+    }}
+  </style>
 </head>
 <body style="margin:0;padding:0;background-color:#0a0a0a;font-family:Helvetica,Arial,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#0a0a0a;">
     <tr>
-      <td align="center" style="padding:40px 20px;">
-        <table width="100%" cellpadding="0" cellspacing="0" border="0"
-               style="max-width:600px;background-color:#111111;border-radius:8px;border:1px solid #1e1e1e;">
+      <td class="email-shell" align="center" style="padding:44px 20px;">
+        <table class="email-card" width="100%" cellpadding="0" cellspacing="0" border="0"
+               style="max-width:560px;background-color:#10110f;border-radius:18px;border:1px solid #252720;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.32);">
 {content}
         </table>
       </td>
@@ -49,13 +60,16 @@ def _logo_row(badge: str = "") -> str:
     )
     return f"""\
           <tr>
-            <td style="padding:40px 48px 0;">
-              <span style="font-size:30px;font-weight:800;letter-spacing:-0.5px;line-height:1;"><span style="color:#d4ff3a;">L</span><span style="color:#ffffff;">ander</span></span>{badge_html}
+            <td class="email-pad" style="padding:30px 40px 0;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+                <td><span style="font-size:24px;font-weight:800;color:#f5f5f5;letter-spacing:-0.8px;line-height:1;">lander</span>{badge_html}</td>
+                <td align="right"><span style="display:inline-block;width:8px;height:8px;border-radius:8px;background:#d4ff3a;box-shadow:0 0 14px rgba(212,255,58,0.65);"></span></td>
+              </tr></table>
             </td>
           </tr>
           <tr>
-            <td style="padding:24px 48px 0;">
-              <div style="height:1px;background-color:#1e1e1e;"></div>
+            <td class="email-pad" style="padding:24px 40px 0;">
+              <div style="height:1px;background-color:#252720;"></div>
             </td>
           </tr>"""
 
@@ -63,8 +77,8 @@ def _logo_row(badge: str = "") -> str:
 def _divider() -> str:
     return """\
           <tr>
-            <td style="padding:32px 48px 0;">
-              <div style="height:1px;background-color:#1e1e1e;"></div>
+            <td class="email-pad" style="padding:30px 40px 0;">
+              <div style="height:1px;background-color:#252720;"></div>
             </td>
           </tr>"""
 
@@ -73,11 +87,11 @@ def _footer(note: str = "If you didn't request this, you can safely ignore this 
     return f"""\
 {_divider()}
           <tr>
-            <td style="padding:24px 48px 40px;">
-              <p style="margin:0 0 12px;font-size:13px;color:#555555;line-height:1.5;">
-                Lander &mdash; Job intelligence built for seekers, not employers
+            <td class="email-pad" style="padding:22px 40px 30px;">
+              <p style="margin:0 0 8px;font-size:12px;color:#74766f;line-height:1.5;">
+                Lander &mdash; a clearer way through the job market
               </p>
-              <p style="margin:0;font-size:12px;color:#444444;line-height:1.5;">{_h.escape(note)}</p>
+              <p style="margin:0;font-size:11px;color:#555750;line-height:1.5;">{_h.escape(note)}</p>
             </td>
           </tr>"""
 
@@ -98,8 +112,7 @@ def _feature_block(label: str, items: str) -> str:
 
 FREE_SIGNUP_SUBJECT = "Your Lander access link"
 
-FREE_FEATURES = "Full job feed · Traffic-light signals · Mark applied · Outcome capture · Top 3 resume matches"
-PRO_UPSELL = "Upgrade to Pro ($19/mo) for top 50 resume matches, hiring manager LinkedIn for all roles, and the Insights dashboard"
+FREE_FEATURES = "Live company-source jobs · Resume matching · Saved and applied workspaces · Career Agent"
 
 
 def free_signup_html(magic_link_url: str) -> str:
@@ -107,23 +120,26 @@ def free_signup_html(magic_link_url: str) -> str:
     content = f"""\
 {_logo_row()}
           <tr>
-            <td style="padding:40px 48px 0;">
-              <h1 style="margin:0 0 10px;font-size:32px;font-weight:800;color:#ffffff;letter-spacing:-1px;line-height:1.1;">
-                Your access link
+            <td class="email-pad" style="padding:34px 40px 0;">
+              <p style="margin:0 0 14px;font-size:10px;font-weight:700;color:#b9dd37;text-transform:uppercase;letter-spacing:1.5px;">
+                Your Lander workspace
+              </p>
+              <h1 class="email-title" style="margin:0 0 12px;font-size:38px;font-weight:800;color:#f5f5f5;letter-spacing:-1.5px;line-height:1.04;">
+                The job market,<br>with the lights on.
               </h1>
-              <p style="margin:0;font-size:16px;color:#a0a0a0;line-height:1.5;">
-                Welcome to Lander. Click below to enter your dashboard.
+              <p style="margin:0;max-width:430px;font-size:15px;color:#9b9d96;line-height:1.65;">
+                Your secure sign-in link is ready. Open Lander to search live roles, compare your resume and keep your search in one place.
               </p>
             </td>
           </tr>
           <tr>
-            <td style="padding:32px 48px 0;">
-              <table cellpadding="0" cellspacing="0" border="0">
+            <td class="email-pad" style="padding:28px 40px 0;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td style="border-radius:6px;background-color:#d4ff3a;">
-                    <a href="{url_escaped}"
-                       style="display:inline-block;padding:16px 32px;font-size:16px;font-weight:700;color:#0a0a0a;text-decoration:none;letter-spacing:-0.2px;">
-                      Open Dashboard &rarr;
+                  <td align="center" style="border-radius:10px;background-color:#d4ff3a;">
+                    <a class="email-button" href="{url_escaped}"
+                       style="display:block;padding:16px 24px;font-size:15px;font-weight:800;color:#0a0a0a;text-align:center;text-decoration:none;letter-spacing:-0.2px;">
+                      Enter Lander &nbsp;&rarr;
                     </a>
                   </td>
                 </tr>
@@ -131,18 +147,31 @@ def free_signup_html(magic_link_url: str) -> str:
             </td>
           </tr>
           <tr>
-            <td style="padding:16px 48px 0;">
-              <p style="margin:0;font-size:13px;color:#555555;line-height:1.6;">
-                Or paste this URL into your browser:<br>
-                <a href="{url_escaped}" style="color:#d4ff3a;text-decoration:none;word-break:break-all;">{url_escaped}</a>
+            <td class="email-pad" style="padding:16px 40px 0;">
+              <p style="margin:0;font-size:11px;color:#5e605a;line-height:1.55;">
+                This private link signs you in directly. It expires automatically and can only be used once.
               </p>
             </td>
           </tr>
 {_divider()}
-{_feature_block("What's free", FREE_FEATURES)}
           <tr>
-            <td style="padding:16px 48px 0;">
-              <p style="margin:0;font-size:14px;color:#666666;line-height:1.7;">{_h.escape(PRO_UPSELL)}</p>
+            <td class="email-pad" style="padding:22px 40px 0;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td width="33%" valign="top" style="padding-right:10px;">
+                    <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#d6d7d2;">Live roles</p>
+                    <p style="margin:0;font-size:11px;color:#696b65;line-height:1.5;">Direct company sources</p>
+                  </td>
+                  <td width="33%" valign="top" style="padding:0 10px;border-left:1px solid #252720;">
+                    <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#d6d7d2;">Resume fit</p>
+                    <p style="margin:0;font-size:11px;color:#696b65;line-height:1.5;">Evidence, not guesses</p>
+                  </td>
+                  <td width="33%" valign="top" style="padding-left:10px;border-left:1px solid #252720;">
+                    <p style="margin:0 0 5px;font-size:11px;font-weight:700;color:#d6d7d2;">One workspace</p>
+                    <p style="margin:0;font-size:11px;color:#696b65;line-height:1.5;">Save, apply and move</p>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
 {_footer()}"""
@@ -153,17 +182,12 @@ def free_signup_plain(magic_link_url: str) -> str:
     return f"""\
 Welcome to Lander.
 
-Click to open your dashboard:
+Your secure sign-in link is ready:
 {magic_link_url}
 
-If the link doesn't work, paste the URL above into your browser.
+Open Lander to search live company-source roles, compare your resume, and keep your search in one place.
 
----
-What's free: {FREE_FEATURES}
-
-{PRO_UPSELL}
-
-Lander — Job intelligence built for seekers, not employers
+Lander — a clearer way through the job market
 
 If you didn't request this, you can safely ignore this email.
 """
@@ -175,7 +199,7 @@ If you didn't request this, you can safely ignore this email.
 
 PRO_WELCOME_SUBJECT = "Welcome to Lander Pro"
 
-PRO_UNLOCKED = "Top 50 resume matches · Hiring manager LinkedIn for all roles · Insights dashboard"
+PRO_UNLOCKED = "Deeper resume matching · Complete job intelligence · Expanded Career Agent access"
 
 
 def pro_welcome_html(dashboard_url: str) -> str:
@@ -183,23 +207,24 @@ def pro_welcome_html(dashboard_url: str) -> str:
     content = f"""\
 {_logo_row(badge="PRO")}
           <tr>
-            <td style="padding:40px 48px 0;">
-              <h1 style="margin:0 0 10px;font-size:32px;font-weight:800;color:#ffffff;letter-spacing:-1px;line-height:1.1;">
-                You&rsquo;re on Pro.
+            <td class="email-pad" style="padding:34px 40px 0;">
+              <p style="margin:0 0 14px;font-size:10px;font-weight:700;color:#b9dd37;text-transform:uppercase;letter-spacing:1.5px;">Subscription active</p>
+              <h1 class="email-title" style="margin:0 0 12px;font-size:38px;font-weight:800;color:#f5f5f5;letter-spacing:-1.5px;line-height:1.04;">
+                Lander Pro is ready.
               </h1>
-              <p style="margin:0;font-size:16px;color:#a0a0a0;line-height:1.5;">
-                Your subscription is active. The complete intelligence layer is ready.
+              <p style="margin:0;font-size:15px;color:#9b9d96;line-height:1.65;">
+                Your workspace now has the complete intelligence layer. Pick up exactly where you left off.
               </p>
             </td>
           </tr>
           <tr>
-            <td style="padding:32px 48px 0;">
-              <table cellpadding="0" cellspacing="0" border="0">
+            <td class="email-pad" style="padding:28px 40px 0;">
+              <table width="100%" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td style="border-radius:6px;background-color:#d4ff3a;">
-                    <a href="{url_escaped}"
-                       style="display:inline-block;padding:16px 32px;font-size:16px;font-weight:700;color:#0a0a0a;text-decoration:none;letter-spacing:-0.2px;">
-                      Open Dashboard &rarr;
+                  <td align="center" style="border-radius:10px;background-color:#d4ff3a;">
+                    <a class="email-button" href="{url_escaped}"
+                       style="display:block;padding:16px 24px;font-size:15px;font-weight:800;color:#0a0a0a;text-align:center;text-decoration:none;letter-spacing:-0.2px;">
+                      Open your workspace &nbsp;&rarr;
                     </a>
                   </td>
                 </tr>
@@ -227,7 +252,7 @@ What's unlocked: {PRO_UNLOCKED}
 
 Plus everything free includes: {FREE_FEATURES}
 
-Lander — Job intelligence built for seekers, not employers
+Lander — a clearer way through the job market
 
 Questions? Reply to this email.
 """
