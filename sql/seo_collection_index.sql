@@ -46,3 +46,15 @@ CREATE TABLE IF NOT EXISTS public.seo_crawl_events (
   referrer text
 );
 CREATE INDEX IF NOT EXISTS seo_crawl_events_time ON public.seo_crawl_events(crawled_at DESC);
+
+CREATE TABLE IF NOT EXISTS public.seo_indexing_queue (
+  job_id text NOT NULL,
+  url text NOT NULL,
+  notification_type text NOT NULL CHECK (notification_type IN ('URL_UPDATED','URL_DELETED')),
+  queued_at timestamptz NOT NULL DEFAULT now(),
+  sent_at timestamptz,
+  attempts integer NOT NULL DEFAULT 0,
+  last_error text,
+  PRIMARY KEY(job_id, notification_type, queued_at)
+);
+CREATE INDEX IF NOT EXISTS seo_indexing_queue_pending ON public.seo_indexing_queue(queued_at) WHERE sent_at IS NULL;

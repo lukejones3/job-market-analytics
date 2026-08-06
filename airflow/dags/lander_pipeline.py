@@ -80,6 +80,8 @@ with DAG(dag_id="lander_nightly",
         f"{PYTHON} python/publish_snapshot.py --apply")
     refresh_seo_index = command("refresh_seo_collection_index",
         f"{PYTHON} python/refresh_seo_collection_index.py")
+    notify_google_indexing = command("notify_google_indexing",
+        f"{PYTHON} python/notify_google_indexing.py")
     report = command("morning_report", f"{PYTHON} python/morning_report.py")
     funnel_report = command("ingestion_funnel_report",
         f"{PYTHON} python/ingestion_funnel_report.py")
@@ -91,7 +93,7 @@ with DAG(dag_id="lander_nightly",
     enrich >> embeddings >> experience
     [experience, skills] >> honesty
     honesty >> discover >> dedup >> canonicalize >> expiry >> dbt_build >> publish_gate >> publish_snapshot
-    publish_snapshot >> refresh_seo_index >> [report, funnel_report]
+    publish_snapshot >> refresh_seo_index >> notify_google_indexing >> [report, funnel_report]
 
 with DAG(dag_id="lander_ats_discovery",
     description="Discover, validate, and activate new ATS tenants",

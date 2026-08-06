@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -22,6 +23,10 @@ CANDIDATE = """
   AND length(COALESCE(jp.description_text, '')) >= 100
   AND COALESCE(jp.loc_country, 'us') <> 'foreign'
 """
+
+def _slug(value: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")[:80]
+    return value or "job"
 
 
 def publish(*, apply: bool, minimum: int, floor_ratio: float) -> dict:
@@ -49,6 +54,14 @@ def publish(*, apply: bool, minimum: int, floor_ratio: float) -> dict:
             result = {"prior": prior, "candidate": candidate, "required": required, "applied": apply}
             if not apply:
                 return result
+
+            cur.execute(f"""SELECT jp.job_id,r.role_name FROM job_postings jp JOIN roles r ON r.role_id=jp.role_id WHERE jp.is_public=true AND NOT ({CANDIDATE})""")
+            removals = cur.fetchall()
+            cur.execute(f"""SELECT jp.job_id,r.role_name FROM job_postings jp JOIN roles r ON r.role_id=jp.role_id WHERE ({CANDIDATE}) AND jp.is_public=false""")
+            additions = cur.fetchall()
+            for row, kind in [*((row, "URL_DELETED") for row in removals), *((row, "URL_UPDATED") for row in additions)]:
+                url = f"https://www.landerjob.com/openings/{row['job_id']}/{_slug(row['role_name'])}"
+                cur.execute("INSERT INTO public.seo_indexing_queue(job_id,url,notification_type) VALUES(%s,%s,%s)", (row["job_id"], url, kind))
 
             cur.execute(f"""
                 UPDATE job_postings jp
