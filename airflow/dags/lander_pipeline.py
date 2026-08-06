@@ -78,6 +78,8 @@ with DAG(dag_id="lander_nightly",
         f"{PYTHON} python/airflow_quality_gate.py publish")
     publish_snapshot = command("publish_snapshot",
         f"{PYTHON} python/publish_snapshot.py --apply")
+    refresh_seo_index = command("refresh_seo_collection_index",
+        f"{PYTHON} python/refresh_seo_collection_index.py")
     report = command("morning_report", f"{PYTHON} python/morning_report.py")
     funnel_report = command("ingestion_funnel_report",
         f"{PYTHON} python/ingestion_funnel_report.py")
@@ -89,7 +91,7 @@ with DAG(dag_id="lander_nightly",
     enrich >> embeddings >> experience
     [experience, skills] >> honesty
     honesty >> discover >> dedup >> canonicalize >> expiry >> dbt_build >> publish_gate >> publish_snapshot
-    publish_snapshot >> [report, funnel_report]
+    publish_snapshot >> refresh_seo_index >> [report, funnel_report]
 
 with DAG(dag_id="lander_ats_discovery",
     description="Discover, validate, and activate new ATS tenants",
