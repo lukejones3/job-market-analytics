@@ -69,7 +69,7 @@ except ImportError:
     _fetch_all_bamboohr = None
 
 from psycopg2.extras import DictCursor, Json
-from role_scope import ScopeDecision, evaluate_role
+from role_scope import ScopeDecision, discovery_terms, evaluate_role
 
 try:
     from classify_domain import build_alias_map as _build_alias_map, classify_domain as _classify_domain
@@ -2363,13 +2363,14 @@ async def _wd_fetch_page(
     headers: dict,
     offset: int,
     limit: int,
+    search_text: str = "",
 ) -> Tuple[List[dict], int, int]:
     """Fetch one list page. Returns (postings, total, http_status)."""
     for attempt in range(3):
         try:
             async with session.post(
                 list_url,
-                json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": ""},
+                json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": search_text},
                 headers=headers,
             ) as r:
                 if r.status == 200:
@@ -2391,6 +2392,44 @@ async def _wd_fetch_page(
                 continue
             return [], 0, 0
     return [], 0, 429
+
+
+# Workday boards can expose totals larger than the reliable CXS result window.
+# Crossing the window silently loses later pages on some tenants. Keep the full
+# crawl for normal boards; partition only oversized boards with the same
+# domain-balanced query vocabulary used by ATS discovery.
+_WD_SAFE_RESULT_WINDOW = 1900
+
+
+async def _wd_fetch_query_pages(
+    session: aiohttp.ClientSession,
+    list_url: str,
+    headers: dict,
+    search_text: str,
+    limit: int = 20,
+) -> Tuple[List[dict], int]:
+    first, total, status = await _wd_fetch_page(
+        session, list_url, headers, 0, limit, search_text
+    )
+    if status != 200 or not first:
+        return [], status
+    postings = list(first)
+    # A partition can itself be broad. Bound it to the reliable window; the
+    # overlapping query vocabulary supplies alternate paths to relevant roles.
+    upper = min(total, _WD_SAFE_RESULT_WINDOW)
+    if upper > limit:
+        results = await asyncio.gather(*[
+            _wd_fetch_page(session, list_url, headers, offset, limit, search_text)
+            for offset in range(limit, upper, limit)
+        ], return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                continue
+            page, _, page_status = result
+            if page_status == 429:
+                _wd_state["global_429"] += 1
+            postings.extend(page)
+    return postings, status
 
 
 async def _wd_detail(
@@ -2476,8 +2515,33 @@ async def _fetch_workday_tenant_async(
 
     all_postings = list(page0_postings)
 
-    # Phase 2: fire all remaining pages concurrently
-    if total > limit:
+    # Phase 2: fetch the board. Normal boards are crawled exhaustively. Very
+    # large boards are partitioned by role vocabulary so the CXS result-window
+    # ceiling cannot hide later relevant listings.
+    if total > _WD_SAFE_RESULT_WINDOW:
+        log.info(
+            f"  [{name}] {total} total jobs exceeds Workday's reliable result window; "
+            "partitioning by role search"
+        )
+        by_path = {p.get("externalPath") or json.dumps(p, sort_keys=True): p for p in all_postings}
+        # Run partitions sequentially per tenant. Page fetches within a
+        # partition remain concurrent, while this avoids materializing
+        # thousands of simultaneous tasks for a single huge employer.
+        for term in discovery_terms():
+            try:
+                result = await _wd_fetch_query_pages(
+                    session, list_url, headers, term, limit
+                )
+            except Exception:
+                continue
+            postings, query_status = result
+            if query_status == 429:
+                _wd_state["global_429"] += 1
+            for posting in postings:
+                by_path[posting.get("externalPath") or json.dumps(posting, sort_keys=True)] = posting
+        all_postings = list(by_path.values())
+        log.info(f"  [{name}] partitioned Workday crawl recovered {len(all_postings)} unique candidates")
+    elif total > limit:
         remaining_offsets = list(range(limit, total, limit))
         log.info(f"  [{name}] {total} total jobs — fetching {len(remaining_offsets) + 1} pages concurrently")
         page_tasks = [
