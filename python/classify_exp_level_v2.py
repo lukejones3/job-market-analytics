@@ -93,9 +93,12 @@ def classify_jobs(conn, apply: bool, all_rows: bool, limit: int | None) -> None:
     ensure_schema(conn)
     predicate = (
         "jp.experience_classifier_version IS DISTINCT FROM %s"
-        if all_rows else "jp.experience_level_v3 IS NULL"
+        if all_rows else
+        "(jp.experience_level_v3 IS NULL "
+        "OR jp.experience_level IS DISTINCT FROM jp.experience_level_v3 "
+        "OR jp.experience_classifier_version IS DISTINCT FROM %s)"
     )
-    predicate_params = (VERSION,) if all_rows else ()
+    predicate_params = (VERSION,)
     base_query = f"""
             SELECT jp.job_id, r.role_name, COALESCE(jp.description_text, '')
             FROM job_postings jp

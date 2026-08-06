@@ -53,6 +53,7 @@ def test_v2_experience_is_promoted_with_canonical_labels():
     assert "experience_level_v3=%s" in classifier
     assert "experience_level=%s" in classifier
     assert "experience_level_evidence=%s" in classifier
+    assert "experience_level IS DISTINCT FROM jp.experience_level_v3" in classifier
     assert "experience_level_v2" not in classifier
 
 
