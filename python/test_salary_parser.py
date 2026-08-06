@@ -88,6 +88,13 @@ TESTS = [
     ("pay shorthand USD", "Pay Range $140 - $150 USD", 140000, 150000, "year"),
     ("hourly shorthand stays hourly", "Hourly salary range is $100 - $200", 100, 200, "hour"),
     ("ARR before salary", "Reps close $10K-$50K ARR deals. Salary range: $120,000-$160,000 annually.", 120000, 160000, "year"),
+    ("target hiring single", "Target Hiring Range: $100K per year base salary + commission", 100000, 100000, "year"),
+    ("budgeted salary cap", "Compensation Up to $95,000 depending on experience + bonus", 95000, 95000, "year"),
+    ("annual salary plus", "Benefits include $140k+ annual salary and equity", 140000, 140000, "year"),
+    ("begin to cap", "The base salary offered for this role will begin at $187,000 and up to $259,000.", 187000, 259000, "year"),
+    ("repeated USD", "For New York the salary range is USD$116,000 - USD$155,000.", 116000, 155000, "year"),
+    ("minimum annualized", "The minimum annualized base salary starts at $145,000.", 145000, 145000, "year"),
+    ("base OTE pair", "Expected OTE is $83,500 on a split with base salary at $50,100.", 50100, 83500, "year"),
 ]
 
 passed = failed = 0

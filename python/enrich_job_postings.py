@@ -612,7 +612,7 @@ def _try_labeled_range(tline: str, window: str):
     )
     pat = re.compile(
         rf"({LABELS}).{{0,200}}?"
-        rf"\$?\s*([\d,\.]+[kKmM]?)\s*(?:OTE|USD|CAD)?\s*{_D}\s*\$?\s*([\d,\.]+[kKmM]?)",
+        rf"\$?\s*([\d,\.]+[kKmM]?)\s*(?:OTE|USD|CAD)?\s*{_D}\s*(?:USD|CAD)?\s*\$?\s*([\d,\.]+[kKmM]?)",
         re.IGNORECASE)
 
     for target in ([tline, window] if window != tline else [tline]):
@@ -1020,6 +1020,56 @@ def _try_kobold_truncated(tline: str):
 
 def _try_single_value(tline: str, low: str):
     """Single salary values with explicit context."""
+    # Explicit base-to-OTE pair: base salary at $X ... OTE ... $Y.
+    m = re.search(
+        r"(?:base\s+salary\s+at\s+\$\s*([\d,.]+[kKmM]?)).{0,100}?"
+        r"(?:ote|on[- ]target earnings).{0,60}?\$\s*([\d,.]+[kKmM]?)",
+        tline, re.IGNORECASE,
+    )
+    if m:
+        v1, v2 = _scale_pair(m.group(1), m.group(2))
+        if v1 and v2 and _sanity(min(v1, v2), max(v1, v2), "year"):
+            return min(v1, v2), max(v1, v2), "year"
+    m = re.search(
+        r"(?:ote|on[- ]target earnings).{0,60}?\$\s*([\d,.]+[kKmM]?)"
+        r".{0,100}?base\s+salary\s+at\s+\$\s*([\d,.]+[kKmM]?)",
+        tline, re.IGNORECASE,
+    )
+    if m:
+        v1, v2 = _scale_pair(m.group(1), m.group(2))
+        if v1 and v2 and _sanity(min(v1, v2), max(v1, v2), "year"):
+            return min(v1, v2), max(v1, v2), "year"
+
+    # "will begin at $X and up to $Y" / "starts at $X ... up to $Y".
+    m = re.search(
+        r"(?:salary|pay|compensation).{0,100}?(?:begin|starts?)\s+at\s+\$\s*([\d,.]+[kKmM]?)"
+        r".{0,80}?up\s+to\s+\$\s*([\d,.]+[kKmM]?)",
+        tline, re.IGNORECASE,
+    )
+    if m:
+        v1, v2 = _scale_pair(m.group(1), m.group(2))
+        if v1 and v2 and _sanity(min(v1, v2), max(v1, v2), "year"):
+            return min(v1, v2), max(v1, v2), "year"
+
+    # Target hiring range / budgeted salary / compensation up to a single cap.
+    m = re.search(
+        r"(?:target\s+hiring\s+range|budgeted\s+salary|compensation)\s*:?\s*"
+        r"(?:up\s+to\s+)?\$\s*([\d,.]+[kKmM]?)",
+        tline, re.IGNORECASE,
+    )
+    if m:
+        v = _to_dec(m.group(1))
+        p = _period_from_context(tline, v)
+        if v and p and _sanity(v, v, p):
+            return v, v, p
+
+    # "$140k+ annual salary".
+    m = re.search(r"\$\s*([\d,.]+[kKmM]?)\+\s*(?:annual\s+|base\s+)?salary", tline, re.IGNORECASE)
+    if m:
+        v = _to_dec(m.group(1))
+        if v and _sanity(v, v, "year"):
+            return v, v, "year"
+
     # offering $X+ or offering $X
     m = re.search(r"offering\s+\$\s*([\d,\.]+[kKmM]?)\+?", tline, re.IGNORECASE)
     if m:
@@ -1035,7 +1085,7 @@ def _try_single_value(tline: str, low: str):
             return v, v, "year"
 
     # minimum base salary starts at $X
-    m = re.search(r"minimum\s+base\s+salary\s+starts\s+at\s+\$\s*([\d,\.]+[kKmM]?)", tline, re.IGNORECASE)
+    m = re.search(r"minimum(?:\s+annualized)?\s+base\s+salary\s+starts\s+at\s+\$\s*([\d,\.]+[kKmM]?)", tline, re.IGNORECASE)
     if m:
         v = _to_dec(m.group(1))
         if v and v >= 15000:
