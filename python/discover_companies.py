@@ -392,8 +392,7 @@ def refresh_existing(cur, apply: bool) -> None:
                    crawl_tenant AS board_token,
                    COUNT(*) FILTER (WHERE status = 'raw')::int AS active_roles
             FROM job_postings
-            WHERE ingestion_source IN ('greenhouse', 'lever')
-              AND crawl_tenant IS NOT NULL
+            WHERE crawl_tenant IS NOT NULL
             GROUP BY ingestion_source, crawl_tenant
         )
         UPDATE discovered_companies dc
@@ -416,7 +415,6 @@ def refresh_existing(cur, apply: bool) -> None:
         UPDATE discovered_companies dc
         SET active_roles = 0, last_seen_at = now()
         WHERE dc.enabled = true
-          AND dc.ats_source IN ('greenhouse', 'lever')
           AND NOT EXISTS (
               SELECT 1 FROM job_postings jp
               WHERE jp.ingestion_source = dc.ats_source
