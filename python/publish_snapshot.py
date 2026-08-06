@@ -15,6 +15,7 @@ CANDIDATE = """
   jp.status = 'raw'
   AND jp.data_tier = 1
   AND COALESCE(jp.source, '') <> 'adzuna'
+  AND jp.scope_status IN ('accepted_core', 'accepted_evidence')
   AND jp.company_id IS NOT NULL
   AND jp.role_id IS NOT NULL
   AND jp.domain IS NOT NULL

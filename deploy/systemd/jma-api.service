@@ -6,7 +6,9 @@ After=network.target postgresql.service
 User=root
 WorkingDirectory=/opt/job-market-analytics
 EnvironmentFile=/opt/job-market-analytics/.env
-ExecStart=/opt/job-market-analytics/.venv/bin/uvicorn python.api:app --host 0.0.0.0 --port 8000 --workers 2
+# Nginx is the only public ingress. Binding loopback prevents callers from
+# bypassing TLS, Cloudflare, proxy policy, and trusted client-IP handling.
+ExecStart=/opt/job-market-analytics/.venv/bin/uvicorn python.api:app --host 127.0.0.1 --port 8000 --workers 2
 Restart=always
 RestartSec=5
 

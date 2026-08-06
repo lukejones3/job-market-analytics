@@ -47,6 +47,8 @@ with DAG(dag_id="lander_nightly",
         trigger_rule="all_done")
     scope_report = command("role_scope_report",
         f"{PYTHON} python/role_scope_report.py", trigger_rule="all_done")
+    scope_backfill = command("backfill_missing_role_scope",
+        f"{PYTHON} python/backfill_role_scope.py --apply --only-missing")
     reclassify = command("reclassify_domains",
         f"{PYTHON} python/reclassify_domains.py --apply --since-hours 24")
     blocklist = command("enforce_blocklist", f"{PYTHON} python/enforce_blocklist.py")
@@ -90,7 +92,7 @@ with DAG(dag_id="lander_nightly",
     report = command("morning_report", f"{PYTHON} python/morning_report.py")
     funnel_report = command("ingestion_funnel_report",
         f"{PYTHON} python/ingestion_funnel_report.py")
-    ingests >> ingest_gate >> reclassify >> blocklist >> annualize >> extract_salaries
+    ingests >> ingest_gate >> scope_backfill >> reclassify >> blocklist >> annualize >> extract_salaries
     ingests >> scope_report
     # Domain classification must commit before domain-aware skill extraction.
     # The oldest-first enrichment batch drains backlog without starving rows.

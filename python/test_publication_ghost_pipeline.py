@@ -14,8 +14,11 @@ def test_publication_predicate_and_total_are_consistent():
     assert '"total":        total' in api
     assert "is_public = true" in api
     assert "COALESCE(loc_country,'us') <> 'foreign'" in gate
+    assert "scope_status IN ('accepted_core','accepted_evidence')" in gate
+    assert "jp.scope_status IN ('accepted_core', 'accepted_evidence')" in publisher
     assert "pg_advisory_xact_lock" in publisher
     assert "publish_gate >> publish_snapshot" in dag
+    assert "backfill_role_scope.py --apply --only-missing" in dag
     assert '_loc.country == "foreign"' in ingest
 
 
