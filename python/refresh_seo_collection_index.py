@@ -49,6 +49,7 @@ def refresh() -> int:
       FROM job_postings jp JOIN companies c ON c.company_id=jp.company_id LEFT JOIN locations l ON l.location_id=jp.location_id
       CROSS JOIN LATERAL unnest(array_remove(ARRAY[{labels}], NULL)) loc(location)
       WHERE jp.is_public=true AND jp.data_tier=1 AND jp.domain IS NOT NULL
+        AND jp.role_category IS NOT NULL AND BTRIM(jp.role_category) <> ''
         AND NOT EXISTS (SELECT 1 FROM unnest(ARRAY[{blocked}]::text[]) b(match) WHERE LOWER(c.company_name) LIKE '%'||b.match||'%')
       GROUP BY 1,2 HAVING COUNT(*)>=5
     """
