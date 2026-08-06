@@ -1799,7 +1799,8 @@ def upsert_company(cur, company_name: str, company_type: Optional[str] = None) -
 
     # only write company_type if it's valid
     ct = (company_type or "").strip().lower() or None
-    if ct and 'COMPANY_TYPES' in globals() and ct not in COMPANY_TYPES:
+    allowed_company_types = globals().get("COMPANY_TYPES")
+    if ct and allowed_company_types and ct not in allowed_company_types:
         ct = None
 
     if ct:
@@ -1833,7 +1834,8 @@ def upsert_role(cur, role_name: str, role_archetype: Optional[str] = None) -> Op
     role_id = _md5_id("R", role_name)
 
     ra = (role_archetype or "").strip().lower() or None
-    if ra and 'ROLE_ARCHETYPES' in globals() and ra not in ROLE_ARCHETYPES:
+    allowed_role_archetypes = globals().get("ROLE_ARCHETYPES")
+    if ra and allowed_role_archetypes and ra not in allowed_role_archetypes:
         ra = None
 
     if ra:
