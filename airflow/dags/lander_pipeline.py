@@ -54,9 +54,14 @@ with DAG(dag_id="lander_nightly",
         """psql -v ON_ERROR_STOP=1 -c "UPDATE job_postings SET salary_min_annual=salary_min,
         salary_max_annual=salary_max WHERE salary_period='year' AND salary_max_annual IS NULL
         AND salary_max <= 1000000;" """)
+    extract_salaries = command("extract_salaries",
+        f"{PYTHON} python/extract_salaries.py --apply")
     enrich = command("enrich_jobs",
         f"{PYTHON} python/enrich_job_postings.py --apply --only-missing --no-llm --limit 5000")
-    skills = command("extract_skills", f"{PYTHON} python/extract_skills_sql.py --apply")
+    # A 72-hour overlap catches retries without rescanning the same 15k
+    # legitimately skill-less descriptions every night.
+    skills = command("extract_skills",
+        f"{PYTHON} python/extract_skills_sql.py --apply --since-hours 72")
     embeddings = command("embed_jobs", f"{PYTHON} python/embed_jobs.py")
     experience = command("classify_experience",
         f"{PYTHON} python/classify_exp_level_v2.py --apply")
@@ -85,11 +90,11 @@ with DAG(dag_id="lander_nightly",
     report = command("morning_report", f"{PYTHON} python/morning_report.py")
     funnel_report = command("ingestion_funnel_report",
         f"{PYTHON} python/ingestion_funnel_report.py")
-    ingests >> ingest_gate >> reclassify >> blocklist >> annualize
+    ingests >> ingest_gate >> reclassify >> blocklist >> annualize >> extract_salaries
     ingests >> scope_report
     # Domain classification must commit before domain-aware skill extraction.
     # The oldest-first enrichment batch drains backlog without starving rows.
-    annualize >> enrich >> skills
+    extract_salaries >> enrich >> skills
     enrich >> embeddings >> experience
     [experience, skills] >> honesty
     honesty >> discover >> dedup >> canonicalize >> expiry >> dbt_build >> publish_gate >> publish_snapshot

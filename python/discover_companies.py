@@ -374,15 +374,58 @@ def seed_from_ingest_lists(cur, apply: bool) -> int:
 # ============================================================
 
 def refresh_existing(cur, apply: bool) -> None:
+    """Refresh counts from the crawl that just finished, without re-crawling.
+
+    The nightly pipeline already visits every enabled board during ingestion.
+    Reissuing thousands of serial HTTP requests here added 35–40 minutes while
+    producing a less authoritative count than the rows written by that crawl.
+    """
+    cur.execute("SELECT COUNT(*) FROM discovered_companies WHERE enabled = true")
+    company_count = cur.fetchone()[0]
+    log.info(f"  Refreshing {company_count} company counts from current inventory...")
+    if not apply:
+        return
     cur.execute(
-        "SELECT company_name, ats_source, board_token FROM discovered_companies WHERE enabled = true ORDER BY last_seen_at ASC"
+        """
+        WITH counts AS (
+            SELECT ingestion_source AS ats_source,
+                   crawl_tenant AS board_token,
+                   COUNT(*) FILTER (WHERE status = 'raw')::int AS active_roles
+            FROM job_postings
+            WHERE ingestion_source IN ('greenhouse', 'lever')
+              AND crawl_tenant IS NOT NULL
+            GROUP BY ingestion_source, crawl_tenant
+        )
+        UPDATE discovered_companies dc
+        SET active_roles = COALESCE(c.active_roles, 0),
+            last_seen_at = now(),
+            last_had_roles = CASE
+                WHEN COALESCE(c.active_roles, 0) > 0 THEN now()
+                ELSE dc.last_had_roles
+            END
+        FROM (SELECT ats_source, board_token, active_roles FROM counts) c
+        WHERE dc.enabled = true
+          AND dc.ats_source = c.ats_source
+          AND dc.board_token = c.board_token
+        """
     )
-    rows = cur.fetchall()
-    log.info(f"  Refreshing {len(rows)} existing companies...")
-    for row in rows:
-        active = probe_greenhouse(row["board_token"]) if row["ats_source"] == "greenhouse" else probe_lever(row["board_token"])
-        if apply:
-            upsert_company(cur, row["company_name"], row["ats_source"], row["board_token"], active)
+    matched = cur.rowcount
+    # Enabled boards with no current raw rows are explicitly zero, not stale.
+    cur.execute(
+        """
+        UPDATE discovered_companies dc
+        SET active_roles = 0, last_seen_at = now()
+        WHERE dc.enabled = true
+          AND dc.ats_source IN ('greenhouse', 'lever')
+          AND NOT EXISTS (
+              SELECT 1 FROM job_postings jp
+              WHERE jp.ingestion_source = dc.ats_source
+                AND jp.crawl_tenant = dc.board_token
+                AND jp.status = 'raw'
+          )
+        """
+    )
+    log.info(f"  Updated {matched} populated boards; zeroed {cur.rowcount} empty boards")
 
 # ============================================================
 # SUMMARY

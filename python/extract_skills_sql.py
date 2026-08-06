@@ -130,7 +130,7 @@ def build_domain_alias_temp_table(cur, canon_to_skill_id: dict, skill_aliases: d
 
 
 def run_sql_extract(cur, *, apply: bool, limit=None,
-                    job_ids=None, backfill: bool = False):
+                    job_ids=None, backfill: bool = False, since_hours: int | None = None):
     """
     Run the SQL INSERT.  Returns (rows_inserted_or_planned, n_jobs_targeted).
 
@@ -167,6 +167,9 @@ def run_sql_extract(cur, *, apply: bool, limit=None,
     elif not backfill:
         # Default cron mode: only jobs with NO skills at all
         extra_where = "AND NOT EXISTS (SELECT 1 FROM job_skills js2 WHERE js2.job_id = jp.job_id)"
+        if since_hours is not None:
+            extra_where += " AND jp.ingested_at >= now() - (%s * interval '1 hour')"
+            params.append(since_hours)
 
     sql = f"""
         INSERT INTO job_skills
@@ -206,6 +209,8 @@ def main():
     ap.add_argument("--limit", type=int, help="Process only N newest jobs missing skills (for testing)")
     ap.add_argument("--backfill", action="store_true",
                     help="Process ALL raw+tier1+domain jobs, not just no-skills jobs")
+    ap.add_argument("--since-hours", type=int,
+                    help="Cron mode: only scan jobs first ingested within this many hours")
     ap.add_argument("--job-ids", nargs="+", metavar="JOB_ID",
                     help="Restrict to specific job IDs (for comparison testing)")
     args = ap.parse_args()
@@ -234,6 +239,7 @@ def main():
         limit=args.limit,
         job_ids=args.job_ids,
         backfill=args.backfill,
+        since_hours=args.since_hours,
     )
     elapsed = time.time() - t1
 

@@ -1,356 +1,201 @@
 #!/usr/bin/env python3
-"""
-morning_report.py
+"""Send a trustworthy, frontend-aligned Lander operations brief."""
+from __future__ import annotations
 
-Sends a daily pipeline health email to jones31luke@gmail.com.
-Run after dbt completes — add to cron at 11:30am UTC.
-"""
-
-import os, psycopg2  # MORNING_REPORT_RESEND_v1
-from datetime import datetime, timezone, timedelta
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import html
+import os
+from datetime import datetime, timezone
 from pathlib import Path
+
+import psycopg2
+import requests
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env", override=True)
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
 
-GMAIL_USER     = "jones31luke@gmail.com"
-GMAIL_APP_PASS = os.getenv("GMAIL_APP_PASSWORD")
-TO_EMAIL       = "jones31luke@gmail.com"
+TO_EMAIL = os.getenv("MORNING_REPORT_TO", "jones31luke@gmail.com")
+DB_CONFIG = {
+    "host": os.getenv("PGHOST"), "port": int(os.getenv("PGPORT", 5432)),
+    "dbname": os.getenv("PGDATABASE"), "user": os.getenv("PGUSER"),
+    "password": os.getenv("PGPASSWORD"),
+}
 
-DB_CONFIG = dict(
-    host=os.getenv("PGHOST"),
-    port=int(os.getenv("PGPORT", 5432)),
-    dbname=os.getenv("PGDATABASE"),
-    user=os.getenv("PGUSER"),
-    password=os.getenv("PGPASSWORD"),
-)
 
 def get_conn():
     return psycopg2.connect(**DB_CONFIG)
 
+
+def _n(value) -> str:
+    return f"{int(value or 0):,}"
+
+
 def build_report() -> str:
     conn = get_conn()
-    cur  = conn.cursor()
-    now  = datetime.now(timezone.utc)
-    yesterday = now - timedelta(days=1)
+    cur = conn.cursor()
+    now = datetime.now(timezone.utc)
 
-    # ── Active jobs by source ─────────────────────────────────────────────────
+    # Match the frontend boundary exactly: is_public, not every raw Tier-1 row.
     cur.execute("""
-        SELECT source, COUNT(*) as active,
-            COUNT(*) FILTER (WHERE salary_max_annual IS NOT NULL) as with_salary,
-            MAX(last_seen_at) as last_seen
-        FROM job_postings
-        WHERE data_tier=1 AND status='raw'
-        GROUP BY source ORDER BY active DESC
+        SELECT COUNT(*),
+               COUNT(*) FILTER (WHERE salary_min_annual IS NOT NULL OR salary_max_annual IS NOT NULL),
+               COUNT(*) FILTER (WHERE ingested_at >= now() - interval '24 hours'),
+               COUNT(*) FILTER (WHERE experience_level_v2 IS NULL),
+               COUNT(*) FILTER (WHERE workplace_type IS NULL)
+        FROM job_postings WHERE is_public
+    """)
+    public_count, salary_count, new_24h, missing_level, missing_workplace = cur.fetchone()
+    salary_pct = round(100 * salary_count / public_count, 1) if public_count else 0
+
+    cur.execute("""
+        SELECT COALESCE(ingestion_source, source, 'unknown'), COUNT(*),
+               COUNT(*) FILTER (WHERE salary_min_annual IS NOT NULL OR salary_max_annual IS NOT NULL),
+               COUNT(*) FILTER (WHERE ingested_at >= now() - interval '24 hours'),
+               MAX(last_seen_at)
+        FROM job_postings WHERE is_public
+        GROUP BY 1 ORDER BY 2 DESC
     """)
     sources = cur.fetchall()
-    total_active = sum(r[1] for r in sources)
 
-    # ── Yesterday's activity ──────────────────────────────────────────────────
     cur.execute("""
-        SELECT source,
-            COUNT(*) FILTER (WHERE ingested_at >= now() - interval '24 hours') as new_today,
-            COUNT(*) FILTER (WHERE last_seen_at >= now() - interval '24 hours'
-                AND ingested_at < now() - interval '24 hours') as reactivated
+        SELECT orchestration_run_id
+        FROM ingestion_crawl_runs
+        WHERE orchestration_run_id IS NOT NULL
+        ORDER BY started_at DESC LIMIT 1
+    """)
+    orchestration_row = cur.fetchone()
+    orchestration_id = orchestration_row[0] if orchestration_row else None
+    crawls = []
+    if orchestration_id:
+        cur.execute("""
+            SELECT source, status, jobs_fetched, jobs_written, errors,
+                   EXTRACT(epoch FROM (finished_at - started_at))::int
+            FROM ingestion_crawl_runs
+            WHERE orchestration_run_id = %s
+            ORDER BY source, finished_at DESC
+        """, (orchestration_id,))
+        # A retried source can have two crawl rows; display its final attempt.
+        seen = set()
+        for row in cur.fetchall():
+            if row[0] not in seen:
+                crawls.append(row)
+                seen.add(row[0])
+
+    cur.execute("""
+        SELECT published_at, prior_count, candidate_count, activated_count, deactivated_count
+        FROM publication_runs ORDER BY published_at DESC LIMIT 1
+    """)
+    publication = cur.fetchone()
+
+    cur.execute("""
+        SELECT COUNT(*)
         FROM job_postings
-        WHERE data_tier=1
-        GROUP BY source ORDER BY new_today DESC
+        WHERE is_public AND salary_min_annual IS NULL AND salary_max_annual IS NULL
+          AND description_text LIKE '%$%'
+          AND description_text ~* '(salary|compensation|pay range|base pay|pay rate|hourly rate|wage)'
     """)
-    activity = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+    salary_candidates = cur.fetchone()[0]
 
-    # ── Expiry health ─────────────────────────────────────────────────────────
     cur.execute("""
-        SELECT COUNT(*) FROM job_postings
-        WHERE data_tier=1 AND status='expired'
-          AND last_seen_at >= now() - interval '24 hours'
-    """)
-    expired_today = cur.fetchone()[0]
-
-    # ── Honesty index from mart ───────────────────────────────────────────────
-    cur.execute("""
-        SELECT ROUND(AVG(avg_honesty_score),1),
-               COUNT(*) FILTER (WHERE avg_honesty_score >= 80),
-               COUNT(*) FILTER (WHERE avg_honesty_score < 60)
-        FROM analytics_analytics.mart_company_scorecard
-    """)
-    honesty_row = cur.fetchone()
-    ghost = {'avg_honesty': honesty_row[0], 'high_honesty_companies': honesty_row[1], 'low_honesty_companies': honesty_row[2]}
-
-    # ── Total tier 1 ──────────────────────────────────────────────────────────
-    cur.execute("SELECT COUNT(*) FROM job_postings WHERE data_tier=1")
-    total_tier1 = cur.fetchone()[0]
-
-    cur.execute("SELECT COUNT(*) FROM job_postings WHERE data_tier=1 AND status='expired'")
-    total_expired = cur.fetchone()[0]
-
-    # ── Salary transparency ───────────────────────────────────────────────────
-    cur.execute("""
-        SELECT ROUND(AVG(CASE WHEN salary_max_annual IS NOT NULL THEN 1.0 ELSE 0.0 END)*100, 1)
-        FROM job_postings WHERE data_tier=1 AND status='raw'
-    """)
-    salary_pct = cur.fetchone()[0]
-
-    # ── Top skills ────────────────────────────────────────────────────────────
-    cur.execute("""
-        SELECT s.skill_name, COUNT(DISTINCT js.job_id) as cnt
-        FROM job_skills js
-        JOIN skills s ON s.skill_id = js.skill_id
-        JOIN job_postings jp ON jp.job_id = js.job_id
-        WHERE jp.data_tier=1 AND jp.status='raw'
-        GROUP BY s.skill_name ORDER BY cnt DESC LIMIT 8
-    """)
-    top_skills = cur.fetchall()
-
-    # ── Pipeline runs ─────────────────────────────────────────────────────────
-    cur.execute("""
-        SELECT run_id, status, jobs_inserted, started_at
-        FROM pipeline_runs
-        WHERE started_at >= now() - interval '24 hours'
-        ORDER BY started_at DESC
-    """)
-    runs = cur.fetchall()
-
-    # ── Enrichment coverage ───────────────────────────────────────────────────
-    cur.execute("""
-        SELECT
-            COUNT(*) FILTER (WHERE experience_level IS NULL) as missing_level,
-            COUNT(*) FILTER (WHERE workplace_type IS NULL) as missing_workplace,
-            COUNT(*) FILTER (WHERE salary_max_annual IS NULL
-                AND description_text ~* '\\$[0-9]') as has_salary_lang
-        FROM job_postings
-        WHERE data_tier=1 AND status='raw'
-    """)
-    enrich = cur.fetchone()
-
-    # ── 24h salary coverage by source ────────────────────────────────────────
-    cur.execute("""
-        SELECT source,
-            COUNT(*) as new_24h,
-            COUNT(*) FILTER (WHERE salary_max_annual IS NOT NULL) as with_salary_24h
-        FROM job_postings
-        WHERE data_tier=1 AND ingested_at >= now() - interval '24 hours'
-        GROUP BY source ORDER BY new_24h DESC
-    """)
-    salary_24h_rows = cur.fetchall()
-
-    # ── Freemium metrics ──────────────────────────────────────────────────────
-    cur.execute("""
-        SELECT
-            COUNT(*) FILTER (WHERE signed_up_at >= now() - interval '24 hours') AS new_signups_24h,
-            COUNT(*) FILTER (WHERE upgraded_to_paid_at >= now() - interval '24 hours') AS upgrades_24h,
-            COUNT(*) AS total_signups,
-            COUNT(*) FILTER (WHERE upgraded_to_paid_at IS NOT NULL) AS total_upgraded
+        SELECT COUNT(*) FILTER (WHERE signed_up_at >= now() - interval '24 hours'), COUNT(*)
         FROM free_signups
     """)
-    freemium_row = cur.fetchone()
-    new_signups_24h, upgrades_24h, total_signups, total_upgraded = freemium_row
-
+    signups_24h, total_signups = cur.fetchone()
     cur.execute("""
-        SELECT
-            COUNT(*) FILTER (WHERE tier = 'pro' AND active = true) AS active_pro,
-            COUNT(*) FILTER (WHERE tier = 'free' AND active = true) AS active_free
+        SELECT COUNT(*) FILTER (WHERE tier='pro' AND active),
+               COUNT(*) FILTER (WHERE tier='free' AND active)
         FROM api_keys
     """)
-    sub_row = cur.fetchone()
-    active_pro, active_free = sub_row
-
+    active_pro, active_free = cur.fetchone()
     conn.close()
 
-    # ── Salary gap day-over-day delta ─────────────────────────────────────────
-    salary_gap_today = enrich[2]
-    salary_gap_file = Path("/opt/job-market-analytics/logs/salary_gap_yesterday.txt")
-    salary_gap_yesterday = None
-    try:
-        if salary_gap_file.exists():
-            salary_gap_yesterday = int(salary_gap_file.read_text().strip())
-    except Exception:
-        pass
-    try:
-        salary_gap_file.write_text(str(salary_gap_today))
-    except Exception:
-        pass
+    crawl_bad = [r for r in crawls if r[1] not in ("complete_nonzero", "complete_zero") or (r[4] or 0) > 0]
+    overall = "Needs attention" if crawl_bad else "Healthy"
+    accent = "#ff8c69" if crawl_bad else "#b8f36b"
 
-    # ── Build HTML email ──────────────────────────────────────────────────────
-    date_str = now.strftime("%A, %B %d %Y")
+    source_rows = "".join(
+        f"<tr><td><b>{html.escape(str(src))}</b></td><td>{_n(count)}</td>"
+        f"<td>{_n(salary)} <span>{round(100*salary/count) if count else 0}%</span></td>"
+        f"<td>+{_n(new)}</td><td>{((now-last_seen).total_seconds()/3600):.1f}h</td></tr>"
+        for src, count, salary, new, last_seen in sources
+    )
+    crawl_rows = "".join(
+        f"<tr><td><b>{html.escape(str(src))}</b></td>"
+        f"<td class='status'>{'OK' if status in ('complete_nonzero','complete_zero') and not errors else 'CHECK'}</td>"
+        f"<td>{_n(fetched)}</td><td>{_n(written)}</td><td>{seconds or 0}s</td></tr>"
+        for src, status, fetched, written, errors, seconds in crawls
+    ) or "<tr><td colspan='5'>No crawl record found</td></tr>"
 
-    salary_24h_html_rows = ""
-    for src, n24, s24 in salary_24h_rows:
-        pct = round(s24 / n24 * 100) if n24 else 0
-        color = "#d4edda" if pct >= 50 else "#fff3cd" if pct >= 20 else "#f8d7da"
-        salary_24h_html_rows += (
-            f"<tr style='background:{color}'>"
-            f"<td>{src}</td><td>{n24:,}</td>"
-            f"<td><b>{s24:,}</b> ({pct}%)</td></tr>"
-        )
+    pub_text = "No publication recorded"
+    if publication:
+        published_at, prior, candidate, activated, deactivated = publication
+        pub_text = (f"Published {_n(candidate)} jobs at {published_at:%H:%M} UTC · "
+                    f"{_n(activated)} activated · {_n(deactivated)} removed · prior {_n(prior)}")
 
-    if salary_gap_yesterday is not None:
-        trend_arrow = "↑" if salary_gap_today > salary_gap_yesterday else "↓" if salary_gap_today < salary_gap_yesterday else "→"
-        trend_color = "red" if salary_gap_today > salary_gap_yesterday * 1.2 else "green" if salary_gap_today < salary_gap_yesterday else "#888"
-        gap_trend_str = f'<span style="color:{trend_color}"> {trend_arrow} {abs(salary_gap_today - salary_gap_yesterday):,} vs yesterday</span>'
-    else:
-        gap_trend_str = "<span style='color:#888'>(no prior baseline)</span>"
-
-    source_rows = ""
-    for source, active, with_sal, last_seen in sources:
-        new, react = activity.get(source, (0, 0))
-        sal_pct = round(with_sal / active * 100) if active else 0
-        hours_ago = round((now - last_seen).total_seconds() / 3600, 1) if last_seen else "?"
-        status_icon = "✅" if hours_ago != "?" and hours_ago < 30 else "⚠️"
-        source_rows += f"""
-        <tr>
-            <td>{status_icon} {source}</td>
-            <td><b>{active:,}</b></td>
-            <td>+{new}</td>
-            <td>{react}</td>
-            <td>{sal_pct}%</td>
-            <td>{hours_ago}h ago</td>
-        </tr>"""
-
-    run_rows = ""
-    for run_id, status, inserted, started in runs[:10]:
-        icon = "✅" if status == "success" else "❌"
-        run_rows += f"<tr><td>{icon} {run_id}</td><td>{inserted:,} inserted</td><td>{started.strftime('%H:%M UTC')}</td></tr>"
-
-    ghost_str = " | ".join([f"honesty {k}: {v}" for k, v in ghost.items()])
-    skill_str = " &bull; ".join([f"{s[0]} ({s[1]:,})" for s in top_skills])
-
-    alerts = []
-    if expired_today > 500:
-        alerts.append(f"⚠️ <b>{expired_today:,} jobs expired</b> in last 24h — possible ingestion issue")
-    if enrich[0] > 200:
-        alerts.append(f"🎓 <b>{enrich[0]:,} jobs</b> missing experience level")
-    if salary_gap_yesterday is not None and salary_gap_yesterday > 0:
-        gap_delta_pct = (salary_gap_today - salary_gap_yesterday) / salary_gap_yesterday * 100
-        if gap_delta_pct > 20:
-            alerts.append(
-                f"⚠️ <b>Salary gap rose {gap_delta_pct:.0f}%</b> "
-                f"({salary_gap_yesterday:,} → {salary_gap_today:,} jobs with $-but-no-salary) "
-                f"— possible new ATS format not handled"
-            )
-    if not alerts:
-        alerts.append("✅ No anomalies detected")
-
-    alert_html = "<br>".join(alerts)
-
-    html = f"""
-<html><body style="font-family: -apple-system, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; color: #1a1a1a;">
-
-<h2 style="color: #6C3CE1; border-bottom: 2px solid #6C3CE1; padding-bottom: 8px;">
-    📊 DataHiringIQ Morning Report
-</h2>
-<p style="color: #666; margin-top: -10px;">{date_str}</p>
-
-<div style="background: #f8f4ff; border-left: 4px solid #6C3CE1; padding: 12px 16px; margin-bottom: 20px;">
-    <b style="font-size: 24px;">{total_active:,}</b> active Tier 1 jobs &nbsp;|&nbsp;
-    <b>{total_tier1:,}</b> total in DB &nbsp;|&nbsp;
-    <b>{total_expired:,}</b> expired &nbsp;|&nbsp;
-    <b>{salary_pct}%</b> salary transparent
+    return f"""<!doctype html><html><head><meta name='viewport' content='width=device-width'></head>
+<body style='margin:0;background:#0b0c0e;color:#f4f4f0;font-family:Arial,Helvetica,sans-serif'>
+<div style='display:none'>{_n(public_count)} live jobs · pipeline {overall.lower()}</div>
+<div class='wrap' style='max-width:720px;margin:auto;padding:28px 18px'>
+  <div style='border:1px solid #292b30;border-radius:22px;overflow:hidden;background:#121316'>
+    <div style='padding:28px 30px;border-bottom:1px solid #292b30'>
+      <div style='font-size:12px;letter-spacing:2px;color:#90939a'>LANDER / DAILY SYSTEM BRIEF</div>
+      <h1 style='font-size:30px;margin:12px 0 6px'>The market, after the crawl.</h1>
+      <div style='color:#9699a1'>{now:%A, %B %d} · generated {now:%H:%M} UTC</div>
+    </div>
+    <div style='padding:26px 30px'>
+      <div style='display:inline-block;padding:7px 12px;border-radius:999px;background:{accent};color:#111;font-weight:700'>{overall}</div>
+      <table role='presentation' width='100%' style='margin:24px 0;border-spacing:8px'><tr>
+        <td class='metric'><b>{_n(public_count)}</b><span>live on frontend</span></td>
+        <td class='metric'><b>{salary_pct}%</b><span>salary coverage</span></td>
+        <td class='metric'><b>+{_n(new_24h)}</b><span>new in 24h</span></td>
+      </tr></table>
+      <div class='callout'>{html.escape(pub_text)}</div>
+      <h2>Source inventory</h2>
+      <table class='data'><thead><tr><th>Source</th><th>Live</th><th>Salary</th><th>New</th><th>Fresh</th></tr></thead><tbody>{source_rows}</tbody></table>
+      <h2>Latest ingestion</h2>
+      <table class='data'><thead><tr><th>Source</th><th>State</th><th>Fetched</th><th>Written</th><th>Time</th></tr></thead><tbody>{crawl_rows}</tbody></table>
+      <h2>Coverage requiring work</h2>
+      <div class='grid'><div><b>{_n(salary_candidates)}</b><span>salary-text candidates still unresolved</span></div>
+      <div><b>{_n(missing_level)}</b><span>public jobs missing level</span></div>
+      <div><b>{_n(missing_workplace)}</b><span>public jobs missing workplace</span></div></div>
+      <h2>Accounts</h2><div class='callout'>+{_n(signups_24h)} signups today · {_n(total_signups)} lifetime · {_n(active_pro)} pro · {_n(active_free)} active free</div>
+    </div>
+  </div>
+  <div style='color:#686b72;font-size:12px;text-align:center;padding:18px'>datahiringiq.com · frontend-aligned metrics</div>
 </div>
-
-<h3>Pipeline Status</h3>
-<table style="width:100%; border-collapse: collapse; font-size: 14px;">
-    <tr style="background: #6C3CE1; color: white;">
-        <th style="padding: 8px; text-align:left;">Source</th>
-        <th style="padding: 8px;">Active</th>
-        <th style="padding: 8px;">New</th>
-        <th style="padding: 8px;">Reactivated</th>
-        <th style="padding: 8px;">Salary %</th>
-        <th style="padding: 8px;">Last Seen</th>
-    </tr>
-    {source_rows}
-</table>
-
-<h3 style="margin-top: 20px;">Ghost Index</h3>
-<p style="font-size: 14px;">{ghost_str}</p>
-
-<h3>Top Skills (active jobs)</h3>
-<p style="font-size: 13px; color: #444;">{skill_str}</p>
-
-<h3>Alerts</h3>
-<p style="font-size: 14px;">{alert_html}</p>
-
-<h3>Enrichment Gaps</h3>
-<p style="font-size: 14px;">
-    Missing experience level: <b>{enrich[0]:,}</b> &nbsp;|&nbsp;
-    Missing workplace type: <b>{enrich[1]:,}</b> &nbsp;|&nbsp;
-    Salary language but null: <b>{salary_gap_today:,}</b> {gap_trend_str}
-</p>
-
-<h3>Salary Coverage — Last 24h by Source</h3>
-<table style="width:100%; border-collapse: collapse; font-size: 13px;">
-    <tr style="background: #6C3CE1; color: white;">
-        <th style="padding: 6px; text-align:left;">Source</th>
-        <th style="padding: 6px;">New Jobs</th>
-        <th style="padding: 6px;">With Salary</th>
-    </tr>
-    {salary_24h_html_rows if salary_24h_html_rows else '<tr><td colspan=3 style="padding:6px;color:#888">No jobs ingested in last 24h</td></tr>'}
-</table>
-
-<h3>Freemium</h3>
-<div style="background: #f0f8e8; border-left: 4px solid #6fb83a; padding: 10px 14px; margin-bottom: 14px; font-size: 14px;">
-    <b>{new_signups_24h}</b> new signups (24h) &nbsp;|&nbsp;
-    <b>{upgrades_24h}</b> upgrades to paid (24h) &nbsp;|&nbsp;
-    <b>{active_pro}</b> active pro &nbsp;|&nbsp;
-    <b>{active_free}</b> active free
-</div>
-<p style="font-size: 12px; color: #666; margin-top: -8px; margin-bottom: 16px;">
-    Lifetime: {total_signups} total signups, {total_upgraded} converted to paid
-    ({(total_upgraded/total_signups*100 if total_signups else 0):.1f}% conv).
-</p>
-
-<h3>Pipeline Runs (last 24h)</h3>
-<table style="width:100%; border-collapse: collapse; font-size: 13px;">
-    {run_rows if run_rows else '<tr><td colspan=3>No runs logged</td></tr>'}
-</table>
-
-<hr style="margin-top: 30px; border: none; border-top: 1px solid #eee;">
-<p style="font-size: 12px; color: #999;">
-    datahiringiq.com &nbsp;|&nbsp; api.datahiringiq.com &nbsp;|&nbsp;
-    Generated {now.strftime('%H:%M UTC')}
-</p>
-
-</body></html>
-"""
-    return html
+<style>
+  h2{{font-size:15px;margin:28px 0 10px;color:#d7d8d4}} table.data{{width:100%;border-collapse:collapse;font-size:13px}}
+  .data th{{color:#777b83;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:1px;padding:9px 7px;border-bottom:1px solid #2b2d31}}
+  .data td{{padding:10px 7px;border-bottom:1px solid #202226;color:#d9dad6}} .data td span{{color:#777b83}}
+  .metric{{background:#1a1c20;border:1px solid #292c31;border-radius:14px;padding:16px}} .metric b{{display:block;font-size:24px}} .metric span,.grid span{{display:block;color:#858890;font-size:11px;margin-top:5px}}
+  .callout{{background:#191b1f;border:1px solid #292c31;border-radius:13px;padding:14px;color:#c9cbc6;font-size:13px}}
+  .grid{{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}} .grid div{{padding:14px;background:#191b1f;border:1px solid #292c31;border-radius:13px}} .grid b{{font-size:18px}}
+  .status{{color:{accent}!important;font-weight:700}} @media(max-width:560px){{.wrap{{padding:10px!important}}.grid{{display:block}}.grid div{{margin:8px 0}}.metric{{padding:10px!important}}.metric b{{font-size:18px!important}}}}
+</style></body></html>"""
 
 
-def send_email(html: str):
-    """# MORNING_REPORT_RESEND_v1: send via Resend (SMTP blocked on DigitalOcean)."""
-    import requests as _rq
+def send_email(report_html: str) -> None:
     api_key = os.getenv("RESEND_API_KEY", "")
     if not api_key:
-        print("⚠️  RESEND_API_KEY not set — skipping email")
+        print("RESEND_API_KEY not set; report generated but not sent")
         return
-    from_addr = os.getenv("RESEND_FROM", "DataHiringIQ <onboarding@resend.dev>")
-    subject = f"📊 DataHiringIQ Daily Report — {datetime.now().strftime('%b %d')}"
-    try:
-        r = _rq.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "from": from_addr,
-                "to": [TO_EMAIL],
-                "subject": subject,
-                "html": html,
-            },
-            timeout=15,
-        )
-        r.raise_for_status()
-        print(f"✅ Morning report sent via Resend to {TO_EMAIL}")
-    except Exception:
-        print("❌ Failed to send report")
-        raise
+    response = requests.post(
+        "https://api.resend.com/emails",
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        json={
+            "from": os.getenv("RESEND_FROM", "Lander <onboarding@resend.dev>"),
+            "to": [TO_EMAIL],
+            "subject": f"Lander brief · {datetime.now():%b %d}",
+            "html": report_html,
+        }, timeout=15,
+    )
+    response.raise_for_status()
+    print(f"Morning report sent to {TO_EMAIL}")
 
 
 if __name__ == "__main__":
-    html = build_report()
-    # Write to file for ssh-viewing — SMTP blocked on DigitalOcean droplet
-    from pathlib import Path as _P
-    out = _P('/opt/job-market-analytics/logs/latest_report.html')
-    out.write_text(html)
-    print(f'Report written to {out}')
-    # MORNING_REPORT_RESEND_v1: actually send via Resend once.
-    send_email(html)
-    print("Done")
+    report = build_report()
+    output = Path("/opt/job-market-analytics/logs/latest_report.html")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(report)
+    print(f"Report written to {output}")
+    send_email(report)
