@@ -4,8 +4,9 @@ After=network-online.target postgresql.service
 
 [Service]
 Type=simple
-User=lander-pipeline
-Group=lander-pipeline
+User=airflow
+Group=airflow
+SupplementaryGroups=lander-pipeline
 WorkingDirectory=/opt/job-market-analytics
 EnvironmentFile=/opt/job-market-analytics/.env
 ExecStart=/opt/job-market-analytics/.venv/bin/python /opt/job-market-analytics/python/career_agent_worker.py
