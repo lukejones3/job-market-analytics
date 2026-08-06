@@ -38,3 +38,11 @@ CREATE TABLE IF NOT EXISTS public.seo_skill_index (
   refreshed_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS seo_skill_index_count ON public.seo_skill_index(job_count DESC);
+
+CREATE TABLE IF NOT EXISTS public.seo_crawl_events (
+  crawled_at timestamptz NOT NULL DEFAULT now(),
+  path text NOT NULL,
+  crawler text NOT NULL,
+  referrer text
+);
+CREATE INDEX IF NOT EXISTS seo_crawl_events_time ON public.seo_crawl_events(crawled_at DESC);
