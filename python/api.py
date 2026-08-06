@@ -58,7 +58,7 @@ DB_CONFIG = dict(
 # ── Stripe config ────────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY    = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_PRICE_ID      = os.getenv("STRIPE_PRICE_ID", "")
+STRIPE_PRICE_ID      = os.getenv("STRIPE_PRICE_ID", "price_1TS0Qz5EYUntcUuPCtc54NAm")
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
