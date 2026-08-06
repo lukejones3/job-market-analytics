@@ -1551,6 +1551,7 @@ async def verify_token(token: str):
     conn = pool.getconn()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            legacy_link = False
             cur.execute("""
                 SELECT
                     ak.key_id,
@@ -1567,6 +1568,19 @@ async def verify_token(token: str):
             """, (token_hash,))
             row = cur.fetchone()
 
+            # Compatibility bridge for links issued before one-time challenges
+            # were separated from API credentials. A successful use immediately
+            # rotates that credential, so the legacy URL becomes single-use too.
+            if not row:
+                cur.execute("""
+                    SELECT key_id, client_email AS email, tier, active, expires_at
+                    FROM api_keys
+                    WHERE api_key_hash=%s
+                    LIMIT 1
+                """, (token_hash,))
+                row = cur.fetchone()
+                legacy_link = bool(row)
+
             if not row:
                 raise HTTPException(status_code=401, detail="Invalid or expired token")
 
@@ -1579,7 +1593,8 @@ async def verify_token(token: str):
             cur.execute("SELECT api_key_hash FROM api_keys WHERE key_id=%s", (row["key_id"],))
             previous = cur.fetchone()
             api_key = _rotate_api_credential(cur, row["key_id"], previous[0] if previous else None)
-            cur.execute("UPDATE auth_magic_tokens SET used_at=NOW() WHERE token_hash=%s", (token_hash,))
+            if not legacy_link:
+                cur.execute("UPDATE auth_magic_tokens SET used_at=NOW() WHERE token_hash=%s", (token_hash,))
             cur.execute("""
                 UPDATE free_signups
                 SET last_seen_at = NOW()
