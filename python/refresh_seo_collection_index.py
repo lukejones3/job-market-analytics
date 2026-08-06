@@ -61,6 +61,32 @@ def refresh() -> int:
             count = cur.rowcount
             cur.execute("TRUNCATE public.seo_role_location_index")
             cur.execute("INSERT INTO public.seo_role_location_index SELECT * FROM seo_role_location_next")
+            blocked_sql = f"NOT EXISTS (SELECT 1 FROM unnest(ARRAY[{blocked}]::text[]) b(match) WHERE LOWER(c.company_name) LIKE '%'||b.match||'%')"
+            scope = f"jp.is_public=true AND jp.data_tier=1 AND jp.domain IS NOT NULL AND {blocked_sql}"
+            midpoint = "CASE WHEN jp.salary_min_annual IS NOT NULL AND jp.salary_max_annual IS NOT NULL THEN (jp.salary_min_annual::double precision+jp.salary_max_annual::double precision)/2 WHEN jp.salary_min_annual IS NOT NULL THEN jp.salary_min_annual::double precision WHEN jp.salary_max_annual IS NOT NULL THEN jp.salary_max_annual::double precision END"
+            ghost = "CASE WHEN mgi.ghost_probability IS NULL THEN 0.5 WHEN mgi.ghost_probability>1 THEN mgi.ghost_probability::double precision/100.0 ELSE mgi.ghost_probability::double precision END"
+            cur.execute("CREATE TEMP TABLE seo_company_next (LIKE public.seo_company_index INCLUDING DEFAULTS) ON COMMIT DROP")
+            cur.execute(f"""INSERT INTO seo_company_next(company_id,company_slug,company_name,sector,job_count,median_salary,p25_salary,p75_salary,avg_comp_annual,avg_ghost,median_ghost,salary_disclosure_rate)
+              SELECT c.company_id::text,c.company_slug,c.company_name,c.sector,COUNT(*)::int,
+                percentile_cont(.5) WITHIN GROUP(ORDER BY {midpoint}) FILTER(WHERE {midpoint} IS NOT NULL),
+                percentile_cont(.25) WITHIN GROUP(ORDER BY {midpoint}) FILTER(WHERE {midpoint} IS NOT NULL),
+                percentile_cont(.75) WITHIN GROUP(ORDER BY {midpoint}) FILTER(WHERE {midpoint} IS NOT NULL),
+                AVG({midpoint}) FILTER(WHERE {midpoint} IS NOT NULL), AVG({ghost}),
+                percentile_cont(.5) WITHIN GROUP(ORDER BY {ghost}), AVG(CASE WHEN {midpoint} IS NOT NULL THEN 1.0 ELSE 0.0 END)
+              FROM job_postings jp JOIN companies c ON c.company_id=jp.company_id LEFT JOIN analytics_analytics.mart_ghost_job_index mgi ON mgi.job_id=jp.job_id
+              WHERE {scope} GROUP BY c.company_id,c.company_slug,c.company_name,c.sector HAVING COUNT(*)>=5""")
+            cur.execute("CREATE TEMP TABLE seo_skill_next (LIKE public.seo_skill_index INCLUDING DEFAULTS) ON COMMIT DROP")
+            cur.execute(f"""INSERT INTO seo_skill_next(skill_id,skill_slug,skill_name,job_count,median_salary,p25_salary,p75_salary,market_median_salary)
+              WITH scoped AS (SELECT jp.job_id,{midpoint} mid FROM job_postings jp JOIN companies c ON c.company_id=jp.company_id WHERE {scope}), market AS (SELECT percentile_cont(.5) WITHIN GROUP(ORDER BY mid) med FROM scoped WHERE mid IS NOT NULL)
+              SELECT s.skill_id::text,s.skill_slug,s.skill_name,COUNT(DISTINCT sc.job_id)::int,
+                percentile_cont(.5) WITHIN GROUP(ORDER BY sc.mid) FILTER(WHERE sc.mid IS NOT NULL),
+                percentile_cont(.25) WITHIN GROUP(ORDER BY sc.mid) FILTER(WHERE sc.mid IS NOT NULL),
+                percentile_cont(.75) WITHIN GROUP(ORDER BY sc.mid) FILTER(WHERE sc.mid IS NOT NULL),(SELECT med FROM market)
+              FROM scoped sc JOIN job_skills js ON js.job_id=sc.job_id JOIN skills s ON s.skill_id=js.skill_id
+              GROUP BY s.skill_id,s.skill_slug,s.skill_name HAVING COUNT(DISTINCT sc.job_id)>=5""")
+            cur.execute("TRUNCATE public.seo_company_index, public.seo_skill_index")
+            cur.execute("INSERT INTO public.seo_company_index SELECT * FROM seo_company_next")
+            cur.execute("INSERT INTO public.seo_skill_index SELECT * FROM seo_skill_next")
             return count
     finally:
         conn.close()
