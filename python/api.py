@@ -305,6 +305,15 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     ms = int((time.time() - start) * 1000)
     log.info(f"{request.method} {request.url.path} → {response.status_code} ({ms}ms)")
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    if request.method == "GET" and request.url.path.startswith("/v1/public/") and response.status_code == 200:
+        # Match the in-process TTL while allowing Next/CDN layers to absorb
+        # anonymous aggregate traffic without caching user-specific responses.
+        response.headers["Cache-Control"] = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+    elif request.url.path.startswith(("/auth/", "/stripe/", "/v1/resume")):
+        response.headers["Cache-Control"] = "no-store"
     return response
 
 # ── Health ────────────────────────────────────────────────────────────────────
