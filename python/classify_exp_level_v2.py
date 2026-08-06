@@ -8,6 +8,7 @@ artifact are used. Pass --all for an intentional corpus-wide migration.
 import argparse
 import logging
 import os
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -59,19 +60,33 @@ def _classify_rows(rows):
 
 
 def _apply_updates(conn, updates) -> None:
-    with conn.cursor() as cur:
-        execute_batch(cur, """
-            UPDATE job_postings SET
-              experience_level_v3=%s,
-              experience_level=%s,
-              experience_level_confidence=%s,
-              experience_level_evidence=%s,
-              experience_classifier_version=%s,
-              experience_classified_at=now(),
-              management_level=%s
-            WHERE job_id=%s
-        """, updates, page_size=500)
-    conn.commit()
+    # Stable lock order prevents two classifier workers from deadlocking each
+    # other. Ingestion may still touch a row concurrently, so retry PostgreSQL's
+    # serialization/deadlock failures without losing the completed batches.
+    updates = sorted(updates, key=lambda row: row[-1])
+    for attempt in range(1, 6):
+        try:
+            with conn.cursor() as cur:
+                execute_batch(cur, """
+                    UPDATE job_postings SET
+                      experience_level_v3=%s,
+                      experience_level=%s,
+                      experience_level_confidence=%s,
+                      experience_level_evidence=%s,
+                      experience_classifier_version=%s,
+                      experience_classified_at=now(),
+                      management_level=%s
+                    WHERE job_id=%s
+                """, updates, page_size=500)
+            conn.commit()
+            return
+        except (psycopg2.errors.DeadlockDetected, psycopg2.errors.SerializationFailure):
+            conn.rollback()
+            if attempt == 5:
+                raise
+            delay = attempt * 2
+            log.warning("Concurrent row update; retrying batch in %ss (attempt %s/5)", delay, attempt)
+            time.sleep(delay)
 
 
 def classify_jobs(conn, apply: bool, all_rows: bool, limit: int | None) -> None:
