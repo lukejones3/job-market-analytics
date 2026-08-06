@@ -618,6 +618,13 @@ def _try_labeled_range(tline: str, window: str):
     for target in ([tline, window] if window != tline else [tline]):
         m = pat.search(target)
         if m:
+            vicinity = target[max(0, m.start() - 80):min(len(target), m.end() + 90)]
+            if re.search(
+                r"\b(funding|fundraise|raised|revenue|budget|arr|deal(?:s|\s+size)|"
+                r"contract\s+value|equity\s+(?:grant|award|value)|stock\s+(?:grant|award|value))\b",
+                vicinity, re.IGNORECASE,
+            ):
+                continue
             v1, v2 = _scale_pair(m.group(2), m.group(3))
             if v1 and v2:
                 # Employers often omit "k" in compact annual bands. Labels
