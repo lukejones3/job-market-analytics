@@ -2335,7 +2335,7 @@ _WD_USER_AGENTS = [
 _WD_UA_CYCLE = itertools.cycle(_WD_USER_AGENTS)
 
 _WD_GLOBAL_CONCURRENCY  = 50    # max in-flight requests across all tenants
-_WD_PER_HOST            = 8     # max concurrent requests per {tenant}.wdN.myworkdayjobs.com
+_WD_PER_HOST            = 3     # Workday throttles large tenants sharply above this
 _WD_TIMEOUT             = aiohttp.ClientTimeout(sock_connect=10, sock_read=20)
 _WD_GLOBAL_429_THRESH   = 5     # pause entire harvester after this many global 429s
 _WD_GLOBAL_PAUSE_SECS   = 300   # 5 minutes
@@ -2365,20 +2365,32 @@ async def _wd_fetch_page(
     limit: int,
 ) -> Tuple[List[dict], int, int]:
     """Fetch one list page. Returns (postings, total, http_status)."""
-    try:
-        async with session.post(
-            list_url,
-            json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": ""},
-            headers=headers,
-        ) as r:
-            if r.status == 200:
-                data = await r.json(content_type=None)
-                return data.get("jobPostings", []), data.get("total", 0), 200
-            return [], 0, r.status
-    except asyncio.TimeoutError:
-        return [], 0, 408
-    except Exception:
-        return [], 0, 0
+    for attempt in range(3):
+        try:
+            async with session.post(
+                list_url,
+                json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": ""},
+                headers=headers,
+            ) as r:
+                if r.status == 200:
+                    data = await r.json(content_type=None)
+                    return data.get("jobPostings", []), data.get("total", 0), 200
+                if r.status == 429 or r.status >= 500:
+                    retry_after = min(float(r.headers.get("Retry-After", 0) or 0), 30)
+                    await asyncio.sleep(max(retry_after, 2 ** (attempt + 1)))
+                    continue
+                return [], 0, r.status
+        except asyncio.TimeoutError:
+            if attempt < 2:
+                await asyncio.sleep(2 ** (attempt + 1))
+                continue
+            return [], 0, 408
+        except Exception:
+            if attempt < 2:
+                await asyncio.sleep(2 ** (attempt + 1))
+                continue
+            return [], 0, 0
+    return [], 0, 429
 
 
 async def _wd_detail(
@@ -2390,29 +2402,39 @@ async def _wd_detail(
     if not detail_url:
         return None
     await _wd_check_pause()
-    try:
-        async with session.get(detail_url, headers=detail_headers) as r:
-            if r.status != 200:
-                log.warning(f"Workday detail non-200 ({r.status}): {detail_url}")
-                return None
-            detail = await r.json(content_type=None)
-            info = detail.get("jobPostingInfo", {})
-            desc = (info.get("jobDescription", "")
-                    or detail.get("jobDescription", "")
-                    or detail.get("description", "") or "")
-            desc = re.sub(r"<[^>]+>", " ", desc)
-            desc = re.sub(r"\s+", " ", desc).strip()
-            location = info.get("location", "")
-            remote_type = _parse_remote_type(info.get("remoteType", ""))
-            sd = _parse_workday_start_date(info.get("startDate", ""))
-            posted_date = str(sd) if sd else None
-            return desc, location, posted_date, remote_type
-    except asyncio.TimeoutError:
-        log.warning(f"Workday detail timeout: {detail_url}")
-        return None
-    except Exception as exc:
-        log.warning(f"Workday detail error ({type(exc).__name__}): {detail_url}")
-        return None
+    final_status = 0
+    for attempt in range(3):
+        try:
+            async with session.get(detail_url, headers=detail_headers) as r:
+                final_status = r.status
+                if r.status == 200:
+                    detail = await r.json(content_type=None)
+                    info = detail.get("jobPostingInfo", {})
+                    desc = (info.get("jobDescription", "")
+                            or detail.get("jobDescription", "")
+                            or detail.get("description", "") or "")
+                    desc = re.sub(r"<[^>]+>", " ", desc)
+                    desc = re.sub(r"\s+", " ", desc).strip()
+                    location = info.get("location", "")
+                    remote_type = _parse_remote_type(info.get("remoteType", ""))
+                    sd = _parse_workday_start_date(info.get("startDate", ""))
+                    posted_date = str(sd) if sd else None
+                    return desc, location, posted_date, remote_type
+                if r.status == 429 or r.status >= 500:
+                    retry_after = min(float(r.headers.get("Retry-After", 0) or 0), 30)
+                    await asyncio.sleep(max(retry_after, 2 ** (attempt + 1)))
+                    continue
+                break
+        except asyncio.TimeoutError:
+            final_status = 408
+            if attempt < 2:
+                await asyncio.sleep(2 ** (attempt + 1))
+                continue
+        except Exception as exc:
+            log.warning(f"Workday detail error ({type(exc).__name__}): {detail_url}")
+            return None
+    log.warning(f"Workday detail failed after retries ({final_status}): {detail_url}")
+    return None
 
 
 async def _fetch_workday_tenant_async(
