@@ -24,6 +24,7 @@ with DAG(dag_id="lander_nightly",
     observability_schema = command("ensure_observability_schema",
         "psql -v ON_ERROR_STOP=1 -f sql/ingestion_observability.sql "
         "-f sql/domain_classification_observability.sql "
+        "-f sql/experience_classification_v3.sql "
         "-f sql/ingestion_publication_funnel.sql "
         "-f sql/publication_boundary.sql "
         "-f sql/feed_performance_indexes.sql")
