@@ -39,7 +39,7 @@ def build_report() -> str:
         SELECT COUNT(*),
                COUNT(*) FILTER (WHERE salary_min_annual IS NOT NULL OR salary_max_annual IS NOT NULL),
                COUNT(*) FILTER (WHERE ingested_at >= now() - interval '24 hours'),
-               COUNT(*) FILTER (WHERE experience_level_v2 IS NULL),
+               COUNT(*) FILTER (WHERE experience_level_v3 IS NULL),
                COUNT(*) FILTER (WHERE workplace_type IS NULL)
         FROM job_postings WHERE is_public
     """)

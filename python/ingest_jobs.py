@@ -1377,7 +1377,13 @@ def ensure_schema_columns(cur):
           ADD COLUMN IF NOT EXISTS domain_classification_method text,
           ADD COLUMN IF NOT EXISTS scope_status text,
           ADD COLUMN IF NOT EXISTS scope_rule_id text,
-          ADD COLUMN IF NOT EXISTS scope_confidence double precision
+          ADD COLUMN IF NOT EXISTS scope_confidence double precision,
+          ADD COLUMN IF NOT EXISTS experience_level_v3 text,
+          ADD COLUMN IF NOT EXISTS experience_level_confidence double precision,
+          ADD COLUMN IF NOT EXISTS experience_level_evidence jsonb,
+          ADD COLUMN IF NOT EXISTS experience_classifier_version text,
+          ADD COLUMN IF NOT EXISTS experience_classified_at timestamptz,
+          ADD COLUMN IF NOT EXISTS management_level text
     """)
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_jp_source
@@ -1554,7 +1560,10 @@ def ingest_job(cur, job: RawJob) -> bool:
     if description_changed:
         cur.execute("""UPDATE job_postings SET domain=NULL, role_category=NULL,
             role_classified_at=NULL, embedding=NULL, experience_level=NULL,
-            experience_level_v2=NULL, enrichment_input_hash=NULL
+            experience_level_v2=NULL, experience_level_v3=NULL,
+            experience_level_confidence=NULL, experience_level_evidence=NULL,
+            experience_classifier_version=NULL, experience_classified_at=NULL,
+            management_level=NULL, enrichment_input_hash=NULL
             WHERE job_id=%s""", (job_id,))
         cur.execute("DELETE FROM job_skills WHERE job_id=%s", (job_id,))
 

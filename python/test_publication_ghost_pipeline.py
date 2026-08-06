@@ -43,14 +43,17 @@ def test_api_exposes_repost_warning_contract():
 def test_changed_descriptions_invalidate_enrichment():
     ingest = (ROOT / "python/ingest_jobs.py").read_text()
     for field in ("domain=NULL", "role_category=NULL", "embedding=NULL",
-                  "experience_level_v2=NULL", "DELETE FROM job_skills"):
+                  "experience_level_v2=NULL", "experience_level_v3=NULL",
+                  "experience_level_evidence=NULL", "DELETE FROM job_skills"):
         assert field in ingest
 
 
 def test_v2_experience_is_promoted_with_canonical_labels():
     classifier = (ROOT / "python/classify_exp_level_v2.py").read_text()
-    assert 'canonical = {"junior": "entry", "lead": "senior"}' in classifier
-    assert "experience_level_v2 = %s, experience_level = %s" in classifier
+    assert "experience_level_v3=%s" in classifier
+    assert "experience_level=%s" in classifier
+    assert "experience_level_evidence=%s" in classifier
+    assert "experience_level_v2" not in classifier
 
 
 def test_canonicalizer_does_not_hold_schema_lock_during_backfill():

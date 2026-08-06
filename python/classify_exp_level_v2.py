@@ -1,180 +1,148 @@
 #!/usr/bin/env python3
-"""
-Classify job_postings.experience_level_v2 for all jobs that have a stored embedding
-but no v2 label yet.
+"""Apply the evidence-first v3 experience classifier.
 
-Inference order: title-first junior rule → ML (stored embedding) → title override →
-mid-zone. Low confidence → 'mid'. No LLM fallback.
-
-Jobs without a stored embedding are skipped; they will be classified on the next run
-after embed_jobs.py processes them.
-
-Run daily after embed_jobs.py:
-    /opt/job-market-analytics/.venv/bin/python python/classify_exp_level_v2.py --apply
-
-Dry-run (default): prints counts without writing.
+The historical filename remains as the Airflow entry point. No embeddings or ML
+artifact are used. Pass --all for an intentional corpus-wide migration.
 """
 
 import argparse
 import logging
 import os
-import re
 from collections import Counter
 from pathlib import Path
 
-import joblib
-import numpy as np
 import psycopg2
-from psycopg2.extras import execute_batch
+from psycopg2.extras import Json, execute_batch
 from dotenv import load_dotenv
 
-load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
+from experience_level_v3 import VERSION, classify_experience
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s %(levelname)s %(message)s',
-    datefmt='%H:%M:%S',
-)
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
-
-ARTIFACT_PATH = Path('/opt/job-market-analytics/models/exp_level_classifier.pkl')
-BATCH_SIZE = 512
-
-MID_CONF_LOW  = 0.40
-MID_CONF_HIGH = 0.65
-
-JUNIOR_RE = re.compile(
-    r'\b(?:intern(?:ship)?|junior|graduate?|entry[\s\-]level|early[\s\-]career|'
-    r'apprentice|trainee|new[\s\-]grad|university[\s\-]grad|campus)\b'
-    r'|\bjr\.?(?=\W|$)',
-    re.IGNORECASE,
-)
-SENIOR_RE = re.compile(
-    r'\b(?:senior|staff|principal)\b|\bsr\.?(?=\W|$)',
-    re.IGNORECASE,
-)
-LEAD_RE = re.compile(
-    r'\b(?:lead|manager|director|vp|head\s+of)\b',
-    re.IGNORECASE,
-)
-LEVEL_KW_RE = re.compile(
-    r'\b(?:intern(?:ship)?|junior|graduate?|entry[\s\-]level|early[\s\-]career|'
-    r'apprentice|trainee|new[\s\-]grad|campus|senior|staff|principal|'
-    r'lead|manager|director|vp|head\s+of)\b'
-    r'|\b(?:jr|sr)\.?(?=\W|$)',
-    re.IGNORECASE,
-)
 
 
 def get_conn():
     return psycopg2.connect(
-        host=os.environ['PGHOST'],
-        port=os.environ.get('PGPORT', '5432'),
-        dbname=os.environ['PGDATABASE'],
-        user=os.environ['PGUSER'],
-        password=os.environ['PGPASSWORD'],
+        host=os.environ["PGHOST"], port=os.environ.get("PGPORT", "5432"),
+        dbname=os.environ["PGDATABASE"], user=os.environ["PGUSER"],
+        password=os.environ["PGPASSWORD"],
     )
 
 
-def parse_embedding(emb_str: str) -> np.ndarray:
-    return np.fromstring(emb_str.strip('[]'), sep=',', dtype=np.float32)
-
-
-def classify_jobs(conn, clf, apply: bool) -> None:
+def ensure_schema(conn) -> None:
     with conn.cursor() as cur:
         cur.execute("""
-            SELECT jp.job_id, r.role_name, jp.embedding
-            FROM job_postings jp
-            JOIN roles r ON r.role_id = jp.role_id
-            WHERE jp.status = 'raw' AND jp.data_tier = 1 AND jp.domain IS NOT NULL
-              AND jp.experience_level_v2 IS NULL
-              AND jp.embedding IS NOT NULL
-            ORDER BY jp.ingested_at DESC
+            ALTER TABLE job_postings
+              ADD COLUMN IF NOT EXISTS experience_level_v3 text,
+              ADD COLUMN IF NOT EXISTS experience_level_confidence double precision,
+              ADD COLUMN IF NOT EXISTS experience_level_evidence jsonb,
+              ADD COLUMN IF NOT EXISTS experience_classifier_version text,
+              ADD COLUMN IF NOT EXISTS experience_classified_at timestamptz,
+              ADD COLUMN IF NOT EXISTS management_level text
         """)
-        rows = cur.fetchall()
+    conn.commit()
 
-    if not rows:
-        log.info("No jobs need experience_level_v2 — nothing to do.")
-        return
 
-    log.info(f"Classifying {len(rows):,} jobs...")
-    classes = list(clf.classes_)
-    path_counts: Counter = Counter()
+def _classify_rows(rows):
     updates = []
+    distribution = Counter()
+    for job_id, title, description in rows:
+        decision = classify_experience(title, description)
+        distribution[decision.level] += 1
+        updates.append((
+            decision.level, decision.level, decision.confidence,
+            Json(decision.evidence()), VERSION, decision.management_level, job_id,
+        ))
+    return updates, distribution
 
-    for start in range(0, len(rows), BATCH_SIZE):
-        batch = rows[start:start + BATCH_SIZE]
-        embs = np.array([parse_embedding(r[2]) for r in batch], dtype=np.float32)
-        probas = clf.predict_proba(embs)
 
-        for j, (job_id, title, _) in enumerate(batch):
-            t = title or ''
-            top_idx = int(np.argmax(probas[j]))
-            top_class = classes[top_idx]
-            top_conf = float(probas[j, top_idx])
+def _apply_updates(conn, updates) -> None:
+    with conn.cursor() as cur:
+        execute_batch(cur, """
+            UPDATE job_postings SET
+              experience_level_v3=%s,
+              experience_level=%s,
+              experience_level_confidence=%s,
+              experience_level_evidence=%s,
+              experience_classifier_version=%s,
+              experience_classified_at=now(),
+              management_level=%s
+            WHERE job_id=%s
+        """, updates, page_size=500)
+    conn.commit()
 
-            if JUNIOR_RE.search(t):
-                v2, path = 'junior', 'title_junior'
-            elif top_class == 'junior' and LEAD_RE.search(t):
-                v2, path = 'lead', 'title_override'
-            elif top_class == 'junior' and SENIOR_RE.search(t):
-                v2, path = 'senior', 'title_override'
-            else:
-                has_kw = bool(LEVEL_KW_RE.search(t))
-                if (top_class in ('junior', 'senior')
-                        and MID_CONF_LOW <= top_conf <= MID_CONF_HIGH
-                        and not has_kw):
-                    v2, path = 'mid', 'mid_zone'
-                elif top_conf < 0.50 and not has_kw:
-                    v2, path = 'mid', 'mid_zone'
-                else:
-                    v2, path = top_class, 'classifier'
 
-            path_counts[path] += 1
-            updates.append((v2, job_id))
-
-    dist = dict(Counter(v for v, _ in updates))
-    log.info(f"Predicted distribution: {dist}")
-    log.info("Path counts: " + ", ".join(
-        f"{p}={n}" for p, n in sorted(path_counts.items(), key=lambda x: -x[1])
-    ))
+def classify_jobs(conn, apply: bool, all_rows: bool, limit: int | None) -> None:
+    ensure_schema(conn)
+    predicate = (
+        "jp.experience_classifier_version IS DISTINCT FROM %s"
+        if all_rows else "jp.experience_level_v3 IS NULL"
+    )
+    predicate_params = (VERSION,) if all_rows else ()
+    base_query = f"""
+            SELECT jp.job_id, r.role_name, COALESCE(jp.description_text, '')
+            FROM job_postings jp
+            JOIN roles r USING(role_id)
+            WHERE jp.status='raw' AND jp.data_tier=1 AND jp.domain IS NOT NULL
+              AND ({predicate})
+            ORDER BY jp.ingested_at DESC
+    """
 
     if not apply:
-        log.info(f"Dry-run: would write {len(updates):,} jobs. Pass --apply to commit.")
+        # A server-side cursor prevents 50k full descriptions from occupying
+        # most of the production droplet's RAM during audits.
+        total = 0
+        distribution = Counter()
+        with conn.cursor(name="experience_v3_shadow") as cur:
+            cur.itersize = 500
+            query = base_query + (" LIMIT %s" if limit else "")
+            params = predicate_params + ((limit,) if limit else ())
+            cur.execute(query, params)
+            while True:
+                rows = cur.fetchmany(500)
+                if not rows:
+                    break
+                _, batch_dist = _classify_rows(rows)
+                distribution.update(batch_dist)
+                total += len(rows)
+                if total % 5000 == 0:
+                    log.info("Shadow-classified %s rows", total)
+        log.info("v3 shadow distribution for %s rows: %s", total, dict(distribution))
         return
 
-    # Downstream API/marts use the canonical four-level vocabulary.  Make the
-    # v2 classifier authoritative without leaking its training labels.
-    canonical = {"junior": "entry", "lead": "senior"}
-    canonical_updates = [(canonical.get(level, level), job_id) for level, job_id in updates]
-    with conn.cursor() as cur:
-        execute_batch(
-            cur,
-            "UPDATE job_postings SET experience_level_v2 = %s, experience_level = %s WHERE job_id = %s",
-            [(level, level, job_id) for level, job_id in canonical_updates],
-            page_size=500,
-        )
-    conn.commit()
-    log.info(f"Wrote experience_level_v2 for {len(updates):,} jobs.")
+    total = 0
+    distribution = Counter()
+    remaining_limit = limit
+    while remaining_limit is None or remaining_limit > 0:
+        batch_limit = min(500, remaining_limit) if remaining_limit else 500
+        with conn.cursor() as cur:
+            cur.execute(base_query + " LIMIT %s", predicate_params + (batch_limit,))
+            rows = cur.fetchall()
+        if not rows:
+            break
+        updates, batch_dist = _classify_rows(rows)
+        _apply_updates(conn, updates)
+        distribution.update(batch_dist)
+        total += len(rows)
+        if remaining_limit is not None:
+            remaining_limit -= len(rows)
+        log.info("Applied %s to %s jobs", VERSION, total)
+    log.info("v3 applied distribution for %s rows: %s", total, dict(distribution))
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--apply', action='store_true',
-                        help='Write predictions to DB (default: dry-run)')
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--all", action="store_true", help="Reclassify every eligible raw tier-1 job")
+    parser.add_argument("--limit", type=int)
     args = parser.parse_args()
-
-    log.info(f"Loading classifier artifact from {ARTIFACT_PATH}...")
-    artifact = joblib.load(ARTIFACT_PATH)
-    clf = artifact['classifier']
-    log.info(f"Classifier loaded: trained_at={artifact['trained_at']}, "
-             f"class_weight={artifact.get('class_weight')}")
-
     conn = get_conn()
-    classify_jobs(conn, clf, apply=args.apply)
-    conn.close()
-    log.info("Done.")
+    try:
+        classify_jobs(conn, args.apply, args.all, args.limit)
+    finally:
+        conn.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
