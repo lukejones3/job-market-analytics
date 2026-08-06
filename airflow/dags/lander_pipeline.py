@@ -24,7 +24,8 @@ with DAG(dag_id="lander_nightly",
     observability_schema = command("ensure_observability_schema",
         "psql -v ON_ERROR_STOP=1 -f sql/ingestion_observability.sql "
         "-f sql/domain_classification_observability.sql "
-        "-f sql/ingestion_publication_funnel.sql")
+        "-f sql/ingestion_publication_funnel.sql "
+        "-f sql/publication_boundary.sql")
     backup >> observability_schema
     ingests = []
     for source in ("greenhouse", "lever", "ashby", "workday", "eightfold", "amazon",
@@ -75,6 +76,8 @@ with DAG(dag_id="lander_nightly",
         "--no-use-colors")
     publish_gate = command("publish_quality_gate",
         f"{PYTHON} python/airflow_quality_gate.py publish")
+    publish_snapshot = command("publish_snapshot",
+        f"{PYTHON} python/publish_snapshot.py --apply")
     report = command("morning_report", f"{PYTHON} python/morning_report.py")
     funnel_report = command("ingestion_funnel_report",
         f"{PYTHON} python/ingestion_funnel_report.py")
@@ -85,8 +88,8 @@ with DAG(dag_id="lander_nightly",
     annualize >> enrich >> skills
     enrich >> embeddings >> experience
     [experience, skills] >> honesty
-    honesty >> discover >> dedup >> canonicalize >> expiry >> dbt_build >> publish_gate
-    publish_gate >> [report, funnel_report]
+    honesty >> discover >> dedup >> canonicalize >> expiry >> dbt_build >> publish_gate >> publish_snapshot
+    publish_snapshot >> [report, funnel_report]
 
 with DAG(dag_id="lander_ats_discovery",
     description="Discover, validate, and activate new ATS tenants",

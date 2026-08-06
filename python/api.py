@@ -17,6 +17,7 @@ import os
 import secrets
 import time
 import argparse
+import asyncio
 from datetime import datetime, timezone, date
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -25,7 +26,7 @@ import psycopg2
 import psycopg2.pool
 import stripe
 from psycopg2.extras import RealDictCursor
-from fastapi import FastAPI, HTTPException, Depends, Request, Query, BackgroundTasks, File, UploadFile, status
+from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, BackgroundTasks, File, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from typing import Any, Dict, List
@@ -57,7 +58,7 @@ DB_CONFIG = dict(
 # ── Stripe config ────────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY    = os.getenv("STRIPE_SECRET_KEY", "")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-STRIPE_PRICE_ID      = "price_1TS0Qz5EYUntcUuPCtc54NAm"
+STRIPE_PRICE_ID      = os.getenv("STRIPE_PRICE_ID", "")
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -70,6 +71,21 @@ async def lifespan(app: FastAPI):
     global pool
     pool = psycopg2.pool.ThreadedConnectionPool(2, 10, **DB_CONFIG)
     log.info("DB pool initialized")
+    # Load the semantic model before traffic arrives. Previously the first resume
+    # request downloaded/initialized it inside Cloudflare's request timeout.
+    if os.getenv("PRELOAD_RESUME_MODEL", "1") == "1":
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            def load_resume_model():
+                model = SentenceTransformer("all-MiniLM-L6-v2")
+                model.max_seq_length = 256
+                return model
+
+            app.state.resume_embedding_model = await asyncio.to_thread(load_resume_model)
+            log.info("Resume embedding model preloaded")
+        except Exception:
+            log.exception("Resume model preload failed; skill matching remains available")
     yield
     pool.closeall()
     log.info("DB pool closed")
@@ -84,14 +100,16 @@ def get_conn():
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Job Market Analytics API",
-    description="Labor market intelligence for data & ML hiring. Nightly-updated from 6 ATS sources.",
+    description="Multi-domain job intelligence sourced directly from major ATS ecosystems.",
     version="1.0.0",
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[origin.strip() for origin in os.getenv(
+        "LANDER_CORS_ORIGINS", "https://www.landerjob.com,https://landerjob.com"
+    ).split(",") if origin.strip()],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
@@ -157,7 +175,7 @@ PUBLIC_BLOCKED_COMPANY_FRAGMENTS = (
 
 PUBLIC_FEED_WHERE = """
     jp.data_tier = 1
-    AND jp.status = 'raw'
+    AND jp.is_public = true
     AND jp.domain IS NOT NULL
     AND (jp.loc_country IS NULL OR jp.loc_country <> 'foreign')
     AND NOT EXISTS (
@@ -307,8 +325,9 @@ def me(key: dict = Depends(verify_api_key)):
 # ── Public Market Pulse ──────────────────────────────────────────────────────
 @app.get("/v1/public/market", tags=["Public"])
 @limiter.limit("60/minute")
-def public_market(request: Request, conn=Depends(get_conn)):
+def public_market(request: Request, response: Response, conn=Depends(get_conn)):
     """Exact Browse All counts plus a small fresh-job preview for landerjob.com."""
+    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
     params = {
         "us_states": list(PUBLIC_US_STATES),
         "blocked_companies": list(PUBLIC_BLOCKED_COMPANY_FRAGMENTS),
@@ -406,7 +425,8 @@ PUBLIC_INSIGHT_SLUGS = {
 
 @app.get("/v1/public/insights/{insight_slug}", tags=["Public"])
 @limiter.limit("60/minute")
-def public_insight(insight_slug: str, request: Request, conn=Depends(get_conn)):
+def public_insight(insight_slug: str, request: Request, response: Response, conn=Depends(get_conn)):
+    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=900, stale-while-revalidate=1800"
     if insight_slug not in PUBLIC_INSIGHT_SLUGS:
         raise HTTPException(status_code=404, detail="Unknown public insight")
 
@@ -532,7 +552,7 @@ def market_overview(key: dict = Depends(verify_api_key), conn=Depends(get_conn))
             MAX(jp.ingested_at)                                                         as last_updated
         FROM job_postings jp
         LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
-        WHERE jp.data_tier = 1 AND jp.status = 'raw'
+        WHERE jp.data_tier = 1 AND jp.is_public = true
           AND jp.role_id IS NOT NULL
           AND COALESCE(jp.loc_country, 'unknown') IN ('US', 'unknown')
     """)
@@ -550,7 +570,7 @@ def market_overview(key: dict = Depends(verify_api_key), conn=Depends(get_conn))
     cur.execute("""
         SELECT source, COUNT(*) as active_roles
         FROM job_postings
-        WHERE data_tier = 1 AND status = 'raw'
+        WHERE data_tier = 1 AND is_public = true
           AND role_id IS NOT NULL
           AND COALESCE(loc_country, 'unknown') IN ('US', 'unknown')
         GROUP BY source ORDER BY active_roles DESC
@@ -574,7 +594,7 @@ def market_roles(
 ):
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
-    where = ["jp.data_tier = 1", "jp.status = 'raw'", "jp.role_id IS NOT NULL",
+    where = ["jp.data_tier = 1", "jp.is_public = true", "jp.role_id IS NOT NULL",
              "COALESCE(jp.loc_country, 'unknown') IN ('US', 'unknown')"]
     params = []
 
@@ -636,10 +656,10 @@ def market_skills(
             ROUND((AVG(jp.salary_max_annual)
                 FILTER (WHERE jp.salary_max_annual BETWEEN 50000 AND 500000) -
                 (SELECT AVG(salary_max_annual) FROM job_postings
-                 WHERE data_tier=1 AND status='raw'
+                 WHERE data_tier=1 AND is_public=true
                    AND salary_max_annual BETWEEN 50000 AND 500000)) /
                 NULLIF((SELECT AVG(salary_max_annual) FROM job_postings
-                 WHERE data_tier=1 AND status='raw'
+                 WHERE data_tier=1 AND is_public=true
                    AND salary_max_annual BETWEEN 50000 AND 500000), 0) * 100, 1)        as salary_premium_pct,
             ROUND(AVG(CASE WHEN js.skill_priority = 'required'
                 THEN 1.0 ELSE 0.0 END) * 100)                                          as required_pct
@@ -647,7 +667,7 @@ def market_skills(
         JOIN skills s ON s.skill_id = js.skill_id
         JOIN job_postings jp ON jp.job_id = js.job_id
         JOIN roles r ON r.role_id = jp.role_id
-        WHERE jp.data_tier = 1 AND jp.status = 'raw'
+        WHERE jp.data_tier = 1 AND jp.is_public = true
           AND s.difficulty_relevant = true
           {family_filter}
         GROUP BY s.skill_name
@@ -680,7 +700,7 @@ def market_sectors(key: dict = Depends(verify_api_key), conn=Depends(get_conn)):
         FROM job_postings jp
         JOIN companies c ON c.company_id = jp.company_id
         LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
-        WHERE jp.data_tier = 1 AND jp.status = 'raw' AND c.sector IS NOT NULL
+        WHERE jp.data_tier = 1 AND jp.is_public = true AND c.sector IS NOT NULL
         GROUP BY c.sector
         HAVING COUNT(DISTINCT jp.job_id) >= 10
         ORDER BY active_roles DESC
@@ -841,7 +861,7 @@ def company_roles(
     if not co:
         raise HTTPException(status_code=404, detail=f"Company '{slug}' not found.")
 
-    where = ["jp.company_id = %s", "jp.data_tier = 1", "jp.status = 'raw'"]
+    where = ["jp.company_id = %s", "jp.data_tier = 1", "jp.is_public = true"]
     params = [co["company_id"]]
 
     if experience:
@@ -895,11 +915,11 @@ def company_skills(
             COUNT(DISTINCT jp.job_id) as job_count,
             ROUND(COUNT(DISTINCT jp.job_id)::numeric /
                 NULLIF((SELECT COUNT(*) FROM job_postings
-                 WHERE company_id = %s AND data_tier=1 AND status='raw'), 0) * 100, 1) as pct_of_roles
+                 WHERE company_id = %s AND data_tier=1 AND is_public=true), 0) * 100, 1) as pct_of_roles
         FROM job_postings jp
         JOIN job_skills js ON js.job_id = jp.job_id
         JOIN skills s ON s.skill_id = js.skill_id
-        WHERE jp.company_id = %s AND jp.data_tier = 1 AND jp.status = 'raw'
+        WHERE jp.company_id = %s AND jp.data_tier = 1 AND jp.is_public = true
         GROUP BY s.skill_name, js.skill_priority
         ORDER BY job_count DESC
         LIMIT 30
@@ -939,7 +959,7 @@ def list_roles(
 ):
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
-    where = ["jp.data_tier = 1", "jp.status = 'raw'", "jp.role_id IS NOT NULL",
+    where = ["jp.data_tier = 1", "jp.is_public = true", "jp.role_id IS NOT NULL",
              "COALESCE(jp.loc_country, 'unknown') IN ('US', 'unknown')"]
     params = {}
 
@@ -1034,7 +1054,7 @@ def role_detail(
         LEFT JOIN locations l ON l.location_id = jp.location_id
         LEFT JOIN vw_ghost_job_index g ON g.job_id = jp.job_id
         LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
-        WHERE jp.job_id = %s AND jp.data_tier = 1 AND jp.status = 'raw'
+        WHERE jp.job_id = %s AND jp.data_tier = 1 AND jp.is_public = true
           AND jp.role_id IS NOT NULL
           AND COALESCE(jp.loc_country, 'unknown') IN ('US', 'unknown')
     """, (job_id,))
@@ -1232,6 +1252,66 @@ import re as _re_email
 
 EMAIL_RE = _re_email.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+
+def _migrate_rotating_credential_rows(cur, key_id: str, previous_hash: str | None) -> None:
+    """Move rows owned by the previous raw credential onto the stable key id.
+
+    Raw tokens cannot be reversed, but the prior token can be identified safely by
+    hashing candidate ownership values and comparing them to api_keys.api_key_hash.
+    This runs immediately before that hash rotates.
+    """
+    if not previous_hash:
+        return
+    legacy_ids: set[str] = set()
+    for table in ("user_applied_jobs", "user_saved_jobs", "career_campaigns", "career_profiles", "resumes"):
+        cur.execute("SELECT to_regclass(%s)", (f"public.{table}",))
+        if not cur.fetchone()[0]:
+            continue
+        cur.execute(f"SELECT DISTINCT user_id::text FROM {table} WHERE user_id IS NOT NULL")
+        for (candidate,) in cur.fetchall():
+            if candidate != key_id and hashlib.sha256(candidate.encode()).hexdigest() == previous_hash:
+                legacy_ids.add(candidate)
+
+    for legacy in legacy_ids:
+        cur.execute("SELECT to_regclass('public.user_applied_jobs')")
+        if cur.fetchone()[0]:
+            cur.execute("""
+                INSERT INTO user_applied_jobs(user_id,job_id,applied_at,outcome,outcome_captured_at,outcome_email_sent_at)
+                SELECT %s,job_id,applied_at,outcome,outcome_captured_at,outcome_email_sent_at
+                FROM user_applied_jobs WHERE user_id=%s
+                ON CONFLICT(user_id,job_id) DO UPDATE SET
+                  applied_at=LEAST(user_applied_jobs.applied_at,EXCLUDED.applied_at),
+                  outcome=COALESCE(user_applied_jobs.outcome,EXCLUDED.outcome),
+                  outcome_captured_at=COALESCE(user_applied_jobs.outcome_captured_at,EXCLUDED.outcome_captured_at),
+                  outcome_email_sent_at=COALESCE(user_applied_jobs.outcome_email_sent_at,EXCLUDED.outcome_email_sent_at)
+            """, (key_id, legacy))
+            cur.execute("DELETE FROM user_applied_jobs WHERE user_id=%s", (legacy,))
+        cur.execute("SELECT to_regclass('public.user_saved_jobs')")
+        if cur.fetchone()[0]:
+            cur.execute("""
+                INSERT INTO user_saved_jobs(user_id,job_id,saved_at)
+                SELECT %s,job_id,saved_at FROM user_saved_jobs WHERE user_id=%s
+                ON CONFLICT(user_id,job_id) DO NOTHING
+            """, (key_id, legacy))
+            cur.execute("DELETE FROM user_saved_jobs WHERE user_id=%s", (legacy,))
+        for table in ("career_campaigns", "resumes"):
+            cur.execute("SELECT to_regclass(%s)", (f"public.{table}",))
+            if cur.fetchone()[0]:
+                cur.execute(f"UPDATE {table} SET user_id=%s WHERE user_id=%s", (key_id, legacy))
+        cur.execute("SELECT to_regclass('public.career_profiles')")
+        if cur.fetchone()[0]:
+            cur.execute("""
+                INSERT INTO career_profiles(user_id,candidate_summary,requirements,links,created_at,updated_at)
+                SELECT %s,candidate_summary,requirements,links,created_at,updated_at
+                FROM career_profiles WHERE user_id=%s
+                ON CONFLICT(user_id) DO UPDATE SET
+                  candidate_summary=COALESCE(NULLIF(career_profiles.candidate_summary,''),EXCLUDED.candidate_summary),
+                  links=EXCLUDED.links || career_profiles.links,
+                  updated_at=GREATEST(career_profiles.updated_at,EXCLUDED.updated_at)
+            """, (key_id, legacy))
+            cur.execute("DELETE FROM career_profiles WHERE user_id=%s", (legacy,))
+        log.info("Migrated rotating-credential ownership to stable key_id=%s", key_id)
+
 # ── Disposable email domain blocklist (AI_PROTECTION_v1) ──────────────────────
 DISPOSABLE_EMAIL_DOMAINS = frozenset({
     "10minutemail.com", "guerrillamail.com", "guerrillamail.net", "guerrillamail.org",
@@ -1317,7 +1397,7 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
             # can lag behind if the Stripe webhook fired before the user's free_signups
             # row existed, or if a prior free-signup ran before this check was in place.
             cur.execute("""
-                SELECT key_id FROM api_keys
+                SELECT key_id, api_key_hash FROM api_keys
                 WHERE client_email = %s AND tier = 'pro' AND active = true
                 ORDER BY created_at DESC LIMIT 1
             """, (email,))
@@ -1338,6 +1418,7 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
                 # returns tier='pro'. Also pin free_signups to that key so future
                 # calls don't drift back to a stale free key.
                 target_key_id = pro_row[0]
+                _migrate_rotating_credential_rows(cur, target_key_id, pro_row[1])
                 cur.execute("""
                     UPDATE api_keys
                     SET api_key_hash = %s, api_key_prefix = %s,
@@ -1358,6 +1439,9 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
                     """, (email, target_key_id, referral, user_agent))
             elif existing and existing[0]:
                 # Returning free user: refresh hash on their existing free key
+                cur.execute("SELECT api_key_hash FROM api_keys WHERE key_id=%s", (existing[0],))
+                previous = cur.fetchone()
+                _migrate_rotating_credential_rows(cur, existing[0], previous[0] if previous else None)
                 cur.execute("""
                     UPDATE api_keys
                     SET api_key_hash = %s, api_key_prefix = %s,
@@ -1442,6 +1526,10 @@ async def verify_token(token: str):
 
             return {
                 "api_key": token,
+                # Stable account identity. The raw key above is an access credential
+                # and rotates whenever a new magic link is requested; it must never
+                # be used as an ownership key for user data.
+                "key_id": row["key_id"],
                 "email": row["email"],
                 "tier": row["tier"],
             }
@@ -1457,24 +1545,36 @@ async def verify_token(token: str):
 
 # ── Stripe Checkout Session ───────────────────────────────────────────────────
 @app.post("/stripe/create-checkout")
-async def create_checkout(request: Request):
-    body = await request.json()
-    email = body.get("email", "")
+async def create_checkout(
+    request: Request,
+    key: dict = Depends(verify_api_key),
+    conn=Depends(get_conn),
+):
+    if not STRIPE_PRICE_ID:
+        log.error("Stripe checkout requested without STRIPE_PRICE_ID configured")
+        raise HTTPException(status_code=503, detail="Billing is temporarily unavailable.")
+
+    # Price, account, and redirect destinations are server-owned. Accepting any of
+    # these from the browser would let a caller create checkout sessions for an
+    # arbitrary price/customer or redirect Stripe through an untrusted URL.
+    email = _client_email_for_key(conn, key)
     lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
-    success_url = body.get("success_url", f"{lander_base}/upgrade-success?session_id={{CHECKOUT_SESSION_ID}}")
-    cancel_url = body.get("cancel_url", f"{lander_base}/pricing")
+    success_url = f"{lander_base}/upgrade-success?session_id={{CHECKOUT_SESSION_ID}}"
+    cancel_url = f"{lander_base}/pricing"
     try:
         session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             mode="subscription",
-            line_items=[{"price": body.get("price_id", STRIPE_PRICE_ID), "quantity": 1}],
-            customer_email=email or None,
+            line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
+            customer_email=email,
             success_url=success_url,
             cancel_url=cancel_url,
+            client_reference_id=key["key_id"],
         )
         return {"checkout_url": session.url}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        log.warning(f"Stripe checkout failed for key={key['key_id']}: {e}")
+        raise HTTPException(status_code=400, detail="Unable to start checkout. Please try again.")
 
 
 # ── Stripe billing helpers (resolve customer via api_keys.client_email only) ──
@@ -1704,9 +1804,9 @@ async def upload_resume_v1(
         # supplied an embedding and therefore ranked generic skill overlap across
         # unrelated domains. Supply the semantic vector so the first response is useful.
         try:
-            from sentence_transformers import SentenceTransformer
             model = getattr(app.state, "resume_embedding_model", None)
             if model is None:
+                from sentence_transformers import SentenceTransformer
                 model = SentenceTransformer("all-MiniLM-L6-v2")
                 model.max_seq_length = 256
                 app.state.resume_embedding_model = model

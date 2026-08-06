@@ -75,3 +75,15 @@ def test_public_email_rejects_same_name_without_recruiting_context():
         {"title": "Matt Andrews - Athletics Staff", "snippet": "Email mandrews@transy.edu", "link": "https://sports.example/matt"}
     ], "Matt Andrews", "")
     assert email is None
+
+
+def test_location_scope_does_not_leak_remote_jobs_when_remote_is_disabled():
+    source = MODULE.read_text()
+    assert 'if requirements.get("remoteAllowed", True):' in source
+    assert "location_clause = f\"({location_clause} OR lower" in source
+
+
+def test_interrupted_campaigns_are_recovered():
+    source = MODULE.read_text()
+    assert "status='running' AND updated_at < now() - interval '45 minutes'" in source
+    assert "Interrupted worker run recovered and requeued" in source

@@ -63,6 +63,22 @@ def usage(cur, campaign_id: str, provider: str, operation: str, units: float, co
 def claim_campaign(db, campaign_id: str | None = None) -> dict | None:
     with db.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("BEGIN")
+        # A process crash used to strand campaigns in `running` forever. Recovery
+        # is deliberately conservative and records the intervention for the UI.
+        cur.execute(
+            """
+            WITH stale AS (
+              UPDATE career_campaigns
+              SET status='queued', stage='queued',
+                  status_message='Recovered after an interrupted worker run',
+                  started_at=NULL, updated_at=now()
+              WHERE status='running' AND updated_at < now() - interval '45 minutes'
+              RETURNING campaign_id
+            )
+            INSERT INTO career_run_events(campaign_id,stage,message)
+            SELECT campaign_id,'recovered','Interrupted worker run recovered and requeued' FROM stale
+            """
+        )
         if campaign_id:
             cur.execute(
                 "SELECT * FROM career_campaigns WHERE campaign_id=%s AND status='queued' FOR UPDATE SKIP LOCKED", (campaign_id,)
@@ -111,13 +127,16 @@ def target_jobs(cur, requirements: dict, limit: int = 160) -> list[dict]:
     min_salary = requirements.get("minimumSalary")
     terms = list(dict.fromkeys(roles + skills))
     values: list[Any] = []
-    where = ["jp.status='raw'", "jp.data_tier=1", "COALESCE(jp.source,'') <> 'adzuna'"]
+    where = ["jp.is_public=true", "jp.data_tier=1", "COALESCE(jp.source,'') <> 'adzuna'"]
     if terms:
         values.append(terms)
         where.append("EXISTS (SELECT 1 FROM unnest(%s::text[]) term WHERE lower(COALESCE(r.role_name,'') || ' ' || COALESCE(jp.role_category,'') || ' ' || COALESCE(jp.description_text,'')) LIKE '%%' || lower(term) || '%%')")
     if locations:
         values.append(locations)
-        where.append("EXISTS (SELECT 1 FROM unnest(%s::text[]) loc WHERE lower(COALESCE(jp.loc_city,'') || ' ' || COALESCE(jp.loc_state,'') || ' ' || COALESCE(l.location,'')) LIKE '%%' || lower(loc) || '%%') OR lower(COALESCE(jp.workplace_type,''))='remote'")
+        location_clause = "EXISTS (SELECT 1 FROM unnest(%s::text[]) loc WHERE lower(COALESCE(jp.loc_city,'') || ' ' || COALESCE(jp.loc_state,'') || ' ' || COALESCE(l.location,'')) LIKE '%%' || lower(loc) || '%%')"
+        if requirements.get("remoteAllowed", True):
+            location_clause = f"({location_clause} OR lower(COALESCE(jp.workplace_type,''))='remote')"
+        where.append(location_clause)
     if min_salary:
         values.append(float(min_salary) * 0.8)
         where.append("(jp.salary_max_annual IS NULL OR jp.salary_max_annual >= %s)")

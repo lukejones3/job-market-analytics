@@ -4,13 +4,18 @@ After=network-online.target postgresql.service
 
 [Service]
 Type=simple
-User=root
+User=lander-pipeline
+Group=lander-pipeline
 WorkingDirectory=/opt/job-market-analytics
 EnvironmentFile=/opt/job-market-analytics/.env
 ExecStart=/opt/job-market-analytics/.venv/bin/python /opt/job-market-analytics/python/career_agent_worker.py
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/job-market-analytics /var/log/lander
 
 [Install]
 WantedBy=multi-user.target

@@ -171,7 +171,7 @@ def match_jobs(
               JOIN roles r ON r.role_id = jp.role_id
               JOIN companies c ON c.company_id = jp.company_id
               LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
-              WHERE jp.status = 'raw'
+              WHERE jp.is_public = true
                 AND COALESCE(jp.data_tier, 1) = 1
                 AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
                 AND jp.domain IS NOT NULL
@@ -224,7 +224,7 @@ def match_jobs(
             LEFT JOIN companies c ON c.company_id = jp.company_id
             LEFT JOIN job_skills js ON js.job_id = jp.job_id
             LEFT JOIN job_honesty_latest jh ON jh.job_id = jp.job_id
-            WHERE jp.status = 'raw'
+            WHERE jp.is_public = true
               AND COALESCE(jp.data_tier, 1) = 1
               AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
               AND jp.domain IS NOT NULL
@@ -386,7 +386,7 @@ def find_skill_gaps(
         FROM job_postings jp
         LEFT JOIN companies c ON c.company_id = jp.company_id
         LEFT JOIN job_skills js ON js.job_id = jp.job_id
-        WHERE jp.status = 'raw'
+        WHERE jp.is_public = true
           AND COALESCE(jp.data_tier, 1) = 1
           AND COALESCE(jp.loc_country, 'US') IN ('US', 'unknown')
           AND (jp.role_category IS NULL OR jp.role_category != 'non_data')

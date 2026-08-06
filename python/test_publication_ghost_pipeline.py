@@ -7,10 +7,15 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_publication_predicate_and_total_are_consistent():
     api = (ROOT / "python/api.py").read_text()
     gate = (ROOT / "python/airflow_quality_gate.py").read_text()
+    publisher = (ROOT / "python/publish_snapshot.py").read_text()
+    dag = (ROOT / "airflow/dags/lander_pipeline.py").read_text()
     ingest = (ROOT / "python/ingest_jobs.py").read_text()
     assert api.count("COALESCE(jp.loc_country, 'unknown') IN ('US', 'unknown')") >= 4
     assert '"total":        total' in api
-    assert "loc_country,'unknown') IN ('US','unknown')" in gate
+    assert "is_public = true" in api
+    assert "COALESCE(loc_country,'us') <> 'foreign'" in gate
+    assert "pg_advisory_xact_lock" in publisher
+    assert "publish_gate >> publish_snapshot" in dag
     assert '_loc.country == "foreign"' in ingest
 
 
@@ -57,4 +62,5 @@ if __name__ == "__main__":
     test_api_exposes_repost_warning_contract()
     test_changed_descriptions_invalidate_enrichment()
     test_v2_experience_is_promoted_with_canonical_labels()
+    test_canonicalizer_does_not_hold_schema_lock_during_backfill()
     print("publication/ghost pipeline tests passed")

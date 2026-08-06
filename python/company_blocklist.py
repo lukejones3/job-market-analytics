@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 company_blocklist.py
 
