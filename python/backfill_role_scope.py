@@ -31,28 +31,45 @@ def connection():
     )
 
 
-def backfill(*, apply: bool, only_missing: bool) -> dict:
-    with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-        predicate = "jp.scope_status IS NULL" if only_missing else "true"
-        cur.execute(f"""SELECT jp.job_id, jp.source, jp.source_id, jp.crawl_tenant,
-                r.role_name, c.company_name, jp.description_text
-            FROM job_postings jp
-            JOIN roles r ON r.role_id=jp.role_id
-            JOIN companies c ON c.company_id=jp.company_id
-            WHERE {predicate}""")
-        rows = cur.fetchall()
-        decisions = []
-        counts: dict[str, int] = {}
-        for row in rows:
-            decision = evaluate_role(row["role_name"], row["description_text"] or "")
-            counts[decision.status] = counts.get(decision.status, 0) + 1
-            decisions.append((decision.status, decision.rule_id, decision.confidence,
-                              row["job_id"]))
-        if apply and decisions:
-            execute_batch(cur, """UPDATE job_postings SET scope_status=%s,
-                scope_rule_id=%s, scope_confidence=%s WHERE job_id=%s""",
-                decisions, page_size=1000)
-        return {"examined": len(rows), "applied": apply, "outcomes": counts}
+def backfill(*, apply: bool, only_missing: bool, batch_size: int = 500) -> dict:
+    conn = connection()
+    counts: dict[str, int] = {}
+    examined = 0
+    after_job_id = ""
+    try:
+        while True:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                missing = "AND jp.scope_status IS NULL" if only_missing else ""
+                # Only rows capable of entering the public snapshot need this
+                # backstop. Loading every expired/Tier-2 description exceeded
+                # the production droplet's memory without changing publication.
+                cur.execute(f"""SELECT jp.job_id, r.role_name, jp.description_text
+                    FROM job_postings jp JOIN roles r ON r.role_id=jp.role_id
+                    WHERE jp.status='raw' AND jp.data_tier=1 {missing}
+                      AND jp.job_id > %s
+                    ORDER BY jp.job_id LIMIT %s""", (after_job_id, batch_size))
+                rows = cur.fetchall()
+                if not rows:
+                    break
+                after_job_id = rows[-1]["job_id"]
+                decisions = []
+                for row in rows:
+                    decision = evaluate_role(row["role_name"], row["description_text"] or "")
+                    counts[decision.status] = counts.get(decision.status, 0) + 1
+                    decisions.append((decision.status, decision.rule_id,
+                                      decision.confidence, row["job_id"]))
+                examined += len(rows)
+                if not apply:
+                    # Preview exactly one bounded batch; a full dry run would
+                    # repeatedly select the same unchanged rows.
+                    break
+                execute_batch(cur, """UPDATE job_postings SET scope_status=%s,
+                    scope_rule_id=%s, scope_confidence=%s WHERE job_id=%s""",
+                    decisions, page_size=batch_size)
+                conn.commit()
+        return {"examined": examined, "applied": apply, "outcomes": counts}
+    finally:
+        conn.close()
 
 
 def main() -> None:
