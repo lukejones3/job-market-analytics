@@ -3,14 +3,28 @@ Description=Job Market Analytics API
 After=network.target postgresql.service
 
 [Service]
-User=root
+User=lander-api
+Group=lander-api
 WorkingDirectory=/opt/job-market-analytics
 EnvironmentFile=/opt/job-market-analytics/.env
+Environment=HOME=/var/lib/lander-api
+Environment=HF_HOME=/var/cache/lander-api/huggingface
 # Nginx is the only public ingress. Binding loopback prevents callers from
 # bypassing TLS, Cloudflare, proxy policy, and trusted client-IP handling.
 ExecStart=/opt/job-market-analytics/.venv/bin/uvicorn python.api:app --host 127.0.0.1 --port 8000 --workers 2
 Restart=always
 RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/lander-api /var/cache/lander-api
 
 [Install]
 WantedBy=multi-user.target

@@ -256,10 +256,41 @@ def hash_key(raw_key: str) -> str:
 def get_key_prefix(raw_key: str) -> str:
     return raw_key[:12]
 
+
+def _issue_magic_token(cur, key_id: str) -> str:
+    """Create a single-use sign-in challenge without exposing the API credential."""
+    raw_token = secrets.token_urlsafe(32)
+    cur.execute(
+        "DELETE FROM auth_magic_tokens WHERE key_id=%s OR expires_at < NOW() OR used_at IS NOT NULL",
+        (key_id,),
+    )
+    cur.execute(
+        """INSERT INTO auth_magic_tokens(token_hash,key_id,expires_at)
+           VALUES(%s,%s,NOW() + INTERVAL '20 minutes')""",
+        (hash_key(raw_token), key_id),
+    )
+    return raw_token
+
+
+def _rotate_api_credential(cur, key_id: str, previous_hash: str | None = None) -> str:
+    """Mint the durable browser credential only after the one-time challenge succeeds."""
+    raw_key = secrets.token_urlsafe(32)
+    _migrate_rotating_credential_rows(cur, key_id, previous_hash)
+    cur.execute(
+        """UPDATE api_keys
+           SET api_key_hash=%s, api_key_prefix=%s, active=true,
+               expires_at=NOW() + INTERVAL '30 days'
+           WHERE key_id=%s""",
+        (hash_key(raw_key), get_key_prefix(raw_key), key_id),
+    )
+    return raw_key
+
 async def verify_api_key(request: Request, conn=Depends(get_conn)) -> dict:
-    raw_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+    # Credentials in URLs leak into browser history, proxy logs, referrers and
+    # analytics. Authenticated clients must use the request header.
+    raw_key = request.headers.get("X-API-Key")
     if not raw_key:
-        raise HTTPException(status_code=401, detail="API key required. Pass as X-API-Key header or api_key query param.")
+        raise HTTPException(status_code=401, detail="API key required. Pass it in the X-API-Key header.")
 
     key_hash = hash_key(raw_key)
     cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -1205,9 +1236,9 @@ async def stripe_webhook(request: Request):
 
         if customer_email:
             # WEBHOOK_KEYID_FIX_v1: generate key_id (was missing — schema requires NOT NULL)
-            raw_key    = secrets.token_urlsafe(32)
-            key_hash   = hashlib.sha256(raw_key.encode()).hexdigest()
-            key_prefix = raw_key[:8]
+            placeholder = secrets.token_urlsafe(32)
+            key_hash   = hash_key(placeholder)
+            key_prefix = get_key_prefix(placeholder)
             key_id     = "K" + secrets.token_hex(8)
 
             conn = pool.getconn()
@@ -1219,6 +1250,7 @@ async def stripe_webhook(request: Request):
                              tier, active, created_at, expires_at)
                         VALUES (%s, %s, %s, %s, %s, 'pro', true, NOW(), NOW() + INTERVAL '30 days')
                     """, (key_id, customer_name, customer_email, key_hash, key_prefix))
+                    raw_key = _issue_magic_token(cur, key_id)
                     # FREEMIUM_BACKEND_v1: mark free_signups as upgraded and point
                     # api_key_id at the new Pro key so future free-signup magic
                     # links refresh the Pro key, not a stale free key.
@@ -1450,22 +1482,11 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
             )
             existing = cur.fetchone()
 
-            raw_key    = secrets.token_urlsafe(32)
-            key_hash   = hashlib.sha256(raw_key.encode()).hexdigest()
-            key_prefix = raw_key[:8]
-
             if pro_row:
-                # Pro subscriber — refresh hash on the Pro key so the magic link
-                # returns tier='pro'. Also pin free_signups to that key so future
-                # calls don't drift back to a stale free key.
+                # Pin the account to its active Pro identity. The emailed value is
+                # a one-time challenge; the durable credential rotates only after
+                # successful verification.
                 target_key_id = pro_row[0]
-                _migrate_rotating_credential_rows(cur, target_key_id, pro_row[1])
-                cur.execute("""
-                    UPDATE api_keys
-                    SET api_key_hash = %s, api_key_prefix = %s,
-                        active = true, expires_at = NOW() + INTERVAL '30 days'
-                    WHERE key_id = %s
-                """, (key_hash, key_prefix, target_key_id))
                 if existing:
                     cur.execute("""
                         UPDATE free_signups
@@ -1479,16 +1500,7 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
                         VALUES (%s, %s, %s, %s)
                     """, (email, target_key_id, referral, user_agent))
             elif existing and existing[0]:
-                # Returning free user: refresh hash on their existing free key
-                cur.execute("SELECT api_key_hash FROM api_keys WHERE key_id=%s", (existing[0],))
-                previous = cur.fetchone()
-                _migrate_rotating_credential_rows(cur, existing[0], previous[0] if previous else None)
-                cur.execute("""
-                    UPDATE api_keys
-                    SET api_key_hash = %s, api_key_prefix = %s,
-                        active = true, expires_at = NOW() + INTERVAL '30 days'
-                    WHERE key_id = %s
-                """, (key_hash, key_prefix, existing[0]))
+                target_key_id = existing[0]
                 cur.execute("""
                     UPDATE free_signups SET last_seen_at = NOW(), user_agent = %s
                     WHERE email = %s
@@ -1496,18 +1508,21 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
             else:
                 # New user: create api_keys row and free_signups row
                 key_id = "K" + secrets.token_hex(8)
+                target_key_id = key_id
+                placeholder = secrets.token_urlsafe(32)
                 cur.execute("""
                     INSERT INTO api_keys
                         (key_id, client_name, client_email, api_key_hash, api_key_prefix,
                          tier, active, created_at, expires_at)
                     VALUES (%s, %s, %s, %s, %s, 'free', true, NOW(), NOW() + INTERVAL '30 days')
-                """, (key_id, email.split("@")[0], email, key_hash, key_prefix))
+                """, (key_id, email.split("@")[0], email, hash_key(placeholder), get_key_prefix(placeholder)))
                 cur.execute("""
                     INSERT INTO free_signups
                         (email, api_key_id, referral_source, user_agent)
                     VALUES (%s, %s, %s, %s)
                 """, (email, key_id, referral, user_agent))
 
+            raw_key = _issue_magic_token(cur, target_key_id)
             conn.commit()
 
         # Send welcome email asynchronously (don't block the response)
@@ -1543,8 +1558,11 @@ async def verify_token(token: str):
                     ak.tier,
                     ak.active,
                     ak.expires_at
-                FROM api_keys ak
-                WHERE ak.api_key_hash = %s
+                FROM auth_magic_tokens mt
+                JOIN api_keys ak ON ak.key_id = mt.key_id
+                WHERE mt.token_hash = %s
+                  AND mt.used_at IS NULL
+                  AND mt.expires_at > NOW()
                 LIMIT 1
             """, (token_hash,))
             row = cur.fetchone()
@@ -1558,6 +1576,10 @@ async def verify_token(token: str):
             if row["expires_at"] and row["expires_at"] < datetime.now(timezone.utc):
                 raise HTTPException(status_code=401, detail="Token expired")
 
+            cur.execute("SELECT api_key_hash FROM api_keys WHERE key_id=%s", (row["key_id"],))
+            previous = cur.fetchone()
+            api_key = _rotate_api_credential(cur, row["key_id"], previous[0] if previous else None)
+            cur.execute("UPDATE auth_magic_tokens SET used_at=NOW() WHERE token_hash=%s", (token_hash,))
             cur.execute("""
                 UPDATE free_signups
                 SET last_seen_at = NOW()
@@ -1566,7 +1588,7 @@ async def verify_token(token: str):
             conn.commit()
 
             return {
-                "api_key": token,
+                "api_key": api_key,
                 # Stable account identity. The raw key above is an access credential
                 # and rotates whenever a new magic link is requested; it must never
                 # be used as an ownership key for user data.

@@ -6,7 +6,7 @@ Validates candidates in workday_tenants_candidates by probing the Workday CXS AP
 For each pending tenant:
   1. Resolves the wd{N} server (if unknown) via redirect sniffing
   2. Finds the working job board name by trying common patterns
-  3. Counts US jobs and data/ML jobs from the first 100 listings
+  3. Samples listings across the board and counts every admitted Lander domain
   4. Updates the candidate's status + counts in the DB
 
 After validation, run with --report to see which tenants are ready for integration.
@@ -25,10 +25,12 @@ Usage:
 
 import argparse
 import hashlib
+import json
 import logging
 import os
 import re
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -36,6 +38,8 @@ import psycopg2
 from psycopg2.extras import DictCursor
 import requests
 from dotenv import load_dotenv
+
+from role_scope import evaluate_role
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -91,74 +95,6 @@ NON_US_SIGNALS = {
     "sydney", "tokyo", "japan", "china", "chn", "brazil", "mexico",
     "netherlands", "sweden", "switzerland", "spain", "italy", "korea",
 }
-
-# ============================================================
-# ROLE FILTER (mirrored from ingest_jobs.py _is_target_role)
-# ============================================================
-
-_PHRASE_PATTERNS = [re.compile(r"\b" + p + r"\b", re.IGNORECASE) for p in [
-    r"data analyst", r"analytics analyst", r"business analyst",
-    r"business intelligence analyst", r"bi analyst",
-    r"marketing analyst", r"product analyst", r"financial analyst",
-    r"fp&a analyst", r"revenue analyst", r"operations analyst",
-    r"reporting analyst", r"insights analyst", r"data engineer",
-    r"analytics engineer", r"bi engineer", r"business intelligence engineer",
-    r"machine learning engineer", r"ml engineer", r"data platform engineer",
-    r"applied ml engineer", r"ai engineer", r"llm engineer",
-    r"data scientist", r"applied scientist", r"research scientist",
-    r"quantitative researcher", r"quantitative scientist",
-    r"bi developer", r"business intelligence developer",
-    r"data architect", r"bi architect",
-    r"revenue operations", r"revops", r"marketing operations",
-    r"analytics manager", r"data manager", r"data science manager",
-    r"director of analytics", r"director of data",
-    r"head of analytics", r"head of data",
-    r"advanced analytics", r"mlops engineer", r"ml platform engineer",
-    r"nlp engineer", r"computer vision engineer", r"data modell?er",
-    r"experimentation analyst", r"experimentation scientist",
-    r"decision scientist", r"causal inference scientist",
-    r"geospatial data scientist", r"clinical data scientist",
-    r"pricing scientist", r"demand forecasting",
-    r"quantitative analyst", r"quantitative developer",
-    r"staff data engineer", r"staff data scientist",
-    r"staff analytics engineer", r"staff machine learning engineer",
-]]
-_BLOCK_PATTERNS = [re.compile(p, re.IGNORECASE) for p in [
-    r"\bandroid\b", r"\bios\b", r"\bfrontend\b", r"\bfront.end\b",
-    r"\bbackend\b", r"\bback.end\b", r"\bfullstack\b", r"\bfull.stack\b",
-    r"\bdevops\b", r"\bsre\b", r"\bsite reliability\b",
-    r"\bsecurity engineer\b", r"\bnetwork engineer\b",
-    r"\bsoftware engineer\b", r"\bsoftware developer\b",
-    r"\bmobile engineer\b", r"\binfrastructure engineer\b",
-    r"\bcloud engineer\b", r"\bembedded\b", r"\bhardware\b",
-    r"\bfirmware\b", r"\baccount executive\b", r"\baccount manager\b",
-    r"\bsales development\b", r"\bbusiness development\b",
-    r"\brecruiter\b", r"\brecruiting\b", r"\bpayroll\b",
-    r"\bcustomer success\b", r"\bcustomer support\b",
-    r"\bcustomer experience\b", r"\bsupport engineer\b",
-    r"\bsolutions engineer\b", r"\bimplementation\b",
-    r"\bproject manager\b", r"\bproduct designer\b",
-    r"\bux designer\b", r"\bux researcher\b", r"\bgraphic designer\b",
-    r"\bcontent\b", r"\bcopywriter\b", r"\bseo\b", r"\bpaid media\b",
-    r"\bcommunity manager\b", r"\boffice manager\b",
-    r"\bexecutive assistant\b", r"\blegal\b",
-    r"\bcompliance officer\b", r"\baccounting\b",
-    r"\bdata entry\b", r"\bdata coordinator\b", r"\bdata processor\b",
-    r"\bdata administrator\b",
-]]
-
-
-def _is_target_role(title: str) -> bool:
-    if not title:
-        return False
-    for pat in _BLOCK_PATTERNS:
-        if pat.search(title):
-            return False
-    for pat in _PHRASE_PATTERNS:
-        if pat.search(title):
-            return True
-    return False
-
 
 def _is_us_job(location: str) -> bool:
     if not location:
@@ -223,7 +159,8 @@ def update_candidate(
     server: Optional[str],
     board: Optional[str],
     us_jobs: int,
-    data_ml_jobs: int,
+    target_jobs: int,
+    domain_counts: Dict[str, int],
     status: str,
 ) -> None:
     cur.execute(
@@ -233,11 +170,14 @@ def update_candidate(
             board              = COALESCE(%s, board),
             us_jobs_count      = %s,
             data_ml_jobs_count = %s,
+            target_jobs_count  = %s,
+            domain_counts      = %s::jsonb,
             status             = %s,
             last_validated_at  = now()
         WHERE tenant = %s
         """,
-        (server, board, us_jobs, data_ml_jobs, status, tenant),
+        (server, board, us_jobs, domain_counts.get("data_ml", 0), target_jobs,
+         json.dumps(domain_counts, sort_keys=True), status, tenant),
     )
 
 
@@ -361,19 +301,28 @@ def _find_board(tenant: str, server: str, known_board: Optional[str]) -> Optiona
     return None
 
 
-def _count_jobs(tenant: str, server: str, board: str) -> Tuple[int, int]:
+def _count_jobs(tenant: str, server: str, board: str, total_jobs: int) -> Tuple[int, int, Dict[str, int]]:
     """
-    Fetch up to 100 job listings and count:
+    Sample up to 500 listings across the complete board and count:
       - us_jobs: listings with US-compatible location
-      - data_ml_jobs: us_jobs that match the target-role filter
+      - target_jobs: US listings admitted or awaiting description evidence
+      - domains: target jobs by modern role-scope domain
 
-    Returns (us_jobs_count, data_ml_jobs_count).
+    Returns (us_jobs_count, target_jobs_count, domain_counts).
     """
     url = f"https://{tenant}.{server}.myworkdayjobs.com/wday/cxs/{tenant}/{board}/jobs"
     us_jobs = 0
-    data_ml_jobs = 0
+    target_jobs = 0
+    domains: Counter[str] = Counter()
 
-    for offset in (0, 20, 40, 60, 80):
+    sample_size = min(max(total_jobs, 0), 500)
+    if sample_size <= 100:
+        offsets = range(0, sample_size, 20)
+    else:
+        # Cover the board rather than rejecting finance-heavy tenants because
+        # their first 100 listings happen to contain another business unit.
+        offsets = sorted({round(i * max(total_jobs - 20, 0) / 24 / 20) * 20 for i in range(25)})
+    for offset in offsets:
         try:
             r = requests.post(
                 url,
@@ -392,13 +341,15 @@ def _count_jobs(tenant: str, server: str, board: str) -> Tuple[int, int]:
                 loc = locs[0] if isinstance(locs, list) and locs else (locs or "")
                 if _is_us_job(loc):
                     us_jobs += 1
-                    if _is_target_role(title):
-                        data_ml_jobs += 1
+                    decision = evaluate_role(title)
+                    if decision.candidate:
+                        target_jobs += 1
+                        domains[decision.domain or "evidence_pending"] += 1
         except Exception:
             break
         time.sleep(REQUEST_DELAY)
 
-    return us_jobs, data_ml_jobs
+    return us_jobs, target_jobs, dict(domains)
 
 
 # ============================================================
@@ -412,9 +363,9 @@ def print_report() -> None:
 
     cur.execute("""
         SELECT tenant, server, board, company_name,
-               us_jobs_count, data_ml_jobs_count, discovery_source, status
+               us_jobs_count, target_jobs_count, domain_counts, discovery_source, status
         FROM workday_tenants_candidates
-        ORDER BY data_ml_jobs_count DESC, us_jobs_count DESC
+        ORDER BY target_jobs_count DESC, us_jobs_count DESC
     """)
     rows = cur.fetchall()
     cur.close()
@@ -436,27 +387,27 @@ def print_report() -> None:
 
     if active:
         log.info("")
-        log.info(f"ACTIVE TENANTS ({len(active)}) — sorted by data/ML job count:")
-        log.info(f"  {'Tenant':<25} {'Server':<6} {'Board':<35} {'US':>5} {'D/ML':>5} {'Company'}")
+        log.info(f"ACTIVE TENANTS ({len(active)}) — sorted by admitted target-job count:")
+        log.info(f"  {'Tenant':<25} {'Server':<6} {'Board':<35} {'US':>5} {'Target':>6} {'Domains'}")
         log.info(f"  {'-'*25} {'-'*6} {'-'*35} {'-'*5} {'-'*5} {'-'*30}")
         for r in active:
             log.info(
                 f"  {r['tenant']:<25} {(r['server'] or '?'):<6} "
                 f"{(r['board'] or '?'):<35} "
-                f"{r['us_jobs_count']:>5} {r['data_ml_jobs_count']:>5}  "
-                f"{r['company_name'] or ''}"
+                f"{r['us_jobs_count']:>5} {r['target_jobs_count']:>6}  "
+                f"{dict(r['domain_counts'] or {})}"
             )
         log.info("")
         log.info(f"To integrate: python python/validate_workday_tenants.py --integrate")
 
-    no_data = by_status.get("no_data_jobs", [])
-    if no_data:
-        log.info(f"\nSkipped ({len(no_data)} no data/ML jobs — not worth integrating)")
+    no_target = by_status.get("no_target_jobs", []) + by_status.get("no_data_jobs", [])
+    if no_target:
+        log.info(f"\nSkipped ({len(no_target)} working boards with no in-scope roles)")
 
 
 def integrate_active() -> None:
     """
-    Write tenants with status='active' and data_ml_jobs_count > 0 into
+    Write tenants with status='active' and target_jobs_count > 0 into
     discovered_companies so fetch_all_workday() picks them up nightly.
     board_token format: "tenant/server/board"
 
@@ -466,18 +417,18 @@ def integrate_active() -> None:
     cur = conn.cursor(cursor_factory=DictCursor)
 
     cur.execute("""
-        SELECT tenant, server, board, company_name, data_ml_jobs_count
+        SELECT tenant, server, board, company_name, target_jobs_count, domain_counts
         FROM workday_tenants_candidates
         WHERE status = 'active'
-          AND data_ml_jobs_count > 0
+          AND target_jobs_count > 0
           AND board IS NOT NULL
           AND server IS NOT NULL
-        ORDER BY data_ml_jobs_count DESC
+        ORDER BY target_jobs_count DESC
     """)
     candidates = cur.fetchall()
 
     if not candidates:
-        log.info("No active candidates with data/ML jobs to integrate.")
+        log.info("No active candidates with target jobs to integrate.")
         cur.close()
         conn.close()
         return
@@ -490,7 +441,7 @@ def integrate_active() -> None:
         server = r["server"]
         board  = r["board"]
         name   = r["company_name"] or tenant.title()
-        dml    = r["data_ml_jobs_count"]
+        target = r["target_jobs_count"]
 
         board_token = f"{tenant}/{server}/{board}"
         company_id  = "WD" + hashlib.md5(f"workday|{board_token}".encode()).hexdigest()[:10]
@@ -509,14 +460,14 @@ def integrate_active() -> None:
                     enabled = true,
                     last_seen_at = now()
                 """,
-                (company_id, name, board_token, dml, dml),
+                (company_id, name, board_token, target, target),
             )
             cur.execute(
                 "UPDATE workday_tenants_candidates SET status='integrated' WHERE tenant=%s",
                 (tenant,),
             )
             integrated += 1
-            log.info(f"  ✅ {name} ({tenant}.{server}/{board}) — {dml} target jobs")
+            log.info(f"  ✅ {name} ({tenant}.{server}/{board}) — {target} target jobs {dict(r['domain_counts'] or {})}")
         except Exception as e:
             log.warning(f"  Failed to integrate {tenant}: {e}")
             conn.rollback()
@@ -541,7 +492,7 @@ def run_validation(apply: bool, limit: Optional[int], revalidate: bool) -> None:
         log.info("Nothing to validate. Run discover_workday_tenants.py first.")
         return
 
-    results = {"active": 0, "no_data_jobs": 0, "unreachable": 0, "errors": 0}
+    results = {"active": 0, "no_target_jobs": 0, "unreachable": 0, "errors": 0}
 
     conn = None
     cur  = None
@@ -560,7 +511,7 @@ def run_validation(apply: bool, limit: Optional[int], revalidate: bool) -> None:
                 log.info(f"  ❌ Could not resolve server for {tenant}")
                 results["unreachable"] += 1
                 if apply:
-                    update_candidate(cur, tenant, None, None, 0, 0, "unreachable")
+                    update_candidate(cur, tenant, None, None, 0, 0, {}, "unreachable")
                     conn.commit()
                 time.sleep(BATCH_DELAY)
                 continue
@@ -571,32 +522,33 @@ def run_validation(apply: bool, limit: Optional[int], revalidate: bool) -> None:
                 log.info(f"  ❌ No working board found for {tenant}.{server}")
                 results["unreachable"] += 1
                 if apply:
-                    update_candidate(cur, tenant, server, None, 0, 0, "unreachable")
+                    update_candidate(cur, tenant, server, None, 0, 0, {}, "unreachable")
                     conn.commit()
                 time.sleep(BATCH_DELAY)
                 continue
 
-            # Step 3: count US + data/ML jobs
-            us_jobs, data_ml_jobs = _count_jobs(tenant, server, board)
+            # Step 3: count US + admitted jobs across the full Lander domain set.
+            total_jobs = _try_board(tenant, server, board) or 0
+            us_jobs, target_jobs, domain_counts = _count_jobs(tenant, server, board, total_jobs)
 
-            if data_ml_jobs > 0:
+            if target_jobs > 0:
                 status = "active"
                 results["active"] += 1
                 log.info(
                     f"  ✅ {tenant}.{server}/{board} — "
-                    f"{us_jobs} US jobs, {data_ml_jobs} data/ML"
+                    f"{us_jobs} US jobs, {target_jobs} target {domain_counts}"
                 )
             elif us_jobs > 0:
-                status = "no_data_jobs"
-                results["no_data_jobs"] += 1
-                log.info(f"  ⚪ {tenant}.{server}/{board} — {us_jobs} US jobs, 0 data/ML")
+                status = "no_target_jobs"
+                results["no_target_jobs"] += 1
+                log.info(f"  ⚪ {tenant}.{server}/{board} — {us_jobs} sampled US jobs, 0 target")
             else:
                 status = "unreachable"
                 results["unreachable"] += 1
                 log.info(f"  ❌ {tenant}.{server}/{board} — 0 US jobs")
 
             if apply:
-                update_candidate(cur, tenant, server, board, us_jobs, data_ml_jobs, status)
+                update_candidate(cur, tenant, server, board, us_jobs, target_jobs, domain_counts, status)
                 conn.commit()
 
         except Exception as e:

@@ -4,7 +4,7 @@
   "domains": {
     "data_ml": ["data engineer", "analytics engineer", "data scientist", "machine learning engineer", "business intelligence analyst"],
     "engineering": ["software engineer", "backend engineer", "frontend engineer", "platform engineer", "security engineer", "solutions architect"],
-    "finance": ["financial analyst", "fp&a analyst", "accountant", "controller", "auditor", "treasury analyst", "risk analyst", "internal auditor"],
+    "finance": ["financial analyst", "fp&a analyst", "finance manager", "accountant", "staff accountant", "accounting manager", "controller", "tax analyst", "tax manager", "auditor", "internal auditor", "treasury analyst", "credit analyst", "risk analyst", "financial risk", "investment analyst", "portfolio analyst", "equity research", "actuarial analyst", "underwriter", "pricing analyst"],
     "marketing": ["marketing manager", "product marketing manager", "growth marketing", "marketing operations", "consumer insights", "copywriter"],
     "product": ["product manager", "product operations", "product analyst", "technical product manager"],
     "sales": ["account executive", "sales development representative", "solutions engineer", "customer success", "customer success manager", "revenue operations"],

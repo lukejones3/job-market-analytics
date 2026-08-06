@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS workday_tenants_candidates (
     company_name         TEXT,
     us_jobs_count        INTEGER DEFAULT 0,
     data_ml_jobs_count   INTEGER DEFAULT 0,
+    target_jobs_count    INTEGER DEFAULT 0,
+    domain_counts        JSONB NOT NULL DEFAULT '{}'::jsonb,
     discovery_source     TEXT NOT NULL,
     discovered_at        TIMESTAMPTZ DEFAULT now() NOT NULL,
     last_validated_at    TIMESTAMPTZ,
@@ -46,6 +48,13 @@ CREATE INDEX IF NOT EXISTS idx_wtc_status
 CREATE INDEX IF NOT EXISTS idx_wtc_data_ml_jobs
     ON workday_tenants_candidates(data_ml_jobs_count DESC);
 
+ALTER TABLE workday_tenants_candidates
+    ADD COLUMN IF NOT EXISTS target_jobs_count INTEGER DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS domain_counts JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+CREATE INDEX IF NOT EXISTS idx_wtc_target_jobs
+    ON workday_tenants_candidates(target_jobs_count DESC);
+
 CREATE INDEX IF NOT EXISTS idx_wtc_discovery_source
     ON workday_tenants_candidates(discovery_source);
 """
@@ -54,10 +63,10 @@ COMMENT = """
 COMMENT ON TABLE workday_tenants_candidates IS
     'Staging table for Workday tenant discovery. Populated by discover_workday_tenants.py, '
     'validated by validate_workday_tenants.py. Tenants with status=active and '
-    'data_ml_jobs_count > 0 get written to discovered_companies after manual review.';
+    'target_jobs_count > 0 get written to discovered_companies after manual review.';
 
 COMMENT ON COLUMN workday_tenants_candidates.status IS
-    'pending=not validated | active=has US+data/ML jobs | no_data_jobs=working but no target roles | unreachable=probe failed | integrated=in discovered_companies';
+    'pending=not validated | active=has US target jobs | no_target_jobs=working but no target roles | unreachable=probe failed | integrated=in discovered_companies';
 """
 
 
