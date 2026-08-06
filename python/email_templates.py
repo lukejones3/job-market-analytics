@@ -15,6 +15,8 @@ Usage in api.py:
 
 import html as _h
 
+LANDER_LOGO_URL = "https://www.landerjob.com/icon.png"
+
 
 def _base(content: str) -> str:
     return f"""\
@@ -62,7 +64,10 @@ def _logo_row(badge: str = "") -> str:
           <tr>
             <td class="email-pad" style="padding:30px 40px 0;">
               <table width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
-                <td><span style="font-size:24px;font-weight:800;color:#f5f5f5;letter-spacing:-0.8px;line-height:1;">lander</span>{badge_html}</td>
+                <td>
+                  <img src="{LANDER_LOGO_URL}" width="32" height="32" alt="Lander" style="display:inline-block;width:32px;height:32px;margin:0 9px 0 0;vertical-align:middle;border:0;">
+                  <span style="font-size:24px;font-weight:800;color:#f5f5f5;letter-spacing:-0.8px;line-height:1;vertical-align:middle;">lander</span>{badge_html}
+                </td>
                 <td align="right"><span style="display:inline-block;width:8px;height:8px;border-radius:8px;background:#d4ff3a;box-shadow:0 0 14px rgba(212,255,58,0.65);"></span></td>
               </tr></table>
             </td>

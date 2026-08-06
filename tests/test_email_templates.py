@@ -1,4 +1,4 @@
-from python.email_templates import free_signup_html, free_signup_plain, pro_welcome_html
+from python.email_templates import LANDER_LOGO_URL, free_signup_html, free_signup_plain, pro_welcome_html
 
 
 def test_access_email_uses_current_product_language_and_escapes_url() -> None:
@@ -9,6 +9,8 @@ def test_access_email_uses_current_product_language_and_escapes_url() -> None:
     assert "Live roles" in rendered
     assert "Resume fit" in rendered
     assert "One workspace" in rendered
+    assert f'src="{LANDER_LOGO_URL}"' in rendered
+    assert 'alt="Lander"' in rendered
     assert "Upgrade to Pro" not in rendered
     assert "token=a&amp;next=/jobs" in rendered
 
