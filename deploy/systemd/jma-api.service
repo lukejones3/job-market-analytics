@@ -5,6 +5,7 @@ After=network.target postgresql.service
 [Service]
 User=lander-api
 Group=lander-api
+SupplementaryGroups=lander-pipeline
 WorkingDirectory=/opt/job-market-analytics
 EnvironmentFile=/opt/job-market-analytics/.env
 Environment=HOME=/var/lib/lander-api
