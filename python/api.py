@@ -18,6 +18,8 @@ import secrets
 import time
 import argparse
 import asyncio
+import functools
+import threading
 from datetime import datetime, timezone, date
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -139,6 +141,27 @@ limiter = Limiter(key_func=_get_real_client_ip)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)  # SLOWAPI_MIDDLEWARE_v1: required for reliable rate limiting
+
+
+def ttl_payload_cache(seconds: int, key_arg: str | None = None):
+    """Small per-worker TTL cache for expensive anonymous aggregate endpoints."""
+    def decorate(func):
+        values: dict[str, tuple[float, Any]] = {}
+        lock = threading.RLock()
+
+        @functools.wraps(func)
+        def wrapped(*args, **kwargs):
+            key = str(kwargs.get(key_arg, "public")) if key_arg else "public"
+            now = time.monotonic()
+            with lock:
+                cached = values.get(key)
+                if cached and cached[0] > now:
+                    return cached[1]
+                payload = func(*args, **kwargs)
+                values[key] = (now + seconds, payload)
+                return payload
+        return wrapped
+    return decorate
 
 # ── Role family SQL ───────────────────────────────────────────────────────────
 ROLE_FAMILY_SQL = """
@@ -325,6 +348,7 @@ def me(key: dict = Depends(verify_api_key)):
 # ── Public Market Pulse ──────────────────────────────────────────────────────
 @app.get("/v1/public/market", tags=["Public"])
 @limiter.limit("60/minute")
+@ttl_payload_cache(300)
 def public_market(request: Request, response: Response, conn=Depends(get_conn)):
     """Exact Browse All counts plus a small fresh-job preview for landerjob.com."""
     response.headers["Cache-Control"] = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
@@ -425,6 +449,7 @@ PUBLIC_INSIGHT_SLUGS = {
 
 @app.get("/v1/public/insights/{insight_slug}", tags=["Public"])
 @limiter.limit("60/minute")
+@ttl_payload_cache(900, "insight_slug")
 def public_insight(insight_slug: str, request: Request, response: Response, conn=Depends(get_conn)):
     response.headers["Cache-Control"] = "public, max-age=60, s-maxage=900, stale-while-revalidate=1800"
     if insight_slug not in PUBLIC_INSIGHT_SLUGS:
