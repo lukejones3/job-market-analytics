@@ -407,8 +407,8 @@ def print_report() -> None:
 
 def integrate_active() -> None:
     """
-    Write tenants with status='active' and target_jobs_count > 0 into
-    discovered_companies so fetch_all_workday() picks them up nightly.
+    Write every reachable US tenant into discovered_companies so the nightly
+    job-level role policy—not a stale tenant snapshot—decides admission.
     board_token format: "tenant/server/board"
 
     Marks integrated tenants with status='integrated'.
@@ -417,10 +417,10 @@ def integrate_active() -> None:
     cur = conn.cursor(cursor_factory=DictCursor)
 
     cur.execute("""
-        SELECT tenant, server, board, company_name, target_jobs_count, domain_counts
+        SELECT tenant, server, board, company_name, us_jobs_count, target_jobs_count, domain_counts
         FROM workday_tenants_candidates
-        WHERE status = 'active'
-          AND target_jobs_count > 0
+        WHERE status IN ('active', 'no_target_jobs', 'no_data_jobs')
+          AND us_jobs_count > 0
           AND board IS NOT NULL
           AND server IS NOT NULL
         ORDER BY target_jobs_count DESC
@@ -428,7 +428,7 @@ def integrate_active() -> None:
     candidates = cur.fetchall()
 
     if not candidates:
-        log.info("No active candidates with target jobs to integrate.")
+        log.info("No reachable US Workday candidates to integrate.")
         cur.close()
         conn.close()
         return
@@ -442,6 +442,7 @@ def integrate_active() -> None:
         board  = r["board"]
         name   = r["company_name"] or tenant.title()
         target = r["target_jobs_count"]
+        observed = max(target, r.get("us_jobs_count", 0) or 0)
 
         board_token = f"{tenant}/{server}/{board}"
         company_id  = "WD" + hashlib.md5(f"workday|{board_token}".encode()).hexdigest()[:10]
@@ -460,7 +461,7 @@ def integrate_active() -> None:
                     enabled = true,
                     last_seen_at = now()
                 """,
-                (company_id, name, board_token, target, target),
+                (company_id, name, board_token, observed, observed),
             )
             cur.execute(
                 "UPDATE workday_tenants_candidates SET status='integrated' WHERE tenant=%s",
