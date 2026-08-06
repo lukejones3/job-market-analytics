@@ -11,6 +11,7 @@ from python.publish_snapshot import _slug
 class SeoPublicationTest(unittest.TestCase):
     def test_job_title_slug_matches_public_url_contract(self):
         self.assertEqual(_slug("Senior Data Engineer — AI/ML"), "senior-data-engineer-ai-ml")
+        self.assertEqual(_slug("Research & Développement"), "research-and-developpement")
         self.assertEqual(len(_slug("x" * 200)), 80)
 
     def test_indexing_notifier_is_safe_without_credentials(self):

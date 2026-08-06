@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import unicodedata
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -25,7 +26,8 @@ CANDIDATE = """
 """
 
 def _slug(value: str) -> str:
-    value = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")[:80]
+    value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii").lower().replace("&", " and ")
+    value = re.sub(r"[^a-z0-9]+", "-", value).strip("-")[:80]
     return value or "job"
 
 
