@@ -20,6 +20,7 @@ import argparse
 import asyncio
 import functools
 import threading
+from urllib.parse import quote, urlparse
 from datetime import datetime, timezone, date
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -1470,6 +1471,11 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
     client = (body.get("client") or "web").strip().lower()
     if client not in {"web", "mobile"}:
         client = "web"
+    callback_url = (body.get("callback_url") or "").strip()[:1000]
+    if callback_url:
+        callback_scheme = urlparse(callback_url).scheme.lower()
+        if callback_scheme not in {"exp", "exps", "lander"}:
+            callback_url = ""
     user_agent = request.headers.get("user-agent", "")[:200]
 
     if not email or not EMAIL_RE.match(email):
@@ -1547,6 +1553,8 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
         lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
         if client == "mobile":
             access_url = f"{lander_base}/mobile-auth?token={raw_key}"
+            if callback_url:
+                access_url += f"&callback={quote(callback_url, safe='')}"
         else:
             access_url = f"{lander_base}/auth/verify?token={raw_key}"
         subject_suffix = raw_key[-4:].upper() if client == "mobile" else ""
