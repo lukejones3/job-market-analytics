@@ -43,6 +43,11 @@ from python.email_templates import (
     FREE_SIGNUP_SUBJECT, free_signup_html, free_signup_plain,
     PRO_WELCOME_SUBJECT, pro_welcome_html, pro_welcome_plain,
 )
+from python.cache_policy import (
+    PUBLIC_CACHE_POLICIES,
+    PUBLIC_INSIGHT_CACHE_CONTROL,
+    public_cache_control,
+)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -169,6 +174,7 @@ def ttl_payload_cache(seconds: int, key_arg: str | None = None):
                 return payload
         return wrapped
     return decorate
+
 
 # ── Role family SQL ───────────────────────────────────────────────────────────
 ROLE_FAMILY_SQL = """
@@ -346,12 +352,17 @@ async def log_requests(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
-    if request.method == "GET" and request.url.path.startswith("/v1/public/") and response.status_code == 200:
-        # Match the in-process TTL while allowing Next/CDN layers to absorb
-        # anonymous aggregate traffic without caching user-specific responses.
-        response.headers["Cache-Control"] = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
-    elif request.url.path.startswith(("/auth/", "/stripe/", "/v1/resume")):
+    public_policy = public_cache_control(request.url.path)
+    if request.method == "GET" and public_policy and response.status_code == 200:
+        response.headers["Cache-Control"] = public_policy
+        response.headers["X-Lander-Cache-Policy"] = (
+            "public-insight-15m" if request.url.path.startswith("/v1/public/insights/")
+            else "public-market-5m"
+        )
+    else:
+        # Private by default. Public caching must be explicitly allow-listed.
         response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Lander-Cache-Policy"] = "private-no-store"
     return response
 
 # ── Health ────────────────────────────────────────────────────────────────────
@@ -398,7 +409,7 @@ def me(key: dict = Depends(verify_api_key)):
 @ttl_payload_cache(300)
 def public_market(request: Request, response: Response, conn=Depends(get_conn)):
     """Exact Browse All counts plus a small fresh-job preview for landerjob.com."""
-    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=300, stale-while-revalidate=600"
+    response.headers["Cache-Control"] = PUBLIC_CACHE_POLICIES["/v1/public/market"]
     params = {
         "us_states": list(PUBLIC_US_STATES),
         "blocked_companies": list(PUBLIC_BLOCKED_COMPANY_FRAGMENTS),
@@ -418,7 +429,8 @@ def public_market(request: Request, response: Response, conn=Depends(get_conn)):
                 WHERE COALESCE(jp.posted_date::timestamptz, jp.date_found::timestamptz)
                     >= NOW() - INTERVAL '24 hours'
             )::int AS fresh_today,
-            MAX(jp.date_found) AS indexed_at
+            MAX(jp.date_found) AS indexed_at,
+            (SELECT MAX(pr.published_at) FROM publication_runs pr) AS publication_at
         FROM job_postings jp
         JOIN companies c ON c.company_id = jp.company_id
         WHERE {PUBLIC_FEED_WHERE}
@@ -498,7 +510,7 @@ PUBLIC_INSIGHT_SLUGS = {
 @limiter.limit("60/minute")
 @ttl_payload_cache(900, "insight_slug")
 def public_insight(insight_slug: str, request: Request, response: Response, conn=Depends(get_conn)):
-    response.headers["Cache-Control"] = "public, max-age=60, s-maxage=900, stale-while-revalidate=1800"
+    response.headers["Cache-Control"] = PUBLIC_INSIGHT_CACHE_CONTROL
     if insight_slug not in PUBLIC_INSIGHT_SLUGS:
         raise HTTPException(status_code=404, detail="Unknown public insight")
 
