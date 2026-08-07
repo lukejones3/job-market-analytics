@@ -7,11 +7,26 @@ worker = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(worker)
 
 
+def requirements():
+    return {
+        "roleFamilies": ["Data Engineering", "Analytics Engineering"],
+        "locations": ["Seattle, WA"],
+        "skills": ["Python", "SQL"],
+        "remoteAllowed": True,
+    }
+
+
 def test_queries_include_independent_web_search():
     queries = worker.search_queries({"roleFamilies": ["data engineering"], "locations": ["Seattle"], "remoteAllowed": True})
     assert any("linkedin.com/in" in query for query in queries)
     assert any("staffing" in query for query in queries)
     assert any("remote" in query.lower() for query in queries)
+
+
+def test_search_query_ceiling():
+    queries = worker.search_queries(requirements())
+    assert 0 < len(queries) <= 8
+    assert len(queries) <= worker.MAX_SERPER_QUERIES
 
 
 def test_web_only_recruiter_can_rank_without_lander_job():
@@ -39,6 +54,16 @@ def test_recruiter_filter_does_not_admit_department_heads():
     assert worker.re.search(allowed, "Talent Acquisition Partner", worker.re.I)
     assert not worker.re.search(allowed, "Head of Data", worker.re.I)
     assert not worker.re.search(allowed, "Director of AI", worker.re.I)
+
+
+def test_public_results_require_recruiter_evidence():
+    rows = worker.fallback_web_contacts([
+        {"title": "Jane Doe - Technical Recruiter | LinkedIn", "link": "https://www.linkedin.com/in/jane-doe", "snippet": "Technical recruiter focused on data engineering searches in Seattle."},
+        {"title": "John Doe - Data Engineer | LinkedIn", "link": "https://www.linkedin.com/in/john-doe", "snippet": "Data engineer building pipelines."},
+        {"title": "Alex Doe - Staff Data Engineer | LinkedIn", "link": "https://www.linkedin.com/in/alex-doe", "snippet": "Staff engineer building pipelines."},
+    ])
+    assert len(rows) == 1
+    assert rows[0]["full_name"] == "Jane Doe"
 
 
 def test_public_email_requires_literal_search_evidence():
@@ -77,6 +102,20 @@ def test_public_email_rejects_same_name_without_recruiting_context():
     assert email is None
 
 
+def test_drafts_are_stable_and_use_only_supplied_profile_data():
+    contact = {"full_name": "Jane Doe", "firm": "Example Recruiting", "title": "Technical Recruiter", "evidence": "Recruiter focused on data engineering searches.", "linkedin_url": "https://www.linkedin.com/in/jane-doe", "openings": [{"title": "Data Engineer"}]}
+    summary = "Builds production Python and SQL pipelines."
+    links = {"portfolio": "https://example.com/work"}
+    first = worker.draft_leads([contact], requirements(), summary, links)
+    second = worker.draft_leads([contact], requirements(), summary, links)
+    assert first == second
+    draft = next(iter(first.values()))
+    assert summary in draft["body"]
+    assert links["portfolio"] in draft["body"]
+    assert "Data Engineer" in draft["body"]
+    assert len(draft["connection_message"]) <= 200
+
+
 def test_location_scope_does_not_leak_remote_jobs_when_remote_is_disabled():
     source = MODULE.read_text()
     assert 'if requirements.get("remoteAllowed", True):' in source
@@ -87,3 +126,10 @@ def test_interrupted_campaigns_are_recovered():
     source = MODULE.read_text()
     assert "status='running' AND updated_at < now() - interval '45 minutes'" in source
     assert "Interrupted worker run recovered and requeued" in source
+
+
+if __name__ == "__main__":
+    for name, value in sorted(globals().items()):
+        if name.startswith("test_") and callable(value):
+            value()
+    print("career agent tests passed")

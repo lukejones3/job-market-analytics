@@ -30,9 +30,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 log = logging.getLogger("career-agent")
 
 SERPER_URL = "https://google.serper.dev/search"
-OPENAI_URL = "https://api.openai.com/v1/chat/completions"
-MODEL = os.getenv("CAREER_AGENT_MODEL", "gpt-5-nano")
 MAX_LEADS = int(os.getenv("CAREER_AGENT_MAX_LEADS", "20"))
+MAX_SERPER_QUERIES = int(os.getenv("CAREER_AGENT_MAX_SERPER_QUERIES", "32"))
+MONTHLY_SERPER_BUDGET = int(os.getenv("CAREER_AGENT_MONTHLY_SERPER_BUDGET", "10000"))
+SERPER_COST_PER_QUERY = float(os.getenv("SERPER_COST_PER_QUERY", "0.001"))
+CACHE_MAX_AGE_DAYS = int(os.getenv("CAREER_AGENT_CONTACT_CACHE_DAYS", "120"))
 
 
 def conn():
@@ -107,17 +109,47 @@ def load_profile(cur, user_id: str) -> tuple[str, dict]:
     cur.execute("SELECT candidate_summary,links FROM career_profiles WHERE user_id=%s", (user_id,))
     row = cur.fetchone() or {}
     summary = (row.get("candidate_summary") or "").strip()
-    # Use the private resume only to create the candidate packet; it is never sent to search.
-    if not summary:
-        cur.execute("SELECT to_regclass('public.resumes') AS table_name")
-        if (cur.fetchone() or {}).get("table_name"):
-            cur.execute(
-                "SELECT resume_text FROM resumes WHERE user_id=%s AND status='matched' ORDER BY updated_at DESC LIMIT 1", (user_id,)
-            )
-            resume = cur.fetchone()
-            if resume and resume.get("resume_text"):
-                summary = re.sub(r"\s+", " ", resume["resume_text"])[:6000]
     return summary, row.get("links") or {}
+
+
+def cached_recruiters(cur, requirements: dict, limit: int = 60) -> list[dict]:
+    """Reuse recent, sourced contacts before spending another search credit."""
+    terms = [str(v).lower() for v in requirements.get("roleFamilies", []) + requirements.get("skills", [])]
+    locations = [str(v).lower() for v in requirements.get("locations", [])]
+    cur.execute(
+        """
+        SELECT contact_id,full_name,firm,title,location,specialty,linkedin_url,
+               business_email,evidence,evidence_urls,source_kinds,verified_at
+        FROM professional_contacts
+        WHERE verified_at >= now()-(%s * interval '1 day')
+          AND (linkedin_url IS NOT NULL OR business_email IS NOT NULL)
+          AND lower(COALESCE(title,'')) ~ 'recruit|talent|staffing|sourc'
+        ORDER BY verified_at DESC LIMIT %s
+        """, (CACHE_MAX_AGE_DAYS, limit * 4)
+    )
+    matches = []
+    for row in cur.fetchall():
+        item = dict(row)
+        haystack = " ".join(str(item.get(k) or "") for k in ("firm", "title", "location", "specialty", "evidence")).lower()
+        role_match = not terms or any(term in haystack for term in terms)
+        location_match = not locations or any(loc in haystack for loc in locations) or requirements.get("remoteAllowed", True)
+        if not (role_match and location_match):
+            continue
+        item.update({"source_kind": "web", "openings": [], "evidence_urls": item.get("evidence_urls") or []})
+        matches.append(item)
+        if len(matches) >= limit:
+            break
+    return matches
+
+
+def serper_budget(cur, campaign_id: str) -> int:
+    cur.execute("""SELECT COALESCE(sum(units),0)::int AS used FROM career_agent_usage
+        WHERE provider='serper' AND created_at >= date_trunc('month',now())""")
+    month_used = int(cur.fetchone()["used"])
+    cur.execute("""SELECT COALESCE(sum(units),0)::int AS used FROM career_agent_usage
+        WHERE provider='serper' AND campaign_id=%s""", (campaign_id,))
+    campaign_used = int(cur.fetchone()["used"])
+    return max(0, min(MAX_SERPER_QUERIES-campaign_used, MONTHLY_SERPER_BUDGET-month_used))
 
 
 def target_jobs(cur, requirements: dict, limit: int = 160) -> list[dict]:
@@ -251,7 +283,7 @@ def public_email_from_results(results: list[dict], full_name: str = "", firm: st
     return None, None
 
 
-def enrich_recruiter_emails(contacts: list[dict], limit: int = 24) -> tuple[list[dict], int]:
+def enrich_recruiter_emails(contacts: list[dict], limit: int) -> tuple[list[dict], int]:
     queries = 0
     for contact in contacts[:limit]:
         if contact.get("business_email"):
@@ -275,26 +307,6 @@ def enrich_recruiter_emails(contacts: list[dict], limit: int = 24) -> tuple[list
     return contacts, queries
 
 
-def extract_json(text: str) -> Any:
-    cleaned = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    return json.loads(cleaned)
-
-
-def model_json(system: str, payload: dict) -> tuple[Any, dict]:
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise RuntimeError("OPENAI_API_KEY not configured")
-    response = requests.post(
-        OPENAI_URL,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json={"model": MODEL, "messages": [{"role": "system", "content": system}, {"role": "user", "content": json.dumps(payload)}], "response_format": {"type": "json_object"}},
-        timeout=90,
-    )
-    response.raise_for_status()
-    body = response.json()
-    return extract_json(body["choices"][0]["message"]["content"]), body.get("usage", {})
-
-
 def fallback_web_contacts(results: list[dict]) -> list[dict]:
     contacts = []
     for result in results:
@@ -303,33 +315,15 @@ def fallback_web_contacts(results: list[dict]) -> list[dict]:
         if "linkedin.com/in/" not in link or " - " not in title:
             continue
         name, rest = title.split(" - ", 1)
-        if not re.search(r"recruit|talent|staff", rest, re.I):
+        if not re.search(r"recruit|talent|staffing|sourc", rest, re.I):
             continue
         contacts.append({"full_name": name.strip(), "title": rest.strip(), "firm": "Independent / verify", "linkedin_url": link, "location": None, "specialty": None, "business_email": None, "evidence": result.get("snippet", ""), "evidence_urls": [link], "openings": []})
     return contacts
 
 
-def web_contacts(results: list[dict], requirements: dict) -> tuple[list[dict], dict]:
+def web_contacts(results: list[dict]) -> list[dict]:
     unique = {result.get("link"): result for result in results if result.get("link")}.values()
-    compact = [{"title": r.get("title"), "url": r.get("link"), "snippet": r.get("snippet"), "date": r.get("date")} for r in unique]
-    try:
-        parsed, model_usage = model_json(
-            "Extract professional recruiters from supplied search results only. Never invent a person, employer, email, URL, opening, or fact. Return JSON with key leads. Each lead: full_name, firm, title, location, specialty, linkedin_url, evidence, evidence_urls, relevant_openings. Include recruiters at staffing firms and independent recruiters even when no listed company job exists. Exclude job-seeker profiles and unverifiable names.",
-            {"requirements": requirements, "search_results": compact},
-        )
-        leads = parsed.get("leads", []) if isinstance(parsed, dict) else []
-        allowed_urls = {item["url"] for item in compact}
-        safe = []
-        for lead in leads:
-            urls = [url for url in lead.get("evidence_urls", []) if url in allowed_urls]
-            linkedin = lead.get("linkedin_url") if lead.get("linkedin_url") in allowed_urls else next((url for url in urls if "linkedin.com/in/" in url), None)
-            if not lead.get("full_name") or not urls:
-                continue
-            safe.append({**lead, "linkedin_url": linkedin, "evidence_urls": urls, "business_email": None, "openings": lead.get("relevant_openings", [])})
-        return safe, model_usage
-    except Exception as exc:
-        log.warning("Model extraction failed, using strict parser: %s", exc)
-        return fallback_web_contacts(list(unique)), {}
+    return fallback_web_contacts(list(unique))
 
 
 def contact_key(contact: dict) -> str:
@@ -384,31 +378,35 @@ def select_contacts(contacts: list[dict], limit: int = MAX_LEADS) -> list[dict]:
     return sorted(selected, key=lambda item: item["score"], reverse=True)
 
 
-def draft_leads(contacts: list[dict], requirements: dict, summary: str, links: dict) -> tuple[dict[str, dict], dict]:
-    compact = [{"id": contact_key(c), "name": c.get("full_name"), "firm": c.get("firm"), "title": c.get("title"), "evidence": c.get("evidence"), "openings": c.get("openings", [])[:2]} for c in contacts]
-    try:
-        parsed, model_usage = model_json(
-            "Write concise, specific recruiter outreach using only supplied facts. Do not use inflated praise. Return JSON object with key drafts, an array of: id, subject, body, connection_message, match_reason. Body should be 110-180 words, direct, human, and mention the strongest true evidence. connection_message must be 200 characters or fewer. The candidate is asking to connect or enter the recruiter's candidate pool, not claiming entitlement to a role.",
-            {"requirements": requirements, "candidate_summary": summary[:5000], "links": links, "contacts": compact},
+def draft_leads(contacts: list[dict], requirements: dict, summary: str, links: dict) -> dict[str, dict]:
+    """Stable, editable outreach. No model call and no invented personalization."""
+    drafts = {}
+    roles = ", ".join(requirements.get("roleFamilies", [])[:3]) or "data and automation"
+    locations = ", ".join(requirements.get("locations", [])[:2]) or "remote US"
+    positioning = re.sub(r"\s+", " ", summary).strip()[:280]
+    portfolio = next((value for value in links.values() if value), None)
+    for contact in contacts:
+        cid = contact_key(contact)
+        first = (contact.get("full_name") or "there").split()[0]
+        openings = contact.get("openings", [])
+        opening_line = ""
+        if openings:
+            opening_line = f" I also saw {contact.get('firm') or 'your team'} has a relevant opening for {openings[0].get('title', 'this area')}."
+        background = f" {positioning}" if positioning else ""
+        link_line = f"\n\nWork samples: {portfolio}" if portfolio else ""
+        body = (
+            f"Hi {first} — I’m targeting {locations} {roles} roles and found your recruiting work while researching this market."
+            f"{opening_line}{background}\n\nWould you be open to connecting or adding me to your candidate pool for relevant opportunities?"
+            f" I’m happy to send a concise resume and project details.{link_line}"
         )
-        return {item["id"]: item for item in parsed.get("drafts", []) if item.get("id")}, model_usage
-    except Exception as exc:
-        log.warning("Draft generation failed, using grounded template: %s", exc)
-        drafts = {}
-        roles = ", ".join(requirements.get("roleFamilies", [])[:3]) or "technical data and automation"
-        locations = ", ".join(requirements.get("locations", [])[:2]) or "remote"
-        for contact in contacts:
-            cid = contact_key(contact)
-            first = (contact.get("full_name") or "there").split()[0]
-            drafts[cid] = {"id": cid, "subject": f"{locations} {roles} candidate", "body": f"Hi {first} — I’m targeting {locations} {roles} roles and found your recruiting work while researching the market. My background includes production SQL/Python data systems, workflow automation, and independently shipped technical products.\n\nI’m open to relevant direct-hire, contract, or contract-to-hire opportunities. Would you be open to connecting or adding me to your candidate pool? I can send a concise resume and project links.", "connection_message": f"Hi {first} — I’m targeting {locations} {roles} roles and your recruiting focus looked relevant. Open to connecting?", "match_reason": contact.get("evidence") or "Recruiting focus overlaps the requested search."}
-        return drafts, {}
-
-
-def estimated_model_cost(model_usage: dict) -> float:
-    prompt = float(model_usage.get("prompt_tokens", 0))
-    completion = float(model_usage.get("completion_tokens", 0))
-    # Default estimate for GPT-5 nano; exact usage is retained for later reconciliation.
-    return prompt / 1_000_000 * 0.05 + completion / 1_000_000 * 0.40
+        drafts[cid] = {
+            "id": cid,
+            "subject": f"{locations} {roles} candidate",
+            "body": body,
+            "connection_message": f"Hi {first} — I’m targeting {locations} {roles} roles and your recruiting focus looked relevant. Open to connecting?"[:200],
+            "match_reason": contact.get("evidence") or "Recruiting focus overlaps the requested search.",
+        }
+    return drafts
 
 
 def process(db, campaign: dict):
@@ -421,37 +419,47 @@ def process(db, campaign: dict):
             db.commit()
             jobs = target_jobs(cur, requirements)
             l_contacts = lander_contacts(cur, jobs)
-            event(cur, campaign_id, "web_search", f"Found {len(jobs)} matching openings; expanding into independent recruiter search", {"jobs": len(jobs), "lander_contacts": len(l_contacts)})
+            cached = cached_recruiters(cur, requirements)
+            reusable = merge_contacts(cached, l_contacts)
+            remaining_slots = max(0, MAX_LEADS-len(reusable))
+            budget = serper_budget(cur, campaign_id)
+            event(cur, campaign_id, "cache_search", f"Found {len(cached)} reusable recruiter records", {"jobs": len(jobs), "lander_contacts": len(l_contacts), "cached_contacts": len(cached), "serper_budget": budget})
             db.commit()
 
-            queries = search_queries(requirements)
+            # Search only enough to fill the missing lead inventory. A mature
+            # recruiter graph should make later campaigns progressively cheaper.
+            desired_queries = max(0, min(8, (remaining_slots + 2) // 3))
+            queries = search_queries(requirements)[:min(desired_queries, budget)]
             results = []
+            executed_queries = 0
             for query in queries:
                 try:
                     results.extend(serper_search(query))
+                    executed_queries += 1
                 except Exception as exc:
                     log.warning("Serper query failed: %s", exc)
-            usage(cur, campaign_id, "serper", "recruiter_search", len(queries), 0, {"queries": queries})
-            event(cur, campaign_id, "verification", f"Reviewing {len(results)} web results for recruiter evidence", {"queries": len(queries), "results": len(results)})
+            usage(cur, campaign_id, "serper", "recruiter_search", executed_queries,
+                  executed_queries*SERPER_COST_PER_QUERY, {"queries": queries, "unit_cost": SERPER_COST_PER_QUERY})
+            event(cur, campaign_id, "verification", f"Reviewing {len(results)} web results for recruiter evidence", {"queries": executed_queries, "results": len(results)})
             db.commit()
 
-            w_contacts, extraction_usage = web_contacts(results, requirements)
-            if extraction_usage:
-                usage(cur, campaign_id, "openai", "evidence_extraction", extraction_usage.get("total_tokens", 0), estimated_model_cost(extraction_usage), extraction_usage)
-            contacts = merge_contacts(l_contacts, w_contacts)
+            w_contacts = web_contacts(results)
+            contacts = merge_contacts(reusable, w_contacts)
             event(cur, campaign_id, "email_search", f"Searching public sources for recruiter email addresses", {"contacts": len(contacts)})
             db.commit()
-            contacts, email_queries = enrich_recruiter_emails(contacts)
-            usage(cur, campaign_id, "serper", "public_email_search", email_queries, 0, {"contacts_checked": min(len(contacts), 24)})
+            budget = serper_budget(cur, campaign_id)
+            email_limit = min(24, budget)
+            contacts, email_queries = enrich_recruiter_emails(contacts, email_limit)
+            usage(cur, campaign_id, "serper", "public_email_search", email_queries,
+                  email_queries*SERPER_COST_PER_QUERY,
+                  {"contacts_checked": email_limit, "unit_cost": SERPER_COST_PER_QUERY})
             for contact in contacts:
                 contact["score"] = score_contact(contact, requirements)
             contacts = select_contacts(contacts)
             event(cur, campaign_id, "drafting", f"Preparing {len(contacts)} sourced contacts for approval", {"web_contacts": len(w_contacts), "lander_contacts": len(l_contacts)})
             db.commit()
 
-            drafts, draft_usage = draft_leads(contacts, requirements, summary, links)
-            if draft_usage:
-                usage(cur, campaign_id, "openai", "outreach_drafting", draft_usage.get("total_tokens", 0), estimated_model_cost(draft_usage), draft_usage)
+            drafts = draft_leads(contacts, requirements, summary, links)
 
             for rank, contact in enumerate(contacts, 1):
                 cid = contact_key(contact)
