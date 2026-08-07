@@ -698,6 +698,34 @@ def _clean(s: str) -> str:
     s = re.sub(r"[ \t]+", " ", s)
     return s.strip()
 
+
+_EMPLOYMENT_TYPE_ALIASES = {
+    "full time": "full-time",
+    "fulltime": "full-time",
+    "part time": "part-time",
+    "parttime": "part-time",
+    "contract": "contract",
+    "contractor": "contract",
+    "temporary": "temporary",
+    "temp": "temporary",
+    "intern": "internship",
+    "internship": "internship",
+    "volunteer": "volunteer",
+    "per diem": "per-diem",
+    "perdiem": "per-diem",
+}
+
+
+def _normalize_employment_type(value: Optional[str]) -> Optional[str]:
+    """Normalize explicit ATS values without inferring a type that was not supplied."""
+    if not value:
+        return None
+    canonical = re.sub(r"[\s_-]+", " ", str(value).strip().lower())
+    return _EMPLOYMENT_TYPE_ALIASES.get(
+        canonical,
+        _EMPLOYMENT_TYPE_ALIASES.get(canonical.replace(" ", "")),
+    )
+
 def _strip_html(html: str) -> str:
     """Strip HTML tags and decode common entities."""
     if not html:
@@ -1210,7 +1238,7 @@ def fetch_lever(company_name: str, company_slug: str) -> List[RawJob]:
             description=description,
             job_url=j.get("hostedUrl", "") or j.get("applyUrl", ""),
             workplace_type=workplace_type,
-            employment_type="full-time" if "full" in commitment else None,
+            employment_type=_normalize_employment_type(commitment),
             posted_date=datetime.fromtimestamp(
                 j["createdAt"] / 1000, tz=timezone.utc
             ).strftime("%Y-%m-%d") if j.get("createdAt") else None,
@@ -1294,7 +1322,7 @@ def fetch_ashby(company_name: str, company_slug: str) -> List[RawJob]:
             description=desc,
             job_url=j.get("jobUrl", "") or j.get("applyUrl", ""),
             workplace_type=workplace_type,
-            employment_type="full-time" if j.get("employmentType") == "FullTime" else None,
+            employment_type=_normalize_employment_type(j.get("employmentType")),
             posted_date=posted,
             metadata={"slug": company_slug, "department": j.get("department", "")},
         ))
@@ -1510,7 +1538,7 @@ def ingest_job(cur, job: RawJob) -> bool:
             salary_min = EXCLUDED.salary_min, salary_max = EXCLUDED.salary_max,
             salary_period = EXCLUDED.salary_period,
             workplace_type = EXCLUDED.workplace_type,
-            employment_type = EXCLUDED.employment_type,
+            employment_type = COALESCE(EXCLUDED.employment_type, job_postings.employment_type),
             job_url = EXCLUDED.job_url,
             loc_country = EXCLUDED.loc_country,
             loc_city = EXCLUDED.loc_city,
@@ -2937,13 +2965,7 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
 
             # Industry / type hints
             type_obj = j.get("typeOfEmployment", {}) or {}
-            employment_type = (type_obj.get("id") or "").lower().replace("_", "-")
-            if employment_type and "full" in employment_type:
-                employment_type = "full-time"
-            elif employment_type and "part" in employment_type:
-                employment_type = "part-time"
-            else:
-                employment_type = None
+            employment_type = _normalize_employment_type(type_obj.get("id"))
 
             # Posted date
             posted_date = None
