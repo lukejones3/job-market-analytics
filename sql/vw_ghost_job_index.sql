@@ -31,17 +31,9 @@ global_baseline AS (
            count(*) AS sample_size FROM reference_closures
 ),
 verified_reappearances AS (
-    SELECT re.job_id, re.gap_days
-    FROM job_posting_events re
-    LEFT JOIN LATERAL (
-        SELECT d.posted_date
-        FROM job_posting_events d
-        WHERE d.job_id=re.job_id AND d.event_type='disappeared'
-          AND d.observed_at<re.observed_at
-        ORDER BY d.observed_at DESC LIMIT 1
-    ) prior ON TRUE
-    WHERE re.event_type='reappeared'
-      AND re.posted_date>prior.posted_date
+    SELECT job_id, floor(observed_gap_days)::int AS gap_days
+    FROM vw_repost_events_classified
+    WHERE signal_class='individual_repost_signal'
 ),
 event_signals AS (
     SELECT job_id, count(*) AS reappearance_count,

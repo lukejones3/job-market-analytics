@@ -78,6 +78,7 @@ except ImportError:
     _DOMAIN_CLASSIFIER_AVAILABLE = False
 
 from company_blocklist import is_company_blocked
+from company_identity import resolved_workday_company_name
 
 _ALIAS_MAP: Optional[Dict] = None
 
@@ -1617,9 +1618,11 @@ def ingest_job(cur, job: RawJob) -> bool:
             """,
             (company_id, job.company)
         )
+        # Source identity is authoritative. Updating existing rows lets a fixed
+        # ATS tenant label repair historical contamination on the next crawl.
         cur.execute(
-            "UPDATE job_postings SET company_id = %s WHERE job_id = %s AND company_id IS NULL",
-            (company_id, job_id)
+            "UPDATE job_postings SET company_id = %s WHERE job_id = %s AND company_id IS DISTINCT FROM %s",
+            (company_id, job_id, company_id)
         )
 
     if inserted and job.title:
@@ -2789,6 +2792,7 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
             parts = board_token.split("/")
             if len(parts) == 3:
                 tenant, wd_server, board = parts
+                company_name = resolved_workday_company_name(tenant, company_name)
                 if board.lower() in ("en-us", "fr-ca", "en-gb", "ja-jp", "de-de"):
                     continue
                 if board_token not in known_tokens:

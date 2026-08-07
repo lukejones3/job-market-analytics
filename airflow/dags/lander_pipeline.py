@@ -27,6 +27,7 @@ with DAG(dag_id="lander_nightly",
         "-f sql/experience_classification_v3.sql "
         "-f sql/ingestion_publication_funnel.sql "
         "-f sql/publication_boundary.sql "
+        "-f sql/company_history_intelligence.sql "
         "-f sql/feed_performance_indexes.sql")
     backup >> observability_schema
     ingests = []
@@ -87,6 +88,8 @@ with DAG(dag_id="lander_nightly",
         f"{PYTHON} python/airflow_quality_gate.py publish")
     publish_snapshot = command("publish_snapshot",
         f"{PYTHON} python/publish_snapshot.py --apply")
+    company_history_snapshot = command("company_history_snapshot",
+        "psql -v ON_ERROR_STOP=1 -c \"SELECT refresh_company_daily_snapshot();\"")
     refresh_seo_index = command("refresh_seo_collection_index",
         f"{PYTHON} python/refresh_seo_collection_index.py")
     notify_google_indexing = command("notify_google_indexing",
@@ -102,7 +105,8 @@ with DAG(dag_id="lander_nightly",
     enrich >> embeddings >> experience
     [experience, skills] >> honesty
     honesty >> discover >> dedup >> canonicalize >> expiry >> dbt_build >> publish_gate >> publish_snapshot
-    publish_snapshot >> refresh_seo_index >> notify_google_indexing >> [report, funnel_report]
+    publish_snapshot >> [company_history_snapshot, refresh_seo_index]
+    refresh_seo_index >> notify_google_indexing >> [report, funnel_report]
 
 with DAG(dag_id="lander_ats_discovery",
     description="Discover, validate, and activate new ATS tenants",
