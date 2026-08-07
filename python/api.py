@@ -1464,6 +1464,9 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
     body = await request.json()
     email = (body.get("email") or "").strip().lower()
     referral = (body.get("ref") or "")[:50]
+    client = (body.get("client") or "web").strip().lower()
+    if client not in {"web", "mobile"}:
+        client = "web"
     user_agent = request.headers.get("user-agent", "")[:200]
 
     if not email or not EMAIL_RE.match(email):
@@ -1539,7 +1542,10 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
 
         # Send welcome email asynchronously (don't block the response)
         lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
-        access_url = f"{lander_base}/auth/verify?token={raw_key}"
+        if client == "mobile":
+            access_url = f"{lander_base}/mobile-auth?token={raw_key}"
+        else:
+            access_url = f"{lander_base}/auth/verify?token={raw_key}"
         background_tasks.add_task(_send_free_signup_email, email, access_url)
 
         return {"status": "ok", "message": "Check your email for access link"}
