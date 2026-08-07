@@ -1418,7 +1418,7 @@ DISPOSABLE_EMAIL_DOMAINS = frozenset({
 
 
 # RESEND_EMAIL_v1
-def _send_free_signup_email(email: str, access_url: str):
+def _send_free_signup_email(email: str, access_url: str, subject_suffix: str = ""):
     """Send welcome email via Resend API (HTTPS — no SMTP port blocking)."""
     import requests as _requests
 
@@ -1442,7 +1442,10 @@ def _send_free_signup_email(email: str, access_url: str):
             json={
                 "from": from_addr,
                 "to": [email],
-                "subject": FREE_SIGNUP_SUBJECT,
+                # Gmail aggressively groups identical magic-link messages. A short
+                # per-request suffix keeps the newest link independently tappable.
+                "subject": f"{FREE_SIGNUP_SUBJECT} · {subject_suffix}" if subject_suffix else FREE_SIGNUP_SUBJECT,
+                "headers": {"X-Entity-Ref-ID": secrets.token_hex(12)},
                 "html": free_signup_html(access_url),
                 "text": free_signup_plain(access_url),
             },
@@ -1546,7 +1549,8 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
             access_url = f"{lander_base}/mobile-auth?token={raw_key}"
         else:
             access_url = f"{lander_base}/auth/verify?token={raw_key}"
-        background_tasks.add_task(_send_free_signup_email, email, access_url)
+        subject_suffix = raw_key[-4:].upper() if client == "mobile" else ""
+        background_tasks.add_task(_send_free_signup_email, email, access_url, subject_suffix)
 
         return {"status": "ok", "message": "Check your email for access link"}
 
