@@ -32,7 +32,7 @@ global_baseline AS (
 ),
 verified_reappearances AS (
     SELECT job_id, floor(observed_gap_days)::int AS gap_days
-    FROM vw_repost_events_classified
+    FROM mv_repost_events_classified
     WHERE signal_class='individual_repost_signal'
 ),
 event_signals AS (

@@ -34,6 +34,17 @@ SELECT *, CASE
 END AS signal_class
 FROM cohorts;
 
+-- Public requests must never recompute the full lifecycle/window geometry.
+-- This cache is refreshed after nightly expiry/event capture and indexed by
+-- job_id for the feed's per-page lookup.
+CREATE MATERIALIZED VIEW IF NOT EXISTS mv_repost_events_classified AS
+SELECT * FROM vw_repost_events_classified;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_mv_repost_events_classified_event
+    ON mv_repost_events_classified(event_id);
+CREATE INDEX IF NOT EXISTS ix_mv_repost_events_classified_job_signal
+    ON mv_repost_events_classified(job_id, signal_class);
+
 CREATE OR REPLACE VIEW vw_company_history_clean AS
 WITH named AS (
     SELECT jp.*, c.company_name,
@@ -68,7 +79,7 @@ WITH named AS (
       count(*) FILTER (WHERE signal_class='individual_repost_signal') AS individual_repost_signals,
       count(*) FILTER (WHERE signal_class='bulk_ats_date_refresh') AS bulk_ats_refresh_events,
       count(DISTINCT observed_at::date) FILTER (WHERE signal_class='bulk_ats_date_refresh') AS bulk_refresh_days
-    FROM vw_repost_events_classified GROUP BY 1
+    FROM mv_repost_events_classified GROUP BY 1
 )
 SELECT b.*, COALESCE(s.individual_repost_signals,0) AS individual_repost_signals,
        COALESCE(s.bulk_ats_refresh_events,0) AS bulk_ats_refresh_events,

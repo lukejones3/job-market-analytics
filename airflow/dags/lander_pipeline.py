@@ -79,6 +79,8 @@ with DAG(dag_id="lander_nightly",
         f"{PYTHON} python/canonicalize_opportunities.py --apply")
     expiry = command("expire_jobs",
         f"{PYTHON} python/expire_jobs.py --since '{{{{ dag_run.start_date.isoformat() }}}}'")
+    refresh_repost_signals = command("refresh_repost_signals",
+        "psql -v ON_ERROR_STOP=1 -c \"REFRESH MATERIALIZED VIEW CONCURRENTLY mv_repost_events_classified;\"")
     dbt_build = command("dbt_build",
         f"cd {ROOT}/dbt/job_analytics_dbt; "
         f"{DBT} build --profiles-dir {ROOT}/dbt/job_analytics_dbt "
@@ -104,7 +106,7 @@ with DAG(dag_id="lander_nightly",
     extract_salaries >> enrich >> skills
     enrich >> embeddings >> experience
     [experience, skills] >> honesty
-    honesty >> discover >> dedup >> canonicalize >> expiry >> dbt_build >> publish_gate >> publish_snapshot
+    honesty >> discover >> dedup >> canonicalize >> expiry >> refresh_repost_signals >> dbt_build >> publish_gate >> publish_snapshot
     publish_snapshot >> [company_history_snapshot, refresh_seo_index]
     refresh_seo_index >> notify_google_indexing >> [report, funnel_report]
 
