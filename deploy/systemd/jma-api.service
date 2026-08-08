@@ -12,9 +12,12 @@ Environment=HOME=/var/lib/lander-api
 Environment=HF_HOME=/var/cache/lander-api/huggingface
 # Nginx is the only public ingress. Binding loopback prevents callers from
 # bypassing TLS, Cloudflare, proxy policy, and trusted client-IP handling.
-ExecStart=/opt/job-market-analytics/.venv/bin/uvicorn python.api:app --host 127.0.0.1 --port 8000 --workers 2
+ExecStart=/opt/job-market-analytics/.venv/bin/uvicorn python.api:app --host 127.0.0.1 --port 8000 --workers 1 --no-server-header
 Restart=always
 RestartSec=5
+MemoryHigh=1G
+MemoryMax=1536M
+MemorySwapMax=256M
 NoNewPrivileges=true
 PrivateTmp=true
 PrivateDevices=true

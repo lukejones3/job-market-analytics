@@ -9,16 +9,18 @@ from psycopg2.extras import RealDictCursor
 
 
 def _credentials():
-    from google.oauth2 import service_account
-
     raw = os.getenv("GOOGLE_INDEXING_SERVICE_ACCOUNT_JSON")
     credential_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if not raw and not credential_file:
+        return None
+
+    from google.oauth2 import service_account
+
     scopes = ["https://www.googleapis.com/auth/indexing"]
     if raw:
         return service_account.Credentials.from_service_account_info(json.loads(raw), scopes=scopes)
     if credential_file:
         return service_account.Credentials.from_service_account_file(credential_file, scopes=scopes)
-    return None
 
 
 def main(limit: int = 200) -> None:

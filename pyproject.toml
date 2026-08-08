@@ -1,6 +1,6 @@
 [tool.pytest.ini_options]
 python_files = ["test_*.py"]
-testpaths = ["python"]
+testpaths = ["python", "tests", "airflow/tests"]
 addopts = "-q"
 
 [tool.ruff]

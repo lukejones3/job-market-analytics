@@ -8,6 +8,7 @@ from pathlib import Path
 _OVERRIDE_PATH = Path(__file__).resolve().parents[1] / "config" / "workday_company_overrides.json"
 _ROLE_LIKE_COMPANY = re.compile(
     r"^(?:senior|sr\.?|lead|principal|staff|junior|jr\.?|associate)?\s*"
+    r"(?:sustainability|marketing|product|financial|operations|risk|healthcare|clinical)?\s*"
     r"(?:data|analytics|business intelligence|bi|machine learning|ml|ai)\s+"
     r"(?:engineer|analyst|scientist|architect|developer|manager|consultant)s?$",
     re.I,

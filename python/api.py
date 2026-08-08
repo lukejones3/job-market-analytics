@@ -20,7 +20,8 @@ import argparse
 import asyncio
 import functools
 import threading
-from urllib.parse import quote, urlparse
+import json
+from urllib.parse import quote
 from datetime import datetime, timezone, date
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -28,7 +29,7 @@ from contextlib import asynccontextmanager
 import psycopg2
 import psycopg2.pool
 import stripe
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import Json, RealDictCursor
 from fastapi import FastAPI, HTTPException, Depends, Request, Response, Query, BackgroundTasks, File, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
@@ -62,6 +63,11 @@ DB_CONFIG = dict(
     user=os.getenv("PGUSER"),
     password=os.getenv("PGPASSWORD"),
 )
+
+PUBLIC_QUERY_STATEMENT_TIMEOUT_MS = int(
+    os.getenv("PUBLIC_QUERY_STATEMENT_TIMEOUT_MS", "10000")
+)
+MOBILE_AUTH_CALLBACK = "lander://auth/verify"
 
 # ── Stripe config ────────────────────────────────────────────────────────────
 STRIPE_SECRET_KEY    = os.getenv("STRIPE_SECRET_KEY", "")
@@ -110,7 +116,14 @@ def get_conn():
     try:
         yield conn
     finally:
-        pool.putconn(conn)
+        # Most reads open an implicit transaction. Never return that transaction,
+        # or a route-local SET LOCAL value, to another request through the pool.
+        try:
+            conn.rollback()
+        except Exception:
+            pool.putconn(conn, close=True)
+        else:
+            pool.putconn(conn)
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -118,6 +131,8 @@ app = FastAPI(
     description="Multi-domain job intelligence sourced directly from major ATS ecosystems.",
     version="1.0.0",
     lifespan=lifespan,
+    docs_url="/docs" if os.getenv("EXPOSE_API_DOCS", "0") == "1" else None,
+    openapi_url="/openapi.json" if os.getenv("EXPOSE_API_DOCS", "0") == "1" else None,
 )
 
 app.add_middleware(
@@ -126,7 +141,7 @@ app.add_middleware(
         "LANDER_CORS_ORIGINS", "https://www.landerjob.com,https://landerjob.com"
     ).split(",") if origin.strip()],
     allow_methods=["GET", "POST"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 
 # ── Rate limiter (AI_PROTECTION_v1, CF_REAL_IP_v1) ───────────────────────────
@@ -156,25 +171,108 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)  # SLOWAPI_MIDDLEWARE_v1: required for reliable rate limiting
 
 
+def _cache_json_dumps(value: Any) -> str:
+    return json.dumps(
+        value,
+        default=lambda item: item.isoformat() if isinstance(item, (date, datetime)) else str(item),
+    )
+
+
+def _shared_cache_get(conn, key: str) -> Any | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT payload FROM api_response_cache WHERE cache_key=%s AND expires_at > NOW()",
+            (key,),
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _shared_cache_put(conn, key: str, payload: Any, seconds: int) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """INSERT INTO api_response_cache(cache_key,payload,expires_at,updated_at)
+               VALUES(%s,%s,NOW() + (%s * INTERVAL '1 second'),NOW())
+               ON CONFLICT(cache_key) DO UPDATE SET
+                 payload=EXCLUDED.payload,
+                 expires_at=EXCLUDED.expires_at,
+                 updated_at=EXCLUDED.updated_at""",
+            (key, Json(payload, dumps=_cache_json_dumps), seconds),
+        )
+    conn.commit()
+
+
 def ttl_payload_cache(seconds: int, key_arg: str | None = None):
-    """Small per-worker TTL cache for expensive anonymous aggregate endpoints."""
+    """Cross-worker database cache with a fast in-process hot path."""
     def decorate(func):
         values: dict[str, tuple[float, Any]] = {}
         lock = threading.RLock()
 
         @functools.wraps(func)
         def wrapped(*args, **kwargs):
-            key = str(kwargs.get(key_arg, "public")) if key_arg else "public"
+            suffix = str(kwargs.get(key_arg, "public")) if key_arg else "public"
+            key = f"{func.__name__}:{suffix}"
             now = time.monotonic()
             with lock:
                 cached = values.get(key)
                 if cached and cached[0] > now:
                     return cached[1]
+
+                conn = kwargs.get("conn")
+                if conn is not None:
+                    try:
+                        shared = _shared_cache_get(conn, key)
+                        if shared is not None:
+                            values[key] = (now + seconds, shared)
+                            return shared
+
+                        # Serialize misses across API workers, then check again in
+                        # case another worker populated the cache while we waited.
+                        lock_id = int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big", signed=True)
+                        with conn.cursor() as cur:
+                            cur.execute("SELECT pg_advisory_xact_lock(%s)", (lock_id,))
+                        shared = _shared_cache_get(conn, key)
+                        if shared is not None:
+                            values[key] = (now + seconds, shared)
+                            return shared
+                    except psycopg2.Error:
+                        log.exception("Shared public cache unavailable for %s; using process cache", key)
+                        conn.rollback()
+
                 payload = func(*args, **kwargs)
+                if conn is not None:
+                    try:
+                        _shared_cache_put(conn, key, payload, seconds)
+                    except psycopg2.Error:
+                        log.exception("Could not populate shared public cache for %s", key)
+                        conn.rollback()
                 values[key] = (now + seconds, payload)
                 return payload
         return wrapped
     return decorate
+
+
+def _set_public_query_timeout(cur) -> None:
+    """Bound anonymous aggregate queries below the edge request timeout."""
+    cur.execute(
+        "SELECT set_config('statement_timeout', %s, true)",
+        (str(PUBLIC_QUERY_STATEMENT_TIMEOUT_MS),),
+    )
+
+
+def _normalize_mobile_auth_callback(value: str | None) -> str | None:
+    """Accept only the installed app callback or an exact operator allow-list entry."""
+    callback = (value or "").strip()[:1000]
+    if not callback:
+        return MOBILE_AUTH_CALLBACK
+    if callback == MOBILE_AUTH_CALLBACK:
+        return callback
+    allowed = {
+        item.strip()
+        for item in os.getenv("LANDER_MOBILE_AUTH_CALLBACK_ALLOWLIST", "").split(",")
+        if item.strip()
+    }
+    return callback if callback in allowed else None
 
 
 # ── Role family SQL ───────────────────────────────────────────────────────────
@@ -353,8 +451,9 @@ async def log_requests(request: Request, call_next):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     public_policy = public_cache_control(request.url.path)
-    if request.method == "GET" and public_policy and response.status_code == 200:
+    if request.method in {"GET", "HEAD"} and public_policy and response.status_code == 200:
         response.headers["Cache-Control"] = public_policy
         response.headers["X-Lander-Cache-Policy"] = (
             "public-insight-15m" if request.url.path.startswith("/v1/public/insights/")
@@ -371,12 +470,16 @@ async def log_requests(request: Request, call_next):
 def health():
     return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
 
+
+@app.head("/health", include_in_schema=False)
+def health_head():
+    return Response(status_code=200)
+
 @app.get("/", tags=["System"])
 def root():
-    return {
+    payload = {
         "name": "Job Market Analytics API",
         "version": "1.0.0",
-        "docs": "/docs",
         "endpoints": [
             "GET /v1/market/overview",
             "GET /v1/market/roles",
@@ -392,6 +495,9 @@ def root():
             "GET /v1/me",
         ]
     }
+    if app.docs_url:
+        payload["docs"] = app.docs_url
+    return payload
 
 # ── Me ────────────────────────────────────────────────────────────────────────
 @app.get("/v1/me", tags=["Auth"])
@@ -416,6 +522,7 @@ def public_market(request: Request, response: Response, conn=Depends(get_conn)):
         "blocked_companies": list(PUBLIC_BLOCKED_COMPANY_FRAGMENTS),
     }
     cur = conn.cursor(cursor_factory=RealDictCursor)
+    _set_public_query_timeout(cur)
     cur.execute(f"""
         SELECT
             COUNT(*)::int AS active_jobs,
@@ -498,6 +605,11 @@ def public_market(request: Request, response: Response, conn=Depends(get_conn)):
     }
 
 
+@app.head("/v1/public/market", include_in_schema=False)
+def public_market_head():
+    return Response(status_code=200)
+
+
 PUBLIC_INSIGHT_SLUGS = {
     "companies-with-lowest-ghost-rates",
     "highest-paying-ai-engineering-jobs",
@@ -520,6 +632,7 @@ def public_insight(insight_slug: str, request: Request, response: Response, conn
         "blocked_companies": list(PUBLIC_BLOCKED_COMPANY_FRAGMENTS),
     }
     cur = conn.cursor(cursor_factory=RealDictCursor)
+    _set_public_query_timeout(cur)
 
     if insight_slug == "companies-with-lowest-ghost-rates":
         cur.execute(f"""
@@ -618,6 +731,13 @@ def public_insight(insight_slug: str, request: Request, response: Response, conn
         "rows": [dict(row) for row in cur.fetchall()],
         "generated_at": datetime.now(timezone.utc),
     }
+
+
+@app.head("/v1/public/insights/{insight_slug}", include_in_schema=False)
+def public_insight_head(insight_slug: str):
+    if insight_slug not in PUBLIC_INSIGHT_SLUGS:
+        raise HTTPException(status_code=404, detail="Unknown public insight")
+    return Response(status_code=200)
 
 # ── Market Overview ───────────────────────────────────────────────────────────
 @app.get("/v1/market/overview", tags=["Market Intelligence"])
@@ -1471,11 +1591,9 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
     client = (body.get("client") or "web").strip().lower()
     if client not in {"web", "mobile"}:
         client = "web"
-    callback_url = (body.get("callback_url") or "").strip()[:1000]
-    if callback_url:
-        callback_scheme = urlparse(callback_url).scheme.lower()
-        if callback_scheme not in {"exp", "exps", "lander"}:
-            callback_url = ""
+    callback_url = _normalize_mobile_auth_callback(body.get("callback_url"))
+    if client == "mobile" and callback_url is None:
+        raise HTTPException(status_code=400, detail="Invalid mobile callback URL")
     user_agent = request.headers.get("user-agent", "")[:200]
 
     if not email or not EMAIL_RE.match(email):
@@ -1553,7 +1671,7 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
         lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
         if client == "mobile":
             access_url = f"{lander_base}/mobile-auth?token={raw_key}"
-            if callback_url:
+            if callback_url and callback_url != MOBILE_AUTH_CALLBACK:
                 access_url += f"&callback={quote(callback_url, safe='')}"
         else:
             access_url = f"{lander_base}/auth/verify?token={raw_key}"
@@ -1753,21 +1871,23 @@ async def verify_billing_client(request: Request, conn=Depends(get_conn)) -> dic
     return await verify_api_key(request=request, conn=conn)
 
 
+def _billing_portal_return_url() -> str:
+    """Return the server-owned post-Stripe destination."""
+    lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com").rstrip("/")
+    return f"{lander_base}/settings"
+
+
 @app.post("/stripe/create-portal")
 async def create_portal(
-    request: Request,
     key: dict = Depends(verify_billing_client),
     conn=Depends(get_conn),
 ):
-    body = await request.json()
-    lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
-    return_url = body.get("return_url", f"{lander_base}/settings")
     email = key.get("billing_email") or _client_email_for_key(conn, key)
     customer_id = _stripe_customer_id_for_email(email)
     try:
         session = stripe.billing_portal.Session.create(
             customer=customer_id,
-            return_url=return_url,
+            return_url=_billing_portal_return_url(),
         )
         return {"portal_url": session.url}
     except Exception as e:
@@ -1830,19 +1950,6 @@ if __name__ == "__main__":
 
 MAX_RESUME_BYTES = 5 * 1024 * 1024
 ALLOWED_RESUME_EXTS = {".pdf", ".docx", ".txt"}
-
-
-async def verify_api_key_or_preview(request: Request, conn=Depends(get_conn)) -> dict:
-    """Wraps verify_api_key but allows a special preview key for local dev."""
-    raw_key = request.headers.get("X-API-Key") or request.query_params.get("api_key")
-    if raw_key == "preview":
-        return {
-            "key_id": "preview",
-            "tier": "free",
-            "client_name": "preview-local",
-            "active": True,
-        }
-    return await verify_api_key(request=request, conn=conn)
 
 
 def _skills_payload(skills_dict):

@@ -15,7 +15,8 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - run: pip install -r requirements.txt pytest ruff
-      - run: python -m compileall -q python
-      - run: ruff check python
+      - run: pip install -r requirements-ci.lock
+      - run: python -m compileall -q python tests airflow
+      - run: ruff check python tests airflow
+      - run: pip-audit -r requirements.lock
       - run: pytest

@@ -1,0 +1,6 @@
+-r requirements.txt
+apache-airflow==3.3.0
+apache-airflow-providers-standard==1.17.0
+pytest
+pip-audit
+ruff
