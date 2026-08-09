@@ -2967,6 +2967,20 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
         )
     except Exception as e:
         log.warning(f"Could not load dynamic Workday companies: {e}")
+    tenant_filter = {
+        token.strip().lower()
+        for token in os.getenv("WORKDAY_TENANT_FILTER", "").split(",")
+        if token.strip()
+    }
+    if tenant_filter:
+        workday_list = [row for row in workday_list if row[1].lower() in tenant_filter]
+        missing = tenant_filter - {row[1].lower() for row in workday_list}
+        if missing:
+            raise RuntimeError(f"Unknown Workday tenant filter(s): {', '.join(sorted(missing))}")
+        log.info(
+            "Workday: scoped recovery filter selected %d tenant(s)",
+            len(workday_list),
+        )
     return workday_list
 
 
