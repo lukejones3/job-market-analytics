@@ -24,6 +24,7 @@ def test_nightly_is_bounded_and_parallelizes_ingest_writers():
         task = nightly.get_task(f"ingest_{source}")
         assert task.upstream_task_ids == {"ensure_observability_schema"}
         assert "ingest_quality_gate" in task.downstream_task_ids
+    assert nightly.get_task("ingest_workday").execution_timeout.total_seconds() == 45 * 60
 
 def test_nightly_has_complete_safe_publish_path():
     nightly = dag("lander_nightly")

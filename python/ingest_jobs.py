@@ -2381,30 +2381,63 @@ _WD_GLOBAL_429_THRESH   = 5     # pause entire harvester after this many global 
 _WD_GLOBAL_PAUSE_SECS   = 300   # 5 minutes
 _WD_LIST_MIN_INTERVAL   = 0.12  # space bursty partition-page requests per tenant
 _WD_DETAIL_MIN_INTERVAL = 0.40  # Workday detail APIs throttle sustained bursts
+_WD_HOST_429_LIMIT      = 6     # stop wasting hours once a tenant blocks detail requests
+_WD_TENANT_TIMEOUT_SECS = int(os.getenv("WORKDAY_TENANT_TIMEOUT_SECONDS", "1800"))
 
 _wd_state: Dict = {"global_429": 0, "pause_until": 0.0}
 _wd_host_locks: Dict[str, asyncio.Lock] = {}
 _wd_host_next: Dict[str, float] = {}
+_wd_host_429s: Dict[str, int] = {}
+_wd_host_circuit_logged: set[str] = set()
 
 _WD_NON_US = frozenset([
     "singapore", "sgp", "india", "ind", "bangalore", "warsaw", "poland",
     "uk", "london", "germany", "france", "canada", "toronto", "amsterdam",
     "dublin", "australia", "sydney", "tokyo", "japan", "china", "chn",
-    "brazil", "mexico", "netherlands", "sweden", "philippines", "thailand",
+    "brazil", "mexico", "colombia", "netherlands", "sweden", "philippines", "thailand",
     "malaysia", "indonesia", "vietnam", "spain", "italy", "belgium",
-    "ireland", "switzerland", "austria", "new zealand", "south korea",
+    "ireland", "sri lanka", "switzerland", "austria", "new zealand", "south korea",
 ])
+_WD_NON_US_SUFFIX_CODES = frozenset({
+    "AR", "AU", "BE", "BR", "CH", "CL", "CN", "CO", "DE", "ES", "FR",
+    "GB", "HK", "ID", "IE", "IN", "IT", "JP", "KR", "MX", "MY", "NL",
+    "NZ", "PH", "PL", "PT", "SE", "SG", "TH", "TW", "VN", "ZA",
+})
 
 
 def _wd_is_obviously_non_us(location: str) -> bool:
     loc_lower = (location or "").lower()
-    if any(token in loc_lower for token in _WD_NON_US):
+    # Match country phrases on word boundaries. Substring matching classified
+    # Indianapolis/Indiana as India and silently discarded legitimate US jobs.
+    normalized = f" {re.sub(r'[^a-z0-9]+', ' ', loc_lower).strip()} "
+    if any(f" {token} " in normalized for token in _WD_NON_US):
+        return True
+    suffix = re.search(r"---([A-Z]{2})$", location or "")
+    if suffix and suffix.group(1) in _WD_NON_US_SUFFIX_CODES:
         return True
     if location and "," in location:
         last = location.split(",")[-1].strip().upper()
         if len(last) == 3 and last not in ("USA", "CAN") and last.isalpha():
             return True
     return False
+
+
+def _wd_host(url: str) -> str:
+    return urlparse(url).netloc.lower()
+
+
+def _wd_host_circuit_open(url: str) -> bool:
+    return _wd_host_429s.get(_wd_host(url), 0) >= _WD_HOST_429_LIMIT
+
+
+def _wd_note_detail_status(url: str, status: int) -> bool:
+    """Track consecutive detail throttles; return whether the host circuit is open."""
+    host = _wd_host(url)
+    if status == 200:
+        _wd_host_429s[host] = 0
+    elif status == 429:
+        _wd_host_429s[host] = _wd_host_429s.get(host, 0) + 1
+    return _wd_host_429s.get(host, 0) >= _WD_HOST_429_LIMIT
 
 
 async def _wd_check_pause() -> None:
@@ -2519,16 +2552,19 @@ async def _wd_detail(
     detail_headers: dict,
 ) -> Optional[Tuple[str, str, Optional[str], Optional[str]]]:
     """Fetch job detail page. Returns (desc, location, posted_date, remote_type) or None on failure."""
-    if not detail_url:
+    if not detail_url or _wd_host_circuit_open(detail_url):
         return None
     await _wd_check_pause()
     final_status = 0
     for attempt in range(5):
         try:
             await _wd_pace(detail_url, _WD_DETAIL_MIN_INTERVAL)
+            if _wd_host_circuit_open(detail_url):
+                return None
             async with session.get(detail_url, headers=detail_headers) as r:
                 final_status = r.status
                 if r.status == 200:
+                    _wd_note_detail_status(detail_url, r.status)
                     detail = await r.json(content_type=None)
                     info = detail.get("jobPostingInfo", {})
                     desc = (info.get("jobDescription", "")
@@ -2544,6 +2580,15 @@ async def _wd_detail(
                 if r.status == 429 or r.status >= 500:
                     if r.status == 429:
                         _wd_state["global_429"] += 1
+                        if _wd_note_detail_status(detail_url, r.status):
+                            host = _wd_host(detail_url)
+                            if host not in _wd_host_circuit_logged:
+                                log.warning(
+                                    f"Workday [{host}] detail circuit opened after "
+                                    f"{_WD_HOST_429_LIMIT} consecutive 429s; deferring remaining details"
+                                )
+                                _wd_host_circuit_logged.add(host)
+                            return None
                     retry_after = min(float(r.headers.get("Retry-After", 0) or 0), 120)
                     delay = max(retry_after, min(5 * (2 ** attempt), 60))
                     await _wd_cooldown(detail_url, delay)
@@ -2761,6 +2806,27 @@ async def _fetch_workday_tenant_async(
     return jobs
 
 
+async def _fetch_workday_tenant_bounded(
+    session: aiohttp.ClientSession,
+    name: str,
+    tenant: str,
+    board: str,
+    wd_server: str,
+) -> List[RawJob]:
+    """Keep one throttled tenant from consuming the entire Airflow task window."""
+    try:
+        return await asyncio.wait_for(
+            _fetch_workday_tenant_async(session, name, tenant, board, wd_server),
+            timeout=_WD_TENANT_TIMEOUT_SECS,
+        )
+    except asyncio.TimeoutError:
+        log.warning(
+            f"Workday [{name}] exceeded {_WD_TENANT_TIMEOUT_SECS}s tenant budget; "
+            "deferring it to the next ingest"
+        )
+        return []
+
+
 def _load_workday_list() -> List[Tuple[str, str, str, str]]:
     """Return [(name, tenant, board, wd_server), ...] — hardcoded + discovered_companies."""
     # The historical hand-maintained list accumulated duplicate locators. Keep
@@ -2810,16 +2876,18 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
 
 
 async def _run_all_workday_async(workday_list: List[Tuple]) -> List[RawJob]:
-    global _wd_state, _wd_host_locks, _wd_host_next
+    global _wd_state, _wd_host_locks, _wd_host_next, _wd_host_429s, _wd_host_circuit_logged
     _wd_state = {"global_429": 0, "pause_until": 0.0}
     _wd_host_locks = {}
     _wd_host_next = {}
+    _wd_host_429s = {}
+    _wd_host_circuit_logged = set()
     connector = aiohttp.TCPConnector(
         limit=_WD_GLOBAL_CONCURRENCY, limit_per_host=_WD_PER_HOST
     )
     async with aiohttp.ClientSession(connector=connector, timeout=_WD_TIMEOUT) as session:
         tasks = [
-            _fetch_workday_tenant_async(session, name, tenant, board, wd_server)
+            _fetch_workday_tenant_bounded(session, name, tenant, board, wd_server)
             for name, tenant, board, wd_server in workday_list
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)

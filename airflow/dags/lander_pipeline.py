@@ -39,11 +39,15 @@ with DAG(dag_id="lander_nightly",
         # discovery-ready, but do not block all healthy ingestion while there
         # are no validated live tenants.
         empty_flag = " --accept-empty" if source in ("jobvite", "bamboohr", "taleo") else ""
+        task_overrides = (
+            {"execution_timeout": timedelta(minutes=45)} if source == "workday" else {}
+        )
         ingest = command(f"ingest_{source}",
             f"{PYTHON} python/ingest_jobs.py --apply --source {source} "
             # A DagRun's start_date changes when a failed run is cleared. Its
             # run_id does not, so use the latter as the durable crawl identity.
-            f"--orchestration-run-id '{{{{ dag_run.run_id }}}}'{empty_flag}")
+            f"--orchestration-run-id '{{{{ dag_run.run_id }}}}'{empty_flag}",
+            **task_overrides)
         observability_schema >> ingest
         ingests.append(ingest)
     ingest_gate = command("ingest_quality_gate",
