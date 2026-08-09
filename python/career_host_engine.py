@@ -66,7 +66,12 @@ AGGREGATOR_HOSTS = {
     "builtin.com", "builtinsf.com", "builtinboston.com", "levels.fyi", "talent.com", "jooble.org",
     "simplyhired.com", "lensa.com", "adzuna.com", "jobcase.com", "learn4good.com", "grabjobs.co",
     "clearancejobs.com", "sciencecareers.org", "healthecareers.com", "consider.com", "jobaaj.com",
+    "dejobs.org", "nexxt.com", "virtualvocations.com", "haystackapp.io", "productmanagerjobboard.com",
+    "governmentresource.com",
 }
+NON_HTML_RESULT_SUFFIXES = (
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".zip",
+)
 COMPANY_STOPWORDS = {
     "inc", "incorporated", "corp", "corporation", "llc", "ltd", "limited", "plc", "company", "companies",
     "co", "group", "holdings", "holding", "technologies", "technology", "services", "solutions", "global",
@@ -149,6 +154,11 @@ def _registeredish_domain(host: str) -> str:
 def is_aggregator(url: str) -> bool:
     domain = _registeredish_domain(_hostname(url))
     return domain in AGGREGATOR_HOSTS or any(domain.endswith(f".{blocked}") for blocked in AGGREGATOR_HOSTS)
+
+
+def is_blocked_result(url: str) -> bool:
+    path = urlparse(url).path.lower().rstrip("/")
+    return is_aggregator(url) or path.endswith(NON_HTML_RESULT_SUFFIXES)
 
 
 def _safe_get(session: requests.Session, url: str, **kwargs) -> requests.Response:
@@ -258,7 +268,7 @@ def fingerprint_page(page_url: str, html: str) -> Fingerprint:
 
 def _score_search_result(company_name: str, result: dict, rank: int) -> float:
     link = str(result.get("link") or "")
-    if not link.startswith("http") or is_aggregator(link):
+    if not link.startswith("http") or is_blocked_result(link):
         return -1
     host = _hostname(link)
     path = urlparse(link).path.lower()
@@ -440,11 +450,11 @@ def resolve_candidates(*, apply: bool, limit: int, min_score: float = 0.58) -> d
                     final_url = response.url
                 except Exception:
                     continue
-                if is_aggregator(final_url):
+                if is_blocked_result(final_url):
                     continue
                 fingerprint = fingerprint_page(final_url, html)
                 resolved_url = fingerprint.url if fingerprint.platform != "custom" else final_url
-                if is_aggregator(resolved_url):
+                if is_blocked_result(resolved_url):
                     continue
                 sitemaps = _discover_sitemaps(session, final_url, html)
                 page_text = BeautifulSoup(html, "html.parser").get_text(" ", strip=True).lower()[:100_000]

@@ -13,6 +13,7 @@ from career_host_engine import (
     _parse_sitemap,
     company_key,
     fingerprint_url,
+    is_blocked_result,
     organization_matches,
     posting_to_job,
 )
@@ -36,6 +37,12 @@ def test_platform_fingerprints_keep_required_locator_parts() -> None:
     )
     assert oracle and oracle.platform == "oracle_cloud"
     assert oracle.tenant_token == "cx_1"
+
+
+def test_blocked_resolver_results_include_aggregators_and_documents() -> None:
+    assert is_blocked_result("https://jobs.dejobs.org/jobs/123")
+    assert is_blocked_result("https://cdn.example.com/posters/e-verify.PDF?download=1")
+    assert not is_blocked_result("https://careers.example.com/jobs/123")
 
 
 def test_nested_jobposting_and_gzip_sitemap_are_supported() -> None:
