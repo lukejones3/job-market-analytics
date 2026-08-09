@@ -17,7 +17,7 @@ def test_dags_import_cleanly():
 def test_nightly_is_bounded_and_parallelizes_ingest_writers():
     nightly = dag("lander_nightly")
     assert nightly.max_active_runs == 1
-    assert nightly.max_active_tasks == 2
+    assert nightly.max_active_tasks == 3
     sources = ("greenhouse", "lever", "ashby", "workday", "eightfold", "amazon",
                "smartrecruiters", "workable", "icims", "taleo", "jobvite", "bamboohr")
     for source in sources:

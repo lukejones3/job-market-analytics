@@ -17,7 +17,7 @@ def command(task_id: str, body: str, **kwargs) -> BashOperator:
 with DAG(dag_id="lander_nightly",
     description="Backup, ingest, enrich, validate, publish, and report Lander data",
     schedule="0 5 * * *", start_date=datetime(2026, 7, 25), catchup=False,
-    max_active_runs=1, max_active_tasks=2, default_args=DEFAULT_ARGS,
+    max_active_runs=1, max_active_tasks=3, default_args=DEFAULT_ARGS,
     dagrun_timeout=timedelta(hours=18),
     tags=["lander", "production"]) as nightly:
     backup = command("verified_backup", "scripts/airflow_backup.sh")
