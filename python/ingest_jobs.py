@@ -2411,6 +2411,7 @@ _WD_UA_CYCLE = itertools.cycle(_WD_USER_AGENTS)
 
 _WD_GLOBAL_CONCURRENCY  = int(os.getenv("WORKDAY_GLOBAL_CONCURRENCY", "24"))
 _WD_TENANT_CONCURRENCY  = int(os.getenv("WORKDAY_TENANT_CONCURRENCY", "12"))
+_WD_GLOBAL_MIN_INTERVAL = float(os.getenv("WORKDAY_GLOBAL_MIN_INTERVAL", "0.08"))
 _WD_PER_HOST            = 3     # Workday throttles large tenants sharply above this
 _WD_TIMEOUT             = aiohttp.ClientTimeout(sock_connect=10, sock_read=20)
 _WD_GLOBAL_429_THRESH   = 5     # pause entire harvester after this many global 429s
@@ -2423,6 +2424,8 @@ _WD_TENANT_TIMEOUT_SECS = int(os.getenv("WORKDAY_TENANT_TIMEOUT_SECONDS", "1800"
 _wd_state: Dict = {"global_429": 0, "pause_until": 0.0, "pause_logged_until": 0.0}
 _wd_host_locks: Dict[str, asyncio.Lock] = {}
 _wd_host_next: Dict[str, float] = {}
+_wd_global_lock: Optional[asyncio.Lock] = None
+_wd_global_next = 0.0
 _wd_host_429s: Dict[str, int] = {}
 _wd_host_circuit_logged: set[str] = set()
 
@@ -2487,6 +2490,7 @@ async def _wd_check_pause() -> None:
 
 async def _wd_pace(url: str, interval: float) -> None:
     """Space request starts per tenant host while allowing tenants in parallel."""
+    global _wd_global_next
     host = urlparse(url).netloc.lower()
     lock = _wd_host_locks.setdefault(host, asyncio.Lock())
     async with lock:
@@ -2495,6 +2499,16 @@ async def _wd_pace(url: str, interval: float) -> None:
         if wait > 0:
             await asyncio.sleep(wait)
         _wd_host_next[host] = time.monotonic() + interval
+    # Connector limits bound in-flight work, but each tenant can fan out many
+    # page/detail coroutines. Pace starts globally so those fan-outs do not
+    # become a provider-wide burst from one crawler IP.
+    if _wd_global_lock is not None:
+        async with _wd_global_lock:
+            now = time.monotonic()
+            wait = _wd_global_next - now
+            if wait > 0:
+                await asyncio.sleep(wait)
+            _wd_global_next = time.monotonic() + _WD_GLOBAL_MIN_INTERVAL
 
 
 async def _wd_cooldown(url: str, seconds: float) -> None:
@@ -2945,10 +2959,13 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
 
 
 async def _run_all_workday_async(workday_list: List[Tuple]) -> List[RawJob]:
-    global _wd_state, _wd_host_locks, _wd_host_next, _wd_host_429s, _wd_host_circuit_logged
+    global _wd_state, _wd_host_locks, _wd_host_next, _wd_global_lock, _wd_global_next
+    global _wd_host_429s, _wd_host_circuit_logged
     _wd_state = {"global_429": 0, "pause_until": 0.0, "pause_logged_until": 0.0}
     _wd_host_locks = {}
     _wd_host_next = {}
+    _wd_global_lock = asyncio.Lock()
+    _wd_global_next = 0.0
     _wd_host_429s = {}
     _wd_host_circuit_logged = set()
     connector = aiohttp.TCPConnector(
