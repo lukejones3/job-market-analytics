@@ -161,6 +161,28 @@ def is_blocked_result(url: str) -> bool:
     return is_aggregator(url) or path.endswith(NON_HTML_RESULT_SUFFIXES)
 
 
+def quarantine_blocked_hosts(cur, *, apply: bool) -> int:
+    cur.execute(
+        """SELECT host_id,careers_url FROM career_hosts
+           WHERE status IN ('shadow','active')"""
+    )
+    blocked_ids = [row["host_id"] for row in cur.fetchall() if is_blocked_result(row["careers_url"])]
+    if apply and blocked_ids:
+        cur.execute(
+            """UPDATE career_hosts SET status='quarantined',identity_status='needs_review',
+                      evidence=evidence || '{"resolver_blocked": true}'::jsonb,updated_at=now()
+               WHERE host_id=ANY(%s)""",
+            (blocked_ids,),
+        )
+        cur.execute(
+            """UPDATE job_postings SET source_quality_status='quarantine',is_public=false
+               WHERE crawl_tenant=ANY(%s)
+                 AND ingestion_source IN ('career_site','oracle_cloud')""",
+            (blocked_ids,),
+        )
+    return len(blocked_ids)
+
+
 def _safe_get(session: requests.Session, url: str, **kwargs) -> requests.Response:
     response = session.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT, allow_redirects=True, **kwargs)
     response.raise_for_status()
@@ -937,6 +959,9 @@ def crawl_hosts(
     *, apply: bool, limit: int, max_pages: int, workers: int, activate_mature: bool,
 ) -> dict[str, int]:
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        blocked_hosts = quarantine_blocked_hosts(cur, apply=apply)
+        if apply and blocked_hosts:
+            conn.commit()
         cur.execute(
             """SELECT * FROM career_hosts
                WHERE status IN ('shadow','active')
@@ -1047,7 +1072,8 @@ def crawl_hosts(
         if not apply:
             conn.rollback()
         return {"hosts": len(hosts), "successful": successful, "failed": failed,
-                "accepted_jobs": total_jobs, "activated": activated}
+                "accepted_jobs": total_jobs, "activated": activated,
+                "blocked_hosts": blocked_hosts}
 
 
 def report() -> dict[str, Any]:
