@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
 from role_taxonomy import is_target_role
+from crawl_observability import record_failure, record_success
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 log = logging.getLogger(__name__)
@@ -67,11 +68,18 @@ def _text(value) -> str:
     return str(value or "")
 
 
+def _remote_allows_us(data: dict) -> bool:
+    requirements = data.get("applicantLocationRequirements") or []
+    if not isinstance(requirements, list):
+        requirements = [requirements]
+    names = {_text(item).strip().lower() for item in requirements}
+    return bool(names & {"united states", "united states of america", "usa", "us", "u.s.", "u.s.a."})
+
+
 def fetch_company(company: str, tenant: str) -> List[RawJob]:
     listing_url = f"https://jobs.jobvite.com/{tenant}/jobs"
     response = requests.get(listing_url, headers=HEADERS, timeout=25)
-    if response.status_code != 200:
-        return []
+    response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
     links: Dict[str, str] = {}
     for anchor in soup.select("a[href*='/job/']"):
@@ -82,10 +90,12 @@ def fetch_company(company: str, tenant: str) -> List[RawJob]:
             links[url] = title
 
     jobs: List[RawJob] = []
+    detail_errors = 0
     for url, fallback_title in links.items():
         try:
             detail = requests.get(url, headers=HEADERS, timeout=20)
             if detail.status_code != 200:
+                detail_errors += 1
                 continue
             detail_soup = BeautifulSoup(detail.text, "html.parser")
             data = _jobposting(detail_soup)
@@ -104,19 +114,38 @@ def fetch_company(company: str, tenant: str) -> List[RawJob]:
             remote = data.get("jobLocationType") == "TELECOMMUTE"
             country = str(address.get("addressCountry") or "").lower()
             region = str(address.get("addressRegion") or "").upper()
-            if not remote and country not in {"us", "usa", "united states"} and region not in US_STATES:
+            remote_us = remote and _remote_allows_us(data)
+            physical_us = country in {"us", "usa", "united states"} or region in US_STATES
+            if not remote_us and not physical_us:
                 continue
+            location_text = "Remote, United States" if remote_us else loc
             jobs.append(RawJob(
                 source="jobvite", source_id=f"{tenant}|{source_id}", title=title,
-                company=_text(org.get("name")) or company, location="Remote" if remote else loc,
+                company=_text(org.get("name")) or company, location=location_text,
                 description=BeautifulSoup(str(data.get("description") or ""), "html.parser").get_text("\n", strip=True),
                 job_url=url, posted_date=_text(data.get("datePosted"))[:10] or None,
                 employment_type=_text(data.get("employmentType")) or None,
                 workplace_type="remote" if remote else None,
-                metadata={"tenant": tenant},
+                metadata={
+                    "tenant": tenant,
+                    "hiring_organization": _text(org.get("name")) or company,
+                    "valid_through": _text(data.get("validThrough")) or None,
+                    "direct_apply": data.get("directApply"),
+                    "location_evidence": {
+                        "country": "US",
+                        "kind": "applicantLocationRequirements" if remote_us else "jobLocation",
+                    },
+                },
             ))
         except requests.RequestException:
+            detail_errors += 1
             continue
+    if detail_errors:
+        record_failure(
+            "jobvite", tenant,
+            f"{detail_errors}/{len(links)} target detail pages failed",
+            partial=detail_errors < len(links),
+        )
     return jobs
 
 
@@ -128,9 +157,12 @@ def fetch_all_jobvite() -> List[RawJob]:
     jobs: Dict[str, RawJob] = {}
     for company, tenant in companies:
         try:
-            for job in fetch_company(company, tenant):
+            fetched = fetch_company(company, tenant)
+            record_success("jobvite", tenant, len(fetched))
+            for job in fetched:
                 jobs[job.source_id] = job
         except Exception as exc:
             log.warning("Jobvite [%s] failed: %s", tenant, exc)
+            record_failure("jobvite", tenant, str(exc))
     log.info("Jobvite total: %d unique US target roles from %d tenants", len(jobs), len(companies))
     return list(jobs.values())

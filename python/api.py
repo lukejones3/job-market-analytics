@@ -289,9 +289,9 @@ CASE
 END
 """
 
-# Keep this public-market scope aligned with the Lander Browse All feed. The
-# marketing site consumes this endpoint so its headline count is measured from
-# the product universe, not a manually maintained number.
+# Compatibility predicates protect web/API deploys that occur before the
+# stricter publisher migration. After publication they are a redundant subset
+# of the database-owned candidate boundary.
 PUBLIC_US_STATES = (
     "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
     "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",

@@ -53,17 +53,41 @@ and snippets; optional OpenAI structured output may compress that evidence, but
 the deterministic classifier remains authoritative and every displayed brief
 keeps its source URL. Research failure cannot block ingestion or publication.
 
+## Career Host Engine
+
+The employer-first coverage engine converts known companies—not guessed job
+URLs—into verified career hosts. It seeds leads from Tier 2 inventory and
+retained company history, resolves official career pages with Serper, mines a
+bounded set of Common Crawl ATS URLs, and routes recognized Greenhouse, Lever,
+Ashby, Workday, SmartRecruiters, Workable, iCIMS, Taleo, Eightfold, Jobvite, and
+BambooHR tenants through their existing adapters. Oracle Candidate Experience
+has a direct API adapter; other career hosts use recursive sitemap discovery,
+including gzip indexes, and leaf-page `JobPosting` JSON-LD.
+
+Directly crawled hosts start in shadow. Jobs require target-role scope, explicit
+US location or US applicant eligibility, matching `hiringOrganization`,
+sufficient description content, and an unexpired `validThrough` value. Shadow
+rows are enriched but quarantined from publication. A host becomes active only
+after a second clean crawl at least seven days later; complete active crawls can
+then close postings that disappeared. Recognized ATS hosts instead enter the
+existing live source validator and its platform-specific geography checks.
+Search/archive evidence alone can never publish a job.
+
 ## System architecture
 
 ```mermaid
 flowchart LR
     A[ATS APIs and employer feeds] --> B[Airflow ingestion]
     D[ATS discovery] --> B
+    U[Employer universe + company history] --> K[Career Host Engine]
+    K --> D
+    K --> B
     B --> C[(PostgreSQL operational schema)]
     C --> E[Deterministic enrichment and classification]
     E --> F[Quality and publication gates]
+    F --> P[Atomic public snapshot]
     F --> G[dbt staging and analytics marts]
-    F --> H[Published job snapshot]
+    P --> H[Published job snapshot]
     G --> I[FastAPI]
     H --> I
     R[Resume upload] --> M[Semantic matcher]
@@ -93,6 +117,7 @@ Airflow 3 with `LocalExecutor` is the checked-in production scheduler.
 | `lander_nightly` | `05:00` daily | Backup, ingest all ATS sources, gate, enrich, classify, deduplicate, expire, build dbt, publish, refresh SEO, and report |
 | `lander_ats_discovery_daily` | `11:00` daily | Broad-domain discovery plus stale-candidate validation and activation |
 | `lander_ats_discovery` | `12:00` Sunday | Full ATS and Common Crawl/Workday discovery, validation, integration, and health reporting |
+| `lander_career_host_engine` | `15:00` daily | Seed employer leads, resolve official hosts, route known ATS tenants, shadow-crawl direct hosts, and activate mature clean hosts |
 | `lander_resume_embeddings` | Every 5 minutes | Embed newly uploaded resumes without overlapping workers |
 | `lander_company_radar_research` | `14:00` daily | Refresh sourced evidence for followed/high-momentum companies and deliver idempotent Radar digests |
 | `lander_shadow_validation` | Manual | Read-only production environment and database validation |
@@ -152,6 +177,8 @@ is disabled by default; set `EXPOSE_API_DOCS=1` to expose `/docs` and
 | `python/ingest_jobs.py` | Unified ATS ingestion CLI and source crawl accounting |
 | `python/*_harvest.py` | Source-specific adapters and reliability logic |
 | `python/discover_*`, `python/validate_*`, `python/integrate_*` | ATS tenant discovery lifecycle |
+| `python/career_host_engine.py`, `python/discover_career_hosts_commoncrawl.py` | Employer-first career-host resolution, routing, shadow validation, and direct ingestion |
+| `python/crawl_observability.py`, `python/backfill_crawl_tenants.py` | Per-tenant crawl outcomes and historical tenant repair |
 | `python/enrich_job_postings.py`, `python/extract_*`, `python/classify_*` | Deterministic enrichment and classification |
 | `python/publish_snapshot.py`, `python/airflow_quality_gate.py` | Publication boundary and quality enforcement |
 | `python/api.py` | FastAPI application, authentication, billing, and resume upload |
@@ -238,6 +265,19 @@ Bearer-authenticated employer feed. JSON feeds may use a top-level array or a
 `{"jobs": [...]}` object; CSV feeds require stable job/requisition IDs and the
 standard job fields.
 
+Career-host discovery is also dry-run by default:
+
+```bash
+python python/career_host_engine.py seed --limit 2000 --include-sec
+python python/career_host_engine.py resolve --limit 200
+python python/career_host_engine.py route --limit 1000
+python python/career_host_engine.py crawl --limit 20 --max-pages-per-host 2000
+```
+
+Add `--apply` to persist each stage. `resolve` requires `SERPER_API_KEY`.
+`crawl --apply --activate-mature` still cannot publish a new host until it has
+two clean crawls separated by at least seven days.
+
 Build and test the analytics layer with the environment-backed dbt profile:
 
 ```bash
@@ -257,7 +297,8 @@ dbt build --profiles-dir .
 | `LANDER_MOBILE_AUTH_CALLBACK_ALLOWLIST` | Optional exact mobile callback allow-list beyond `lander://auth/verify` |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_ID` | Subscription checkout, portal, cancellation, and webhooks |
 | `RESEND_API_KEY`, `RESEND_FROM` | Authentication and operations email |
-| `SERPER_API_KEY` | ATS tenant discovery |
+| `SERPER_API_KEY` | ATS tenant and official career-host discovery |
+| `LANDER_CRAWLER_USER_AGENT` | Identifiable User-Agent for career-page, SEC, and archive requests |
 | `PRELOAD_RESUME_MODEL` | Preload the semantic model at API startup; defaults to `1` |
 | `PUBLIC_QUERY_STATEMENT_TIMEOUT_MS` | Anonymous aggregate query timeout; defaults to `10000` |
 | `EXPOSE_API_DOCS` | Enable `/docs` and `/openapi.json`; defaults to `0` |
@@ -293,11 +334,13 @@ sandboxing. Public aggregate responses use a PostgreSQL-backed shared cache with
 an in-process fallback; apply [`sql/api_response_cache.sql`](sql/api_response_cache.sql)
 when provisioning the API schema.
 
-Operational changes should preserve three invariants:
+Operational changes should preserve four invariants:
 
 1. source failures cannot masquerade as legitimate empty crawls;
-2. expiry cannot run before ingestion and publication quality gates pass; and
-3. the API cannot bypass the reverse proxy or expose private responses to shared
+2. expiry cannot run before ingestion and publication quality gates pass;
+3. mutable candidate eligibility cannot alter the last successful public
+   snapshot; and
+4. the API cannot bypass the reverse proxy or expose private responses to shared
    caches.
 
 ## License and contact

@@ -44,6 +44,7 @@ from psycopg2.extras import DictCursor
 sys.path.insert(0, str(Path(__file__).parent))
 from location_normalizer import normalize_location
 from role_taxonomy import SEARCH_TERMS, is_target_role
+from crawl_observability import record_failure, record_success
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -352,6 +353,8 @@ def fetch_icims(company_name: str, slug: str) -> List[RawJob]:
         html = _get_html(search_url, params=params)
         time.sleep(REQUEST_DELAY)
         if not html:
+            if page == 0:
+                raise RuntimeError(f"first iCIMS listing page was unavailable for {slug}")
             break
 
         listings = _parse_icims_job_ids(html, slug)
@@ -424,9 +427,11 @@ def fetch_all_icims() -> List[RawJob]:
         try:
             jobs = fetch_icims(company_name, slug)
             all_jobs.extend(jobs)
+            record_success("icims", slug, len(jobs))
             time.sleep(0.5)
         except Exception as e:
             log.warning(f"  iCIMS [{company_name}] failed: {e}")
+            record_failure("icims", slug, str(e))
 
     log.info(f"iCIMS total: {len(all_jobs)} jobs")
     return all_jobs

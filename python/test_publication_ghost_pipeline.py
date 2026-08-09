@@ -8,17 +8,25 @@ def test_publication_predicate_and_total_are_consistent():
     api = (ROOT / "python/api.py").read_text()
     gate = (ROOT / "python/airflow_quality_gate.py").read_text()
     publisher = (ROOT / "python/publish_snapshot.py").read_text()
+    seo_refresh = (ROOT / "python/refresh_seo_collection_index.py").read_text()
     dag = (ROOT / "airflow/dags/lander_pipeline.py").read_text()
     ingest = (ROOT / "python/ingest_jobs.py").read_text()
-    assert api.count("COALESCE(jp.loc_country, 'unknown') IN ('US', 'unknown')") >= 4
+    expiry = (ROOT / "python/expire_jobs.py").read_text()
     assert '"total":        total' in api
-    assert "is_public = true" in api
-    assert "COALESCE(loc_country,'us') <> 'foreign'" in gate
-    assert "scope_status IN ('accepted_core','accepted_evidence')" in gate
-    assert "jp.scope_status IN ('accepted_core', 'accepted_evidence')" in publisher
+    assert "jp.is_public = true" in api
+    assert "vw_lander_visible_opportunities" in seo_refresh
+    boundary = (ROOT / "sql/publication_boundary.sql").read_text()
+    assert "vw_lander_publication_candidates" in gate
+    assert "vw_lander_publication_candidates" in publisher
+    assert "vw_lander_visible_opportunities" in boundary
+    assert "WHERE jp.is_public = true" in boundary
+    assert "scope_status IN ('accepted_core', 'accepted_evidence')" in boundary
+    assert "representative_rank = 1" in boundary
     assert "pg_advisory_xact_lock" in publisher
     assert "publish_gate >> publish_snapshot" in dag
     assert "backfill_role_scope.py --apply --only-missing" in dag
+    assert "bool_or(status IN ('complete_nonzero','complete_zero'))" in expiry
+    assert "ingestion_tenant_runs" in expiry
     assert '_loc.country == "foreign"' in ingest
 
 

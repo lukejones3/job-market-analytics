@@ -36,12 +36,15 @@ def main():
             # Expire only sources proven healthy during this crawl window. The
             # Airflow gate requires all scheduled sources; this also makes the
             # script safe when run independently after a partial crawl.
-            cur.execute("""SELECT source, status FROM ingestion_crawl_runs
-                WHERE orchestration_run_id = %s AND finished_at IS NOT NULL
-                  AND source = ANY(%s)""", (args.since, list(INGEST_SOURCES)))
-            outcomes = dict(cur.fetchall())
+            cur.execute("""SELECT source,
+                    bool_or(status IN ('complete_nonzero','complete_zero')) AS succeeded,
+                    count(*) FILTER (WHERE finished_at IS NULL OR status='running') AS running
+                FROM ingestion_crawl_runs
+                WHERE orchestration_run_id = %s AND source = ANY(%s)
+                GROUP BY source""", (args.since, list(INGEST_SOURCES)))
+            outcomes = {source: (succeeded, running) for source, succeeded, running in cur.fetchall()}
             healthy_sources = [source for source in INGEST_SOURCES
-                if outcomes.get(source) in ('complete_nonzero', 'complete_zero')]
+                if outcomes.get(source, (False, 1))[0] and outcomes[source][1] == 0]
             if not healthy_sources:
                 print("⚠️ No sources completed recently — skipping expiry")
                 return

@@ -79,6 +79,7 @@ except ImportError:
 
 from company_blocklist import is_company_blocked
 from company_identity import resolved_workday_company_name
+from crawl_observability import record_failure, record_success, reset as reset_tenant_outcomes, snapshot as tenant_outcomes
 
 _ALIAS_MAP: Optional[Dict] = None
 
@@ -1098,8 +1099,10 @@ def fetch_greenhouse(company_name: str, board_token: str) -> List[RawJob]:
     data = _get(url, params={"content": "true"})
     _throttle()
 
-    if not data or "jobs" not in data:
+    if data is None or not isinstance(data, dict) or "jobs" not in data:
+        record_failure("greenhouse", board_token, "board API did not return a jobs collection")
         return []
+    record_success("greenhouse", board_token, len(data.get("jobs", [])))
 
     jobs = []
     for j in data.get("jobs", []):
@@ -1173,8 +1176,10 @@ def fetch_lever(company_name: str, company_slug: str) -> List[RawJob]:
     data = _get(url, params={"mode": "json"})
     _throttle()
 
-    if not data or not isinstance(data, list):
+    if data is None or not isinstance(data, list):
+        record_failure("lever", company_slug, "postings API did not return a list")
         return []
+    record_success("lever", company_slug, len(data))
 
     jobs = []
     for j in data:
@@ -1263,8 +1268,10 @@ def fetch_ashby(company_name: str, company_slug: str) -> List[RawJob]:
     data = _get(url, timeout=20)
     _throttle()
 
-    if not data or not isinstance(data.get("jobs"), list):
+    if data is None or not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
+        record_failure("ashby", company_slug, "job-board API did not return a jobs collection")
         return []
+    record_success("ashby", company_slug, len(data["jobs"]))
 
     jobs = []
     for j in data["jobs"]:
@@ -1412,7 +1419,12 @@ def ensure_schema_columns(cur):
           ADD COLUMN IF NOT EXISTS experience_level_evidence jsonb,
           ADD COLUMN IF NOT EXISTS experience_classifier_version text,
           ADD COLUMN IF NOT EXISTS experience_classified_at timestamptz,
-          ADD COLUMN IF NOT EXISTS management_level text
+          ADD COLUMN IF NOT EXISTS management_level text,
+          ADD COLUMN IF NOT EXISTS location_evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
+          ADD COLUMN IF NOT EXISTS hiring_organization text,
+          ADD COLUMN IF NOT EXISTS valid_through timestamptz,
+          ADD COLUMN IF NOT EXISTS direct_apply boolean,
+          ADD COLUMN IF NOT EXISTS source_quality_status text NOT NULL DEFAULT 'active'
     """)
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_jp_source
@@ -1494,6 +1506,11 @@ def ingest_job(cur, job: RawJob) -> bool:
         return False
     crawl_tenant = str(job.metadata.get("board_token") or job.metadata.get("slug") or
                        job.metadata.get("tenant") or job.metadata.get("workable_company_id") or "") or None
+    location_evidence = job.metadata.get("location_evidence") or {}
+    hiring_organization = job.metadata.get("hiring_organization") or None
+    valid_through = job.metadata.get("valid_through") or None
+    direct_apply = job.metadata.get("direct_apply")
+    source_quality_status = job.metadata.get("source_quality_status") or "active"
 
     cur.execute("SELECT desc_hash, status, last_seen_at FROM job_postings WHERE job_id=%s", (job_id,))
     previous = cur.fetchone()
@@ -1526,9 +1543,14 @@ def ingest_job(cur, job: RawJob) -> bool:
             loc_city,
             loc_state,
             loc_country,
-            crawl_tenant
+            crawl_tenant,
+            location_evidence,
+            hiring_organization,
+            valid_through,
+            direct_apply,
+            source_quality_status
         ) VALUES (
-            %s, %s, %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s, %s, %s
+            %s, %s, %s, %s, now(), now(), %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now(), %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         ON CONFLICT (job_id) DO UPDATE SET
             last_seen_at = now(),
@@ -1544,7 +1566,15 @@ def ingest_job(cur, job: RawJob) -> bool:
             loc_country = EXCLUDED.loc_country,
             loc_city = EXCLUDED.loc_city,
             loc_state = EXCLUDED.loc_state,
-            crawl_tenant = COALESCE(EXCLUDED.crawl_tenant, job_postings.crawl_tenant)
+            crawl_tenant = COALESCE(EXCLUDED.crawl_tenant, job_postings.crawl_tenant),
+            location_evidence = CASE
+                WHEN EXCLUDED.location_evidence = '{}'::jsonb THEN job_postings.location_evidence
+                ELSE EXCLUDED.location_evidence
+            END,
+            hiring_organization = COALESCE(EXCLUDED.hiring_organization, job_postings.hiring_organization),
+            valid_through = COALESCE(EXCLUDED.valid_through, job_postings.valid_through),
+            direct_apply = COALESCE(EXCLUDED.direct_apply, job_postings.direct_apply),
+            source_quality_status = EXCLUDED.source_quality_status
         """,
         (
             job_id,
@@ -1568,6 +1598,11 @@ def ingest_job(cur, job: RawJob) -> bool:
             _loc.state,
             _loc.country,
             crawl_tenant,
+            Json(location_evidence),
+            hiring_organization,
+            valid_through,
+            direct_apply,
+            source_quality_status,
         )
     )
 
@@ -2614,6 +2649,7 @@ async def _fetch_workday_tenant_async(
     board: str,
     wd_server: str,
 ) -> List[RawJob]:
+    tenant_partial = False
     base = f"https://{tenant}.{wd_server}.myworkdayjobs.com"
     list_url = f"{base}/wday/cxs/{tenant}/{board}/jobs"
     ua = next(_WD_UA_CYCLE)
@@ -2639,9 +2675,14 @@ async def _fetch_workday_tenant_async(
             _wd_state["pause_until"] = time.monotonic() + _WD_GLOBAL_PAUSE_SECS
             _wd_state["global_429"] = 0
         log.warning(f"  Workday [{name}] 429 on page 0 — skipping tenant")
+        record_failure("workday", tenant, "HTTP 429 on first listing page")
         return []
 
     if not page0_postings:
+        if status == 200 and not total:
+            record_success("workday", tenant, 0, board=board, server=wd_server)
+        else:
+            record_failure("workday", tenant, f"listing page failed with HTTP {status}")
         return []
 
     all_postings = list(page0_postings)
@@ -2664,10 +2705,12 @@ async def _fetch_workday_tenant_async(
                     session, list_url, headers, term, limit
                 )
             except Exception:
+                tenant_partial = True
                 continue
             postings, query_status = result
             if query_status == 429:
                 _wd_state["global_429"] += 1
+                tenant_partial = True
             for posting in postings:
                 by_path[posting.get("externalPath") or json.dumps(posting, sort_keys=True)] = posting
         all_postings = list(by_path.values())
@@ -2682,10 +2725,12 @@ async def _fetch_workday_tenant_async(
         page_results = await asyncio.gather(*page_tasks, return_exceptions=True)
         for pr in page_results:
             if isinstance(pr, Exception):
+                tenant_partial = True
                 continue
             postings, _, pg_status = pr
             if pg_status == 429:
                 _wd_state["global_429"] += 1
+                tenant_partial = True
             if postings:
                 all_postings.extend(postings)
 
@@ -2803,6 +2848,17 @@ async def _fetch_workday_tenant_async(
             f"  Workday [{name}]: {detail_failures}/{len(posting_meta)} jobs skipped "
             f"— detail fetch failed (will retry on next ingest)"
         )
+        tenant_partial = True
+    record_success("workday", tenant, len(all_postings), board=board, server=wd_server)
+    if tenant_partial:
+        record_failure(
+            "workday",
+            tenant,
+            f"partial listing/detail crawl ({detail_failures} detail failures)",
+            partial=True,
+            board=board,
+            server=wd_server,
+        )
     return jobs
 
 
@@ -2824,6 +2880,7 @@ async def _fetch_workday_tenant_bounded(
             f"Workday [{name}] exceeded {_WD_TENANT_TIMEOUT_SECS}s tenant budget; "
             "deferring it to the next ingest"
         )
+        record_failure("workday", tenant, "tenant crawl timeout")
         return []
 
 
@@ -2894,9 +2951,10 @@ async def _run_all_workday_async(workday_list: List[Tuple]) -> List[RawJob]:
 
     all_jobs: List[RawJob] = []
     errors = 0
-    for (name, *_), r in zip(workday_list, results):
+    for (name, tenant, _board, _wd_server), r in zip(workday_list, results):
         if isinstance(r, Exception):
             log.warning(f"  Workday [{name}] unhandled exception: {r}")
+            record_failure("workday", tenant, f"unhandled exception: {r}")
             errors += 1
         elif isinstance(r, list):
             if r:
@@ -2957,6 +3015,8 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
     jobs: List[RawJob] = []
     offset = 0
     limit = 100
+    board_total = 0
+    crawl_failed = False
 
     # Pre-fetch existing SR job_ids that already have descriptions (skip set)
     # Saves us re-hitting the detail endpoint for jobs we've already enriched.
@@ -2980,9 +3040,17 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
     while True:
         data = _get(base_url, params={"limit": limit, "offset": offset})
         _throttle()
-        if not data or not isinstance(data, dict):
+        if data is None or not isinstance(data, dict):
+            record_failure(
+                "smartrecruiters",
+                company_slug,
+                "posting API did not return an object",
+                partial=offset > 0,
+            )
+            crawl_failed = True
             break
         postings = data.get("content", [])
+        board_total = max(board_total, int(data.get("totalFound") or 0))
         if not postings:
             break
 
@@ -3076,6 +3144,8 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
         if offset >= total:
             break
 
+    if not crawl_failed:
+        record_success("smartrecruiters", company_slug, board_total)
     log.info(f"  SmartRecruiters [{company_name}]: {len(jobs)} target roles found")
     return jobs
 
@@ -3101,6 +3171,7 @@ def fetch_all_smartrecruiters() -> List[RawJob]:
             all_jobs.extend(fetch_smartrecruiters(name, slug))
         except Exception as e:
             log.warning(f"SmartRecruiters [{name}] error: {e}")
+            record_failure("smartrecruiters", slug, str(e))
     return all_jobs
 
 
@@ -3114,6 +3185,8 @@ def fetch_amazon() -> List[RawJob]:
 
     jobs = []
     seen_ids = set()
+    listing_succeeded = False
+    listing_failed = False
 
     for term in AMAZON_SEARCH_TERMS:
         offset = 0
@@ -3126,7 +3199,9 @@ def fetch_amazon() -> List[RawJob]:
                     headers=headers, timeout=12
                 )
                 if r.status_code != 200:
+                    listing_failed = True
                     break
+                listing_succeeded = True
                 data = r.json()
                 postings = data.get("jobs", [])
                 total = data.get("hits", 0)
@@ -3188,10 +3263,15 @@ def fetch_amazon() -> List[RawJob]:
 
             except Exception as e:
                 log.warning(f"Amazon [{term}] error: {e}")
+                listing_failed = True
                 break
         time.sleep(0.5)
 
     log.info(f"Amazon total: {len(jobs)} unique target roles")
+    if listing_succeeded:
+        record_success("amazon", "amazon", len(seen_ids))
+    if listing_failed:
+        record_failure("amazon", "amazon", "one or more search requests failed", partial=listing_succeeded)
     return jobs
 
 
@@ -3221,6 +3301,8 @@ def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJ
 
     jobs = []
     seen_ids = set()
+    listing_succeeded = False
+    listing_failed = False
 
     for term in search_terms:
         start = 0
@@ -3231,7 +3313,9 @@ def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJ
                     params={"domain": domain, "query": term, "start": start, "num": num},
                     headers=headers, timeout=12)
                 if r.status_code != 200:
+                    listing_failed = True
                     break
+                listing_succeeded = True
                 data = r.json().get("data", {})
                 positions = data.get("positions", [])
                 count = data.get("count", 0)
@@ -3318,10 +3402,18 @@ def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJ
 
             except Exception as e:
                 log.warning(f"Eightfold [{name}] term={term} error: {e}")
+                listing_failed = True
                 break
         time.sleep(0.5)
 
     log.info(f"  Eightfold [{name}]: {len(jobs)} target roles found")
+    if listing_failed:
+        record_failure(
+            "eightfold", subdomain, "one or more listing requests failed",
+            partial=listing_succeeded, domain=domain,
+        )
+        if not listing_succeeded:
+            raise RuntimeError(f"Eightfold listing API unavailable for {subdomain}")
     return jobs
 
 
@@ -3346,9 +3438,11 @@ def fetch_all_eightfold() -> List[RawJob]:
         try:
             jobs = fetch_eightfold_company(name, subdomain, domain)
             all_jobs.extend(jobs)
+            record_success("eightfold", subdomain, len(jobs), domain=domain)
             time.sleep(0.5)
         except Exception as e:
             log.warning(f"Eightfold [{name}] failed: {e}")
+            record_failure("eightfold", subdomain, str(e), domain=domain)
     log.info(f"Eightfold total: {len(all_jobs)} jobs")
     return all_jobs
 
@@ -3356,6 +3450,7 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
                   accept_empty: bool = False) -> None:
     run_id = f"ingest_{source}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
     log.info(f"Starting ingestion run: {run_id} | apply={apply}")
+    reset_tenant_outcomes()
 
     # Fetch from sources
     all_jobs: List[RawJob] = []
@@ -3422,15 +3517,39 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
     log.info(f"Total fetched across all sources: {len(all_jobs)}")
 
     if not all_jobs:
-        if accept_empty and apply:
+        outcomes = tenant_outcomes(None if source == "all" else source)
+        successful = [outcome for outcome in outcomes if outcome.status in ("complete_nonzero", "complete_zero")]
+        verified_empty = bool(successful)
+        no_configured_tenants = False
+        if accept_empty and not outcomes:
+            with get_conn() as config_conn, config_conn.cursor() as config_cur:
+                config_cur.execute(
+                    "SELECT COUNT(*) FROM discovered_companies WHERE ats_source=%s AND enabled=true",
+                    (source,),
+                )
+                no_configured_tenants = config_cur.fetchone()[0] == 0
+        if apply and (verified_empty or no_configured_tenants):
+            source_jobs_fetched = sum(outcome.jobs_fetched for outcome in successful)
+            source_status = "complete_nonzero" if source_jobs_fetched else "complete_zero"
             with get_conn() as empty_conn, empty_conn.cursor() as empty_cur:
                 empty_cur.execute(Path("sql/ingestion_observability.sql").read_text(encoding="utf-8"))
                 empty_cur.execute("""INSERT INTO ingestion_crawl_runs
-                    (run_id, source, orchestration_run_id, finished_at, status, jobs_fetched)
-                    VALUES (%s, %s, %s, now(), 'complete_zero', 0)
-                    ON CONFLICT (run_id) DO UPDATE SET finished_at=now(), status='complete_zero'""",
-                    (run_id, source, orchestration_run_id))
-            log.info(f"{source} completed with zero results (explicitly accepted)")
+                    (run_id, source, orchestration_run_id, finished_at, status, jobs_fetched, detail)
+                    VALUES (%s, %s, %s, now(), %s, %s,
+                        jsonb_build_object('tenant_outcomes', %s, 'accepted_jobs', 0))
+                    ON CONFLICT (run_id) DO UPDATE SET finished_at=now(), status=EXCLUDED.status,
+                        jobs_fetched=EXCLUDED.jobs_fetched, detail=EXCLUDED.detail""",
+                    (run_id, source, orchestration_run_id, source_status, source_jobs_fetched, len(outcomes)))
+                for outcome in outcomes:
+                    empty_cur.execute("""INSERT INTO ingestion_tenant_runs
+                        (run_id, source, crawl_tenant, status, jobs_fetched, errors, detail)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s)
+                        ON CONFLICT (run_id, source, crawl_tenant) DO UPDATE SET
+                            status=EXCLUDED.status, jobs_fetched=EXCLUDED.jobs_fetched,
+                            errors=EXCLUDED.errors, detail=EXCLUDED.detail""",
+                        (run_id, outcome.source, outcome.crawl_tenant, outcome.status,
+                         outcome.jobs_fetched, outcome.errors, Json(outcome.detail)))
+            log.info(f"{source} completed with no accepted target jobs ({len(outcomes)} tenant outcomes)")
             return
         raise RuntimeError(f"{source} returned no jobs; refusing to report a successful crawl")
 
@@ -3538,6 +3657,19 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
         # it as completed.  Sources that cannot yet report page expectations
         # still get exact observed-tenant accounting, never inferred completion
         # from an unrelated tenant's success.
+        outcomes = tenant_outcomes(None if source == "all" else source)
+        for outcome in outcomes:
+            cur.execute("""INSERT INTO ingestion_tenant_runs
+                (run_id, source, crawl_tenant, status, jobs_fetched, errors, detail)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (run_id, source, crawl_tenant) DO UPDATE SET
+                    status=EXCLUDED.status, jobs_fetched=EXCLUDED.jobs_fetched,
+                    errors=EXCLUDED.errors, detail=EXCLUDED.detail""",
+                (run_id, outcome.source, outcome.crawl_tenant, outcome.status,
+                 outcome.jobs_fetched, outcome.errors, Json(outcome.detail)))
+        # Compatibility fallback for a source adapter not yet instrumented.
+        # Never overwrite an explicit failure/partial result with inferred
+        # success merely because one accepted row survived.
         cur.execute("""INSERT INTO ingestion_tenant_runs
             (run_id, source, crawl_tenant, status, jobs_fetched)
             SELECT %s, ingestion_source, crawl_tenant, 'complete_nonzero', COUNT(*)
@@ -3545,16 +3677,18 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
             WHERE ingestion_source=%s AND crawl_tenant IS NOT NULL
               AND last_seen_at >= (SELECT started_at FROM ingestion_crawl_runs WHERE run_id=%s)
             GROUP BY ingestion_source, crawl_tenant
-            ON CONFLICT (run_id, source, crawl_tenant) DO UPDATE
-            SET status=EXCLUDED.status, jobs_fetched=EXCLUDED.jobs_fetched""",
+            ON CONFLICT (run_id, source, crawl_tenant) DO NOTHING""",
             (run_id, source, run_id))
         log_pipeline_run(cur, run_id, source, inserted, skipped, errors)
         crawl_status = "partial_failure" if errors else "complete_nonzero"
         cur.execute("""UPDATE ingestion_crawl_runs SET finished_at=now(), status=%s,
             jobs_fetched=%s, jobs_written=%s, errors=%s,
-            detail=detail || jsonb_build_object('rejected_or_unchanged', %s)
+            detail=detail || jsonb_build_object('rejected_or_unchanged', %s,
+                'tenant_outcomes', %s,
+                'tenant_failures', %s)
             WHERE run_id=%s""",
-            (crawl_status, len(deduped), inserted, errors, skipped, run_id))
+            (crawl_status, len(deduped), inserted, errors, skipped, len(outcomes),
+             sum(outcome.status in ('failed', 'partial_failure') for outcome in outcomes), run_id))
         conn.commit()
     except Exception as e:
         log.warning(f"Pipeline run logging failed (data already committed safely): {e}")

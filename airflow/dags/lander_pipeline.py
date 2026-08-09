@@ -27,6 +27,7 @@ with DAG(dag_id="lander_nightly",
         "-f sql/experience_classification_v3.sql "
         "-f sql/ingestion_publication_funnel.sql "
         "-f sql/publication_boundary.sql "
+        "-f sql/career_host_engine.sql "
         "-f sql/company_history_intelligence.sql "
         "-f sql/company_radar.sql "
         "-f sql/feed_performance_indexes.sql")
@@ -82,8 +83,10 @@ with DAG(dag_id="lander_nightly",
     dedup = command("deduplicate_sources", f"{PYTHON} python/dedup_sources.py --apply")
     canonicalize = command("canonicalize_opportunities",
         f"{PYTHON} python/canonicalize_opportunities.py --apply")
+    repair_crawl_tenants = command("repair_missing_crawl_tenants",
+        f"{PYTHON} python/backfill_crawl_tenants.py --apply")
     expiry = command("expire_jobs",
-        f"{PYTHON} python/expire_jobs.py --since '{{{{ dag_run.start_date.isoformat() }}}}'")
+        f"{PYTHON} python/expire_jobs.py --since '{{{{ dag_run.run_id }}}}'")
     refresh_repost_signals = command("refresh_repost_signals",
         "psql -v ON_ERROR_STOP=1 -c \"REFRESH MATERIALIZED VIEW CONCURRENTLY mv_repost_events_classified;\"")
     dbt_build = command("dbt_build",
@@ -113,7 +116,7 @@ with DAG(dag_id="lander_nightly",
     extract_salaries >> enrich >> skills
     enrich >> embeddings >> experience
     [experience, skills] >> honesty
-    honesty >> discover >> dedup >> canonicalize >> expiry >> refresh_repost_signals >> dbt_build >> publish_gate >> publish_snapshot
+    honesty >> discover >> dedup >> canonicalize >> repair_crawl_tenants >> expiry >> refresh_repost_signals >> dbt_build >> publish_gate >> publish_snapshot
     publish_snapshot >> [company_history_snapshot, refresh_seo_index]
     refresh_seo_index >> notify_google_indexing >> [report, funnel_report]
 
@@ -132,13 +135,15 @@ with DAG(dag_id="lander_ats_discovery",
         f"{PYTHON} python/ats_discovery_health.py --report")
     discover_workday_crawl = command("discover_workday_commoncrawl",
         f"{PYTHON} python/discover_workday_tenants.py --source commoncrawl --apply")
+    discover_career_crawl = command("discover_career_hosts_commoncrawl",
+        f"{PYTHON} python/discover_career_hosts_commoncrawl.py --apply --crawls 3")
     validate_workday_crawl = command("validate_workday_commoncrawl",
         f"{PYTHON} python/validate_workday_tenants.py --apply")
     integrate_workday_crawl = command("integrate_workday_commoncrawl",
         f"{PYTHON} python/validate_workday_tenants.py --integrate")
     discover_tenants >> validate_tenants >> integrate_tenants
     discover_workday_crawl >> validate_workday_crawl >> integrate_workday_crawl
-    [integrate_tenants, integrate_workday_crawl] >> health_report
+    [integrate_tenants, integrate_workday_crawl, discover_career_crawl] >> health_report
 
 with DAG(dag_id="lander_company_radar_research",
     description="Refresh sourced external evidence for followed and high-momentum companies",
@@ -150,6 +155,34 @@ with DAG(dag_id="lander_company_radar_research",
     notify = command("deliver_company_radar_alerts",
         f"{PYTHON} python/company_radar_notify.py --apply")
     research >> notify
+
+with DAG(dag_id="lander_career_host_engine",
+    description="Resolve employers to career hosts, route ATS tenants, and shadow-crawl direct job pages",
+    schedule="0 15 * * *", start_date=datetime(2026, 8, 9), catchup=False,
+    max_active_runs=1, max_active_tasks=1, default_args=DEFAULT_ARGS,
+    dagrun_timeout=timedelta(hours=12), tags=["lander", "coverage", "career-hosts"]) as career_host_engine:
+    career_schema = command("ensure_career_host_schema",
+        "psql -v ON_ERROR_STOP=1 -f sql/career_host_engine.sql -f sql/publication_boundary.sql")
+    seed_career_hosts = command("seed_employer_universe",
+        f"{PYTHON} python/career_host_engine.py seed --apply --limit 2000 --include-sec")
+    resolve_career_hosts = command("resolve_official_career_hosts",
+        f"{PYTHON} python/career_host_engine.py resolve --apply --limit 200")
+    route_career_ats = command("route_supported_career_ats",
+        f"{PYTHON} python/career_host_engine.py route --apply --limit 1000")
+    validate_routed_ats = command("validate_routed_career_ats",
+        f"{PYTHON} python/validate_ats_candidates.py --apply --limit 1000 --workers 8")
+    integrate_routed_ats = command("integrate_routed_career_ats",
+        f"{PYTHON} python/integrate_ats_candidates.py --apply")
+    crawl_direct_hosts = command("crawl_direct_career_hosts",
+        f"{PYTHON} python/career_host_engine.py crawl --apply --limit 20 "
+        "--max-pages-per-host 2000 --workers 8 --activate-mature",
+        execution_timeout=timedelta(hours=8))
+    career_host_report = command("career_host_report",
+        f"{PYTHON} python/career_host_engine.py report")
+    career_schema >> seed_career_hosts >> resolve_career_hosts >> route_career_ats
+    route_career_ats >> validate_routed_ats >> integrate_routed_ats
+    route_career_ats >> crawl_direct_hosts
+    [integrate_routed_ats, crawl_direct_hosts] >> career_host_report
 
 with DAG(dag_id="lander_ats_discovery_daily",
     description="Daily broad-domain ATS discovery and stale-candidate recovery",

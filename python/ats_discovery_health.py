@@ -83,12 +83,16 @@ def print_health_report() -> None:
 
     # Total job postings contributed
     cur.execute("""
-        SELECT dc.ats_source, COUNT(jp.job_id) AS job_count
+        SELECT dc.ats_source, COUNT(DISTINCT jp.job_id) AS job_count
         FROM job_postings jp
         JOIN discovered_companies dc
-          ON jp.company_id = dc.company_id
+          ON jp.ingestion_source = dc.ats_source
+         AND jp.crawl_tenant = CASE
+             WHEN dc.ats_source = 'workday' THEN split_part(dc.board_token, '/', 1)
+             ELSE dc.board_token
+         END
         WHERE dc.discovery_source = 'ats_aggressive'
-          AND jp.scraped_at >= now() - interval '7 days'
+          AND jp.last_seen_at >= now() - interval '7 days'
         GROUP BY dc.ats_source
         ORDER BY job_count DESC
     """)

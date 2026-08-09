@@ -42,7 +42,8 @@ def test_workday_locator_is_split_before_resolution():
 
 def test_bamboohr_location_filter():
     assert _is_us({"location": {"state": "WA", "addressCountry": "United States"}}, False)
-    assert _is_us({"location": {"state": "Ontario", "addressCountry": "Canada"}}, True)
+    # Remote is a workplace type, not evidence that a global role accepts US applicants.
+    assert not _is_us({"location": {"state": "Ontario", "addressCountry": "Canada"}}, True)
     assert not _is_us({"location": {"state": "Ontario", "addressCountry": "Canada"}}, False)
 
 

@@ -23,8 +23,6 @@ METROS = {
     "indianapolis": ("IN", ["indianapolis"]), "las-vegas": ("NV", ["las vegas"]),
 }
 
-BLOCKED = ["cgsfederal", "accenture federal", "booz allen", "mantech", "saic", "caci", "prosidian", "guidehouse", "gdit", "leidos", "northrop grumman", "parsons", "serco federal", "deloitte federal", "invisible agency", "cermaticom", "jobs for humanity", "devoteam", "canonical", "nxp semiconductors", "relx", "bosch group", "about you se", "sixt", "scalablegmbh"]
-
 def _literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
@@ -43,14 +41,13 @@ def refresh() -> int:
     dsn = os.getenv("DATABASE_URL")
     conn = psycopg2.connect(dsn) if dsn else psycopg2.connect(host=os.environ["PGHOST"], port=os.getenv("PGPORT", "5432"), dbname=os.environ.get("PGDATABASE", "job_analytics"), user=os.environ["PGUSER"], password=os.environ["PGPASSWORD"])
     labels = ",".join(f"CASE WHEN ({sql}) THEN {_literal(slug)}::text END" for slug, sql in predicates().items())
-    blocked = ",".join(_literal(value) for value in BLOCKED)
     query = f"""
       SELECT LOWER(BTRIM(jp.role_category)), loc.location, COUNT(*)::int
-      FROM job_postings jp JOIN companies c ON c.company_id=jp.company_id LEFT JOIN locations l ON l.location_id=jp.location_id
+      FROM public.vw_lander_visible_opportunities visible
+      JOIN job_postings jp ON jp.job_id=visible.job_id
+      JOIN companies c ON c.company_id=jp.company_id LEFT JOIN locations l ON l.location_id=jp.location_id
       CROSS JOIN LATERAL unnest(array_remove(ARRAY[{labels}], NULL)) loc(location)
-      WHERE jp.is_public=true AND jp.data_tier=1 AND jp.domain IS NOT NULL
-        AND jp.role_category IS NOT NULL AND BTRIM(jp.role_category) <> ''
-        AND NOT EXISTS (SELECT 1 FROM unnest(ARRAY[{blocked}]::text[]) b(match) WHERE LOWER(c.company_name) LIKE '%'||b.match||'%')
+      WHERE jp.role_category IS NOT NULL AND BTRIM(jp.role_category) <> ''
       GROUP BY 1,2 HAVING COUNT(*)>=5
     """
     try:
@@ -61,8 +58,7 @@ def refresh() -> int:
             count = cur.rowcount
             cur.execute("TRUNCATE public.seo_role_location_index")
             cur.execute("INSERT INTO public.seo_role_location_index SELECT * FROM seo_role_location_next")
-            blocked_sql = f"NOT EXISTS (SELECT 1 FROM unnest(ARRAY[{blocked}]::text[]) b(match) WHERE LOWER(c.company_name) LIKE '%'||b.match||'%')"
-            scope = f"jp.is_public=true AND jp.data_tier=1 AND jp.domain IS NOT NULL AND {blocked_sql}"
+            scope = "EXISTS (SELECT 1 FROM public.vw_lander_visible_opportunities visible WHERE visible.job_id=jp.job_id)"
             midpoint = "CASE WHEN jp.salary_min_annual IS NOT NULL AND jp.salary_max_annual IS NOT NULL THEN (jp.salary_min_annual::double precision+jp.salary_max_annual::double precision)/2 WHEN jp.salary_min_annual IS NOT NULL THEN jp.salary_min_annual::double precision WHEN jp.salary_max_annual IS NOT NULL THEN jp.salary_max_annual::double precision END"
             ghost = "CASE WHEN mgi.ghost_probability IS NULL THEN 0.5 WHEN mgi.ghost_probability>1 THEN mgi.ghost_probability::double precision/100.0 ELSE mgi.ghost_probability::double precision END"
             cur.execute("CREATE TEMP TABLE seo_company_next (LIKE public.seo_company_index INCLUDING DEFAULTS) ON COMMIT DROP")

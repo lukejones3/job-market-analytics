@@ -405,7 +405,10 @@ def refresh_existing(cur, apply: bool) -> None:
         FROM (SELECT ats_source, board_token, active_roles FROM counts) c
         WHERE dc.enabled = true
           AND dc.ats_source = c.ats_source
-          AND dc.board_token = c.board_token
+          AND CASE
+              WHEN dc.ats_source = 'workday' THEN split_part(dc.board_token, '/', 1)
+              ELSE dc.board_token
+          END = c.board_token
         """
     )
     matched = cur.rowcount
@@ -418,7 +421,10 @@ def refresh_existing(cur, apply: bool) -> None:
           AND NOT EXISTS (
               SELECT 1 FROM job_postings jp
               WHERE jp.ingestion_source = dc.ats_source
-                AND jp.crawl_tenant = dc.board_token
+                AND jp.crawl_tenant = CASE
+                    WHEN dc.ats_source = 'workday' THEN split_part(dc.board_token, '/', 1)
+                    ELSE dc.board_token
+                END
                 AND jp.status = 'raw'
           )
         """

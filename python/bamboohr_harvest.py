@@ -12,6 +12,7 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
 from role_taxonomy import is_target_role
+from crawl_observability import record_failure, record_success
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 log = logging.getLogger(__name__)
@@ -51,7 +52,8 @@ def _is_us(opening: dict, remote: bool) -> bool:
     ats_location = opening.get("atsLocation") or {}
     country = str(ats_location.get("country") or location.get("addressCountry") or "").lower()
     state = str(ats_location.get("state") or ats_location.get("province") or location.get("state") or "").upper()
-    return remote or country in US_MARKERS or (len(state) == 2 and state not in {"ON", "BC", "AB", "QC", "MB", "SK", "NS", "NB", "NL", "PE", "NT", "NU", "YT"})
+    # Remote alone is not US evidence: Bamboo boards can be global.
+    return country in US_MARKERS or (len(state) == 2 and state not in {"ON", "BC", "AB", "QC", "MB", "SK", "NS", "NB", "NL", "PE", "NT", "NU", "YT"})
 
 
 def fetch_company(company: str, tenant: str) -> List[RawJob]:
@@ -77,8 +79,11 @@ def fetch_company(company: str, tenant: str) -> List[RawJob]:
         if not _is_us(opening, remote):
             continue
         location = opening.get("location") or {}
-        location_text = "Remote" if remote else ", ".join(filter(None, [
-            location.get("city"), location.get("state"), location.get("addressCountry")]))
+        ats_location = opening.get("atsLocation") or {}
+        country = ats_location.get("country") or location.get("addressCountry") or "United States"
+        state = ats_location.get("state") or ats_location.get("province") or location.get("state")
+        location_text = ", ".join(filter(None, [
+            "Remote" if remote else location.get("city"), state, country]))
         description = BeautifulSoup(str(opening.get("description") or ""), "html.parser").get_text("\n", strip=True)
         jobs.append(RawJob(
             source="bamboohr", source_id=f"{tenant}|{job_id}", title=title,
@@ -87,7 +92,12 @@ def fetch_company(company: str, tenant: str) -> List[RawJob]:
             posted_date=str(opening.get("datePosted") or "")[:10] or None,
             employment_type=opening.get("employmentStatusLabel") or opening.get("employmentType"),
             workplace_type="remote" if remote else None, remote=remote,
-            metadata={"tenant": tenant, "compensation_text": opening.get("compensation")},
+            metadata={
+                "tenant": tenant,
+                "compensation_text": opening.get("compensation"),
+                "hiring_organization": company or tenant,
+                "location_evidence": {"country": "US", "kind": "atsLocation"},
+            },
         ))
     return jobs
 
@@ -100,9 +110,12 @@ def fetch_all_bamboohr() -> List[RawJob]:
     jobs: Dict[str, RawJob] = {}
     for company, tenant in companies:
         try:
-            for job in fetch_company(company, tenant):
+            fetched = fetch_company(company, tenant)
+            record_success("bamboohr", tenant, len(fetched))
+            for job in fetched:
                 jobs[job.source_id] = job
         except Exception as exc:
             log.warning("BambooHR [%s] failed: %s", tenant, exc)
+            record_failure("bamboohr", tenant, str(exc))
     log.info("BambooHR total: %d unique US target roles from %d tenants", len(jobs), len(companies))
     return list(jobs.values())

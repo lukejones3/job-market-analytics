@@ -39,7 +39,7 @@ def main():
             cursor.execute("""SELECT source,
                     bool_or(status IN ('complete_nonzero', 'complete_zero')) AS succeeded,
                     count(*) FILTER (WHERE finished_at IS NULL OR status='running') AS running,
-                    sum(jobs_fetched) FILTER (WHERE status IN ('complete_nonzero', 'complete_zero')) AS jobs_fetched
+                    sum(jobs_written) FILTER (WHERE status IN ('complete_nonzero', 'complete_zero')) AS jobs_written
                 FROM ingestion_crawl_runs WHERE orchestration_run_id=%s
                 GROUP BY source""", (args.since,))
             crawl_rows = {row[0]: row[1:] for row in cursor.fetchall()}
@@ -61,15 +61,7 @@ def main():
                 raise RuntimeError(f"ingest gate failed; no current-run rows for: {', '.join(missing)}")
             print(f"ingest gate passed: " + ", ".join(f"{s}={counts.get(s, 0)}" for s in INGEST_SOURCES))
         else:
-            publication = """status='raw' AND data_tier=1
-                AND COALESCE(source,'') <> 'adzuna'
-                AND scope_status IN ('accepted_core','accepted_evidence')
-                AND company_id IS NOT NULL AND role_id IS NOT NULL
-                AND domain IS NOT NULL AND role_category IS NOT NULL
-                AND experience_level IS NOT NULL AND embedding IS NOT NULL
-                AND length(COALESCE(description_text,'')) >= 100
-                AND COALESCE(loc_country,'us') <> 'foreign'"""
-            candidate = scalar(cursor, f"SELECT COUNT(*) FROM job_postings WHERE {publication}")
+            candidate = scalar(cursor, "SELECT COUNT(*) FROM public.vw_lander_publication_candidates")
             current = scalar(cursor, "SELECT COUNT(*) FROM job_postings WHERE is_public=true")
             missing = scalar(cursor, """SELECT COUNT(*) FROM job_postings
                 WHERE status='raw' AND data_tier=1 AND company_id IS NULL""")

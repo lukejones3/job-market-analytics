@@ -49,6 +49,7 @@ from role_taxonomy import SEARCH_TERMS, is_target_role
 
 sys.path.insert(0, str(Path(__file__).parent))
 from location_normalizer import normalize_location
+from crawl_observability import record_failure, record_success
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -350,8 +351,7 @@ def fetch_taleo(company_name: str, slug: str, section: Optional[str] = None) -> 
     # Find working section
     working_section = _probe_section(slug, section)
     if not working_section:
-        log.debug(f"  Taleo [{company_name}] ({slug}): no accessible section found")
-        return []
+        raise RuntimeError(f"no accessible Taleo career section for {slug}")
 
     search_url = f"https://{slug}.taleo.net/careersection/{working_section}/jobsearch.ftl"
     jobs: List[RawJob] = []
@@ -436,17 +436,22 @@ def fetch_all_taleo() -> List[RawJob]:
         log.debug(f"Could not load Taleo companies from DB: {e}")
 
     if not companies_with_section:
-        companies_with_section = TALEO_COMPANIES
-        log.info(f"Taleo: using hardcoded list ({len(companies_with_section)} companies)")
+        # The historical bootstrap tenants migrated away from Taleo. An empty
+        # live registry is a verified no-op; probing known-dead fallbacks makes
+        # a healthy source look like a failed crawl.
+        log.info("Taleo: no enabled live tenants")
+        return []
 
     all_jobs: List[RawJob] = []
     for company_name, slug, section in companies_with_section:
         try:
             jobs = fetch_taleo(company_name, slug, section)
             all_jobs.extend(jobs)
+            record_success("taleo", slug, len(jobs), section=section)
             time.sleep(0.5)
         except Exception as e:
             log.warning(f"  Taleo [{company_name}] failed: {e}")
+            record_failure("taleo", slug, str(e), section=section)
 
     log.info(f"Taleo total: {len(all_jobs)} jobs")
     return all_jobs

@@ -137,7 +137,7 @@ def integrate_active(
                     enabled = true,
                     last_seen_at = now()
                 """,
-                (company_id, name, ats, board_token, us_jobs, us_jobs),
+                (company_id, name, ats, board_token, dml, us_jobs),
             )
             cur.execute(
                 "UPDATE ats_tenants_candidates SET status='integrated' WHERE ats=%s AND tenant=%s",

@@ -38,6 +38,7 @@ from psycopg2.extras import DictCursor
 sys.path.insert(0, str(Path(__file__).parent))
 from location_normalizer import normalize_location
 from role_taxonomy import SEARCH_TERMS, is_target_role
+from crawl_observability import record_failure, record_success
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -211,14 +212,12 @@ def fetch_workable_for_term(search_term: str) -> List[RawJob]:
                 headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
             )
         except requests.RequestException as e:
-            log.warning(f"  Workable [{search_term}] request error: {e}")
-            break
+            raise RuntimeError(f"Workable [{search_term}] request failed: {e}") from e
 
         time.sleep(REQUEST_DELAY)
 
         if r.status_code != 200:
-            log.debug(f"  Workable [{search_term}] HTTP {r.status_code}")
-            break
+            raise RuntimeError(f"Workable [{search_term}] HTTP {r.status_code}")
 
         data = r.json()
         batch = data.get("jobs", [])
@@ -325,8 +324,17 @@ def fetch_all_workable() -> List[RawJob]:
                     all_jobs.append(j)
         except Exception as e:
             log.warning(f"  Workable [{term}] failed: {e}")
+            record_failure("workable", "global-search", str(e), partial=bool(all_jobs), search_term=term)
 
     log.info(f"Workable total: {len(all_jobs)} unique US target roles")
+    by_company: Dict[str, int] = {}
+    for job in all_jobs:
+        tenant = str(job.metadata.get("workable_company_id") or "")
+        if tenant:
+            by_company[tenant] = by_company.get(tenant, 0) + 1
+    for tenant, count in by_company.items():
+        record_success("workable", tenant, count)
+    record_success("workable", "global-search", len(all_jobs), search_terms=len(SEARCH_TERMS))
     return all_jobs
 
 # ============================================================

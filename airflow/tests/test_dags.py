@@ -12,7 +12,7 @@ def test_dags_import_cleanly():
     bag = dag_bag()
     assert bag.import_errors == {}
     assert {"lander_nightly", "lander_resume_embeddings", "lander_shadow_validation",
-            "lander_ats_discovery"} <= set(bag.dags)
+            "lander_ats_discovery", "lander_career_host_engine"} <= set(bag.dags)
 
 def test_nightly_is_bounded_and_parallelizes_ingest_writers():
     nightly = dag("lander_nightly")
@@ -33,6 +33,8 @@ def test_nightly_has_complete_safe_publish_path():
     assert "dbt_build" in nightly.get_task("refresh_repost_signals").downstream_task_ids
     assert "canonicalize_opportunities" in nightly.task_ids
     assert "canonicalize_opportunities" in nightly.get_task("deduplicate_sources").downstream_task_ids
+    assert "repair_missing_crawl_tenants" in nightly.get_task("canonicalize_opportunities").downstream_task_ids
+    assert "dag_run.run_id" in nightly.get_task("expire_jobs").bash_command
     assert "publish_quality_gate" in nightly.get_task("dbt_build").downstream_task_ids
     assert "extract_skills" in nightly.get_task("enrich_jobs").downstream_task_ids
     assert "extract_skills" not in nightly.get_task("annualize_salaries").downstream_task_ids
@@ -44,3 +46,12 @@ def test_discovery_pipeline_is_ordered():
              "ats_discovery_health")
     for task, successor in zip(chain, chain[1:]):
         assert successor in discovery.get_task(task).downstream_task_ids
+
+def test_career_host_engine_routes_and_crawls_in_parallel_after_resolution():
+    coverage = dag("lander_career_host_engine")
+    assert coverage.max_active_runs == 1
+    assert coverage.max_active_tasks == 1
+    assert coverage.get_task("seed_employer_universe").upstream_task_ids == {"ensure_career_host_schema"}
+    assert coverage.get_task("route_supported_career_ats").upstream_task_ids == {"resolve_official_career_hosts"}
+    assert "validate_routed_career_ats" in coverage.get_task("route_supported_career_ats").downstream_task_ids
+    assert "crawl_direct_career_hosts" in coverage.get_task("route_supported_career_ats").downstream_task_ids

@@ -138,7 +138,7 @@ US_SIGNALS = {
     ", vt", ", va", ", wa", ", wv", ", wi", ", wy", ", dc",
 }
 NON_US_SIGNALS = {
-    "singapore", "sgp", "india", "ind", "bangalore", "hyderabad",
+    "singapore", "sgp", "india", "bangalore", "hyderabad",
     "warsaw", "poland", "london", "united kingdom", "uk", "germany",
     "france", "canada", "toronto", "amsterdam", "dublin", "australia",
     "sydney", "tokyo", "japan", "china", "chn", "brazil", "mexico",
@@ -148,10 +148,10 @@ NON_US_SIGNALS = {
 
 def _is_us_job(location: str) -> bool:
     if not location:
-        return True
+        return False
     loc = location.lower()
     for sig in NON_US_SIGNALS:
-        if sig in loc:
+        if re.search(rf"(?<![a-z]){re.escape(sig)}(?![a-z])", loc):
             return False
     if "," in loc:
         last = loc.split(",")[-1].strip().upper()
@@ -616,19 +616,14 @@ def validate_eightfold(row: Dict) -> Tuple[Optional[str], int, int, str]:
 # ============================================================
 
 def validate_jobvite(row: Dict) -> Tuple[Optional[str], int, int, str]:
-    tenant = row["tenant"]
-    url = f"https://jobs.jobvite.com/{tenant}/jobs"
     try:
-        r = requests.get(url, timeout=REQUEST_TIMEOUT,
-                         headers={"User-Agent": "Mozilla/5.0"}, allow_redirects=True)
-        if r.status_code == 200:
-            soup = BeautifulSoup(r.text, "html.parser")
-            titles = [el.get_text(" ", strip=True) for el in soup.select(
-                ".jv-job-list-job-title, [data-automation='job-title'], a[href*='/job/']")]
-            titles = list(dict.fromkeys(filter(None, titles)))
-            if titles:
-                target = sum(1 for title in titles if _is_target_role(title))
-                return None, len(titles), target, _candidate_status(len(titles), target)
+        # Listing HTML does not provide trustworthy geography. Reuse the
+        # detail harvester, which admits only target jobs with US evidence.
+        from jobvite_harvest import fetch_company
+
+        jobs = fetch_company(row.get("company_name") or row["tenant"], row["tenant"])
+        target = len(jobs)
+        return None, target, target, _candidate_status(target, target)
     except Exception:
         pass
     return None, 0, 0, "unreachable"
@@ -648,15 +643,11 @@ def validate_bamboohr(row: Dict) -> Tuple[Optional[str], int, int, str]:
                 ats_location = job.get("atsLocation") or {}
                 country = ats_location.get("country") or location.get("addressCountry") or ""
                 state = ats_location.get("state") or ats_location.get("province") or location.get("state") or ""
-                remote = bool(job.get("isRemote"))
-                if remote or _is_us_job(", ".join(filter(None, [country, state]))):
+                # "Remote" is not geography; global boards need explicit US
+                # country/state evidence before they enter the active registry.
+                if _is_us_job(", ".join(filter(None, [country, state]))):
                     us_jobs += 1
                     target += int(_is_target_role(job.get("jobOpeningName", "")))
-            # Listing rows frequently omit country; keep an otherwise healthy
-            # board eligible for harvesting, where detail records provide it.
-            if jobs and not us_jobs:
-                target = sum(1 for job in jobs if _is_target_role(job.get("jobOpeningName", "")))
-                return None, len(jobs), target, _candidate_status(len(jobs), target)
             return None, us_jobs, target, _candidate_status(us_jobs, target)
     except Exception:
         pass
