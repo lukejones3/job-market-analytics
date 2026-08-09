@@ -181,7 +181,9 @@ with DAG(dag_id="lander_career_host_engine",
         f"{PYTHON} python/career_host_engine.py report")
     career_schema >> seed_career_hosts >> resolve_career_hosts >> route_career_ats
     route_career_ats >> validate_routed_ats >> integrate_routed_ats
-    route_career_ats >> crawl_direct_hosts
+    # Land the validated ATS tenants before the potentially multi-hour direct
+    # crawl so the next ingestion run can use them immediately.
+    integrate_routed_ats >> crawl_direct_hosts
     [integrate_routed_ats, crawl_direct_hosts] >> career_host_report
 
 with DAG(dag_id="lander_ats_discovery_daily",
