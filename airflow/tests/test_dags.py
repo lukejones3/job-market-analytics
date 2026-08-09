@@ -47,11 +47,17 @@ def test_discovery_pipeline_is_ordered():
     for task, successor in zip(chain, chain[1:]):
         assert successor in discovery.get_task(task).downstream_task_ids
 
-def test_career_host_engine_routes_and_crawls_in_parallel_after_resolution():
+def test_career_host_engine_integrates_fast_path_before_direct_crawl():
     coverage = dag("lander_career_host_engine")
     assert coverage.max_active_runs == 1
     assert coverage.max_active_tasks == 1
     assert coverage.get_task("seed_employer_universe").upstream_task_ids == {"ensure_career_host_schema"}
     assert coverage.get_task("route_supported_career_ats").upstream_task_ids == {"resolve_official_career_hosts"}
     assert "validate_routed_career_ats" in coverage.get_task("route_supported_career_ats").downstream_task_ids
-    assert "crawl_direct_career_hosts" in coverage.get_task("route_supported_career_ats").downstream_task_ids
+    assert coverage.get_task("integrate_routed_career_ats").upstream_task_ids == {"validate_routed_career_ats"}
+    assert coverage.get_task("crawl_direct_career_hosts").upstream_task_ids == {"integrate_routed_career_ats"}
+
+
+def test_workday_expansion_ingest_has_priority_over_broad_sources():
+    nightly = dag("lander_nightly")
+    assert nightly.get_task("ingest_workday").priority_weight > nightly.get_task("ingest_amazon").priority_weight
