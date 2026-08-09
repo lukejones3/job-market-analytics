@@ -41,7 +41,14 @@ with DAG(dag_id="lander_nightly",
         # are no validated live tenants.
         empty_flag = " --accept-empty" if source in ("jobvite", "bamboohr", "taleo") else ""
         task_overrides = (
-            {"execution_timeout": timedelta(minutes=45)} if source == "workday" else {}
+            {
+                "execution_timeout": timedelta(minutes=45),
+                # Employer-first discovery currently routes most immediate
+                # expansion wins to Workday. Do not leave them queued behind
+                # multi-hour broad-source crawls such as Amazon.
+                "priority_weight": 100,
+            }
+            if source == "workday" else {}
         )
         ingest = command(f"ingest_{source}",
             f"{PYTHON} python/ingest_jobs.py --apply --source {source} "
