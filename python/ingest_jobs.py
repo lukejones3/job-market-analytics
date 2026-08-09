@@ -2910,6 +2910,7 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
             WHERE ats_source = 'workday'
               AND enabled = true
               AND board_token LIKE '%wd%'
+            ORDER BY last_seen_at DESC NULLS LAST, company_name
         """)
         rows = cur.fetchall()
         cur.close()
