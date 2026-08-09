@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Optional
 
 import psycopg2
+from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 
 
@@ -81,9 +82,24 @@ def backfill(*, apply: bool, limit: int) -> dict[str, int]:
             if tenant:
                 repaired.append((tenant, job_id))
         if apply and repaired:
-            cur.executemany(
-                "UPDATE job_postings SET crawl_tenant=%s WHERE job_id=%s AND crawl_tenant IS NULL",
+            cur.execute(
+                """CREATE TEMP TABLE crawl_tenant_backfill (
+                       crawl_tenant text NOT NULL,
+                       job_id text PRIMARY KEY
+                   ) ON COMMIT DROP"""
+            )
+            execute_values(
+                cur,
+                "INSERT INTO crawl_tenant_backfill (crawl_tenant, job_id) VALUES %s",
                 repaired,
+                page_size=5000,
+            )
+            cur.execute(
+                """UPDATE job_postings AS jobs
+                   SET crawl_tenant = repair.crawl_tenant
+                   FROM crawl_tenant_backfill AS repair
+                   WHERE jobs.job_id = repair.job_id
+                     AND jobs.crawl_tenant IS NULL"""
             )
         if not apply:
             conn.rollback()
