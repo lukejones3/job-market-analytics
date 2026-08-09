@@ -42,7 +42,7 @@ with DAG(dag_id="lander_nightly",
         empty_flag = " --accept-empty" if source in ("jobvite", "bamboohr", "taleo") else ""
         task_overrides = (
             {
-                "execution_timeout": timedelta(minutes=45),
+                "execution_timeout": timedelta(minutes=90),
                 # Employer-first discovery currently routes most immediate
                 # expansion wins to Workday. Do not leave them queued behind
                 # multi-hour broad-source crawls such as Amazon.
