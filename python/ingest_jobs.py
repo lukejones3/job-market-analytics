@@ -2409,7 +2409,8 @@ _WD_USER_AGENTS = [
 ]
 _WD_UA_CYCLE = itertools.cycle(_WD_USER_AGENTS)
 
-_WD_GLOBAL_CONCURRENCY  = 50    # max in-flight requests across all tenants
+_WD_GLOBAL_CONCURRENCY  = int(os.getenv("WORKDAY_GLOBAL_CONCURRENCY", "24"))
+_WD_TENANT_CONCURRENCY  = int(os.getenv("WORKDAY_TENANT_CONCURRENCY", "12"))
 _WD_PER_HOST            = 3     # Workday throttles large tenants sharply above this
 _WD_TIMEOUT             = aiohttp.ClientTimeout(sock_connect=10, sock_read=20)
 _WD_GLOBAL_429_THRESH   = 5     # pause entire harvester after this many global 429s
@@ -2419,7 +2420,7 @@ _WD_DETAIL_MIN_INTERVAL = 0.40  # Workday detail APIs throttle sustained bursts
 _WD_HOST_429_LIMIT      = 6     # stop wasting hours once a tenant blocks detail requests
 _WD_TENANT_TIMEOUT_SECS = int(os.getenv("WORKDAY_TENANT_TIMEOUT_SECONDS", "1800"))
 
-_wd_state: Dict = {"global_429": 0, "pause_until": 0.0}
+_wd_state: Dict = {"global_429": 0, "pause_until": 0.0, "pause_logged_until": 0.0}
 _wd_host_locks: Dict[str, asyncio.Lock] = {}
 _wd_host_next: Dict[str, float] = {}
 _wd_host_429s: Dict[str, int] = {}
@@ -2478,7 +2479,9 @@ def _wd_note_detail_status(url: str, status: int) -> bool:
 async def _wd_check_pause() -> None:
     wait = _wd_state["pause_until"] - time.monotonic()
     if wait > 0:
-        log.info(f"Workday: global 429 pause — sleeping {wait:.0f}s")
+        if _wd_state["pause_logged_until"] < _wd_state["pause_until"]:
+            log.info(f"Workday: global 429 pause — sleeping {wait:.0f}s")
+            _wd_state["pause_logged_until"] = _wd_state["pause_until"]
         await asyncio.sleep(wait)
 
 
@@ -2889,6 +2892,7 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
     # The historical hand-maintained list accumulated duplicate locators. Keep
     # its first display name but never crawl the same tenant/server/board twice.
     workday_list: List[Tuple[str, str, str, str]] = []
+    dynamic_tokens: set[str] = set()
     known_tokens = set()
     for row in WORKDAY_COMPANIES:
         name, tenant, board, server = row
@@ -2921,7 +2925,14 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
                 if board_token not in known_tokens:
                     workday_list.append((company_name, tenant, board, wd_server))
                     known_tokens.add(board_token)
+                    dynamic_tokens.add(board_token)
                     added += 1
+        # Fresh employer-first discoveries are the inventory-expansion path.
+        # Crawl them before the large historical list so a later provider
+        # throttle cannot starve the newest validated tenants.
+        workday_list.sort(
+            key=lambda row: f"{row[1]}/{row[3]}/{row[2]}" not in dynamic_tokens
+        )
         log.info(
             f"Workday: {hardcoded_unique} unique hardcoded "
             f"({len(WORKDAY_COMPANIES) - hardcoded_unique} duplicates removed) + {added} dynamic "
@@ -2934,7 +2945,7 @@ def _load_workday_list() -> List[Tuple[str, str, str, str]]:
 
 async def _run_all_workday_async(workday_list: List[Tuple]) -> List[RawJob]:
     global _wd_state, _wd_host_locks, _wd_host_next, _wd_host_429s, _wd_host_circuit_logged
-    _wd_state = {"global_429": 0, "pause_until": 0.0}
+    _wd_state = {"global_429": 0, "pause_until": 0.0, "pause_logged_until": 0.0}
     _wd_host_locks = {}
     _wd_host_next = {}
     _wd_host_429s = {}
@@ -2943,8 +2954,16 @@ async def _run_all_workday_async(workday_list: List[Tuple]) -> List[RawJob]:
         limit=_WD_GLOBAL_CONCURRENCY, limit_per_host=_WD_PER_HOST
     )
     async with aiohttp.ClientSession(connector=connector, timeout=_WD_TIMEOUT) as session:
+        tenant_slots = asyncio.Semaphore(max(1, _WD_TENANT_CONCURRENCY))
+
+        async def fetch_bounded(name: str, tenant: str, board: str, wd_server: str):
+            async with tenant_slots:
+                return await _fetch_workday_tenant_bounded(
+                    session, name, tenant, board, wd_server
+                )
+
         tasks = [
-            _fetch_workday_tenant_bounded(session, name, tenant, board, wd_server)
+            fetch_bounded(name, tenant, board, wd_server)
             for name, tenant, board, wd_server in workday_list
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
