@@ -28,6 +28,7 @@ with DAG(dag_id="lander_nightly",
         "-f sql/ingestion_publication_funnel.sql "
         "-f sql/publication_boundary.sql "
         "-f sql/company_history_intelligence.sql "
+        "-f sql/company_radar.sql "
         "-f sql/feed_performance_indexes.sql")
     backup >> observability_schema
     ingests = []
@@ -91,7 +92,9 @@ with DAG(dag_id="lander_nightly",
     publish_snapshot = command("publish_snapshot",
         f"{PYTHON} python/publish_snapshot.py --apply")
     company_history_snapshot = command("company_history_snapshot",
-        "psql -v ON_ERROR_STOP=1 -c \"SELECT refresh_company_daily_snapshot();\"")
+        "psql -v ON_ERROR_STOP=1 -c \"SELECT refresh_company_daily_snapshot();\" "
+        "-c \"SELECT ensure_company_radar_history(45);\" "
+        "-c \"SELECT generate_company_radar_alerts();\"")
     refresh_seo_index = command("refresh_seo_collection_index",
         f"{PYTHON} python/refresh_seo_collection_index.py")
     notify_google_indexing = command("notify_google_indexing",
@@ -132,6 +135,17 @@ with DAG(dag_id="lander_ats_discovery",
     discover_tenants >> validate_tenants >> integrate_tenants
     discover_workday_crawl >> validate_workday_crawl >> integrate_workday_crawl
     [integrate_tenants, integrate_workday_crawl] >> health_report
+
+with DAG(dag_id="lander_company_radar_research",
+    description="Refresh sourced external evidence for followed and high-momentum companies",
+    schedule="0 14 * * *", start_date=datetime(2026, 8, 8), catchup=False,
+    max_active_runs=1, max_active_tasks=1, default_args=DEFAULT_ARGS,
+    dagrun_timeout=timedelta(hours=2), tags=["lander", "company-radar", "research"]) as company_radar_research:
+    research = command("research_company_signals",
+        f"{PYTHON} python/company_radar_research.py --apply --limit 40")
+    notify = command("deliver_company_radar_alerts",
+        f"{PYTHON} python/company_radar_notify.py --apply")
+    research >> notify
 
 with DAG(dag_id="lander_ats_discovery_daily",
     description="Daily broad-domain ATS discovery and stale-candidate recovery",

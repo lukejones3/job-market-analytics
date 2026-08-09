@@ -39,6 +39,20 @@ The production dataset changes after each successful publication. Lander's live
 counts are computed from the same public-feed boundary used by the product,
 rather than copied into this README as a quickly stale snapshot.
 
+## Company Radar data plane
+
+The checked-in Company Radar pipeline turns retained posting lifetimes and
+verified lifecycle events into a 45-day launch history, then records exact live
+daily observations. It operates on stable company IDs and canonical
+opportunities, retains zero-opening companies, and excludes crawler churn and
+bulk ATS refresh cohorts from repost signals. User follows feed an in-app alert
+inbox plus idempotent daily or weekly Resend digests.
+
+External research is a separate non-critical DAG. Serper supplies source URLs
+and snippets; optional OpenAI structured output may compress that evidence, but
+the deterministic classifier remains authoritative and every displayed brief
+keeps its source URL. Research failure cannot block ingestion or publication.
+
 ## System architecture
 
 ```mermaid
@@ -54,6 +68,9 @@ flowchart LR
     H --> I
     R[Resume upload] --> M[Semantic matcher]
     M --> C
+    H --> Q[Company Radar snapshots and alerts]
+    X[Serper + grounded AI research] --> Q
+    Q --> W
     I --> W[Next.js web and Expo mobile]
 ```
 
@@ -77,6 +94,7 @@ Airflow 3 with `LocalExecutor` is the checked-in production scheduler.
 | `lander_ats_discovery_daily` | `11:00` daily | Broad-domain discovery plus stale-candidate validation and activation |
 | `lander_ats_discovery` | `12:00` Sunday | Full ATS and Common Crawl/Workday discovery, validation, integration, and health reporting |
 | `lander_resume_embeddings` | Every 5 minutes | Embed newly uploaded resumes without overlapping workers |
+| `lander_company_radar_research` | `14:00` daily | Refresh sourced evidence for followed/high-momentum companies and deliver idempotent Radar digests |
 | `lander_shadow_validation` | Manual | Read-only production environment and database validation |
 
 The nightly DAG records a crawl outcome for every source and waits for all
@@ -138,6 +156,7 @@ is disabled by default; set `EXPOSE_API_DOCS=1` to expose `/docs` and
 | `python/publish_snapshot.py`, `python/airflow_quality_gate.py` | Publication boundary and quality enforcement |
 | `python/api.py` | FastAPI application, authentication, billing, and resume upload |
 | `python/resume/` | Resume parsing, skill extraction, matching, and gap analysis |
+| `python/company_radar_research.py`, `python/company_radar_notify.py` | Sourced company-event research and Radar digest delivery |
 | `airflow/dags/` | Production DAGs |
 | `dbt/job_analytics_dbt/` | Staging models, marts, tests, and PostgreSQL profile |
 | `config/` | Versioned role, domain, skill, discovery, and scope taxonomies |
