@@ -643,26 +643,37 @@ def enumerate_job_pages(host: dict, session: requests.Session, max_pages: int) -
     except Exception:
         html = ""
     sitemap_urls = list(dict.fromkeys(sitemap_urls))
-    queue = sitemap_urls[:]
+    queue = [(url, True) for url in sitemap_urls]
     visited: set[str] = set()
     pages: list[str] = []
-    sitemap_errors = 0
+    root_successes = root_errors = child_errors = 0
     while queue and len(visited) < 60 and len(pages) < max_pages:
-        sitemap_url = queue.pop(0)
+        sitemap_url, is_root = queue.pop(0)
         if sitemap_url in visited:
             continue
         visited.add(sitemap_url)
         try:
             response = _safe_get(session, sitemap_url)
             indexes, urls = _parse_sitemap(response.content, sitemap_url)
-            queue.extend(index for index in indexes if index not in visited)
+            if is_root:
+                root_successes += 1
+            queue.extend((index, False) for index in indexes if index not in visited)
             pages.extend(url for url in urls if _job_shaped_url(url))
         except Exception:
-            sitemap_errors += 1
+            if is_root:
+                root_errors += 1
+            else:
+                child_errors += 1
     if not pages and html:
         pages = [url for url in _all_urls(host["careers_url"], html) if _job_shaped_url(url)]
     unique = list(dict.fromkeys(pages))[:max_pages]
-    return unique, {"sitemaps_attempted": len(visited), "sitemap_errors": sitemap_errors}
+    return unique, {
+        "sitemaps_attempted": len(visited),
+        "sitemap_errors": root_errors + child_errors,
+        "sitemap_root_successes": root_successes,
+        "sitemap_root_errors": root_errors,
+        "sitemap_child_errors": child_errors,
+    }
 
 
 def _country_name(value: Any) -> str:
@@ -925,8 +936,14 @@ def _write_host_jobs(cur, jobs: Iterable[RawJob], stats: CrawlStats) -> None:
 def _classify_host_run(jobs: list[RawJob], stats: CrawlStats, detail: dict) -> tuple[str, bool]:
     mismatch_denominator = max(1, stats.target_jobs)
     identity_rate = stats.identity_mismatches / mismatch_denominator
-    sitemap_errors = int(detail.get("sitemap_errors") or 0)
-    complete = stats.errors == 0 and sitemap_errors == 0
+    if "sitemap_child_errors" in detail:
+        root_successes = int(detail.get("sitemap_root_successes") or 0)
+        child_errors = int(detail.get("sitemap_child_errors") or 0)
+        sitemap_complete = root_successes > 0 and child_errors == 0
+    else:
+        # Preserve conservative behavior for historical/legacy detail shapes.
+        sitemap_complete = int(detail.get("sitemap_errors") or 0) == 0
+    complete = stats.errors == 0 and sitemap_complete
     clean = bool(jobs) and complete and identity_rate <= 0.01
     if not complete:
         return "partial_failure", clean

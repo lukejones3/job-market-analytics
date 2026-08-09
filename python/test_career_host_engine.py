@@ -66,6 +66,22 @@ def test_partial_crawl_cannot_activate_or_expire_a_host() -> None:
     assert clean is False
 
 
+def test_failed_speculative_sitemap_root_does_not_poison_complete_crawl() -> None:
+    detail = {
+        "sitemap_root_successes": 1,
+        "sitemap_root_errors": 2,
+        "sitemap_child_errors": 0,
+        "sitemap_errors": 2,
+    }
+    status, clean = _classify_host_run([object()], CrawlStats(), detail)
+    assert status == "complete_nonzero"
+    assert clean is True
+    detail["sitemap_child_errors"] = 1
+    status, clean = _classify_host_run([object()], CrawlStats(), detail)
+    assert status == "partial_failure"
+    assert clean is False
+
+
 def test_remote_requires_explicit_us_applicant_eligibility() -> None:
     global_remote = {"jobLocationType": "TELECOMMUTE"}
     assert _location_evidence(global_remote) is None
