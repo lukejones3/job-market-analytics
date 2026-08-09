@@ -2488,6 +2488,23 @@ async def _wd_check_pause() -> None:
         await asyncio.sleep(wait)
 
 
+def _wd_note_global_429() -> None:
+    """Open one shared cooldown after a provider-wide throttle burst."""
+    now = time.monotonic()
+    if _wd_state["pause_until"] > now:
+        return
+    _wd_state["global_429"] += 1
+    if _wd_state["global_429"] < _WD_GLOBAL_429_THRESH:
+        return
+    log.warning(
+        f"Workday: {_wd_state['global_429']} global 429s — "
+        f"pausing harvester {_WD_GLOBAL_PAUSE_SECS}s"
+    )
+    _wd_state["pause_until"] = now + _WD_GLOBAL_PAUSE_SECS
+    _wd_state["pause_logged_until"] = 0.0
+    _wd_state["global_429"] = 0
+
+
 async def _wd_pace(url: str, interval: float) -> None:
     """Space request starts per tenant host while allowing tenants in parallel."""
     global _wd_global_next
@@ -2531,6 +2548,7 @@ async def _wd_fetch_page(
     """Fetch one list page. Returns (postings, total, http_status)."""
     for attempt in range(3):
         try:
+            await _wd_check_pause()
             await _wd_pace(list_url, _WD_LIST_MIN_INTERVAL)
             async with session.post(
                 list_url,
@@ -2593,7 +2611,7 @@ async def _wd_fetch_query_pages(
                 continue
             page, _, page_status = result
             if page_status == 429:
-                _wd_state["global_429"] += 1
+                _wd_note_global_429()
             postings.extend(page)
     return postings, status
 
@@ -2610,6 +2628,7 @@ async def _wd_detail(
     final_status = 0
     for attempt in range(5):
         try:
+            await _wd_check_pause()
             await _wd_pace(detail_url, _WD_DETAIL_MIN_INTERVAL)
             if _wd_host_circuit_open(detail_url):
                 return None
@@ -2631,7 +2650,7 @@ async def _wd_detail(
                     return desc, location, posted_date, remote_type
                 if r.status == 429 or r.status >= 500:
                     if r.status == 429:
-                        _wd_state["global_429"] += 1
+                        _wd_note_global_429()
                         if _wd_note_detail_status(detail_url, r.status):
                             host = _wd_host(detail_url)
                             if host not in _wd_host_circuit_logged:
@@ -2683,14 +2702,7 @@ async def _fetch_workday_tenant_async(
     page0_postings, total, status = await _wd_fetch_page(session, list_url, headers, 0, limit)
 
     if status == 429:
-        _wd_state["global_429"] += 1
-        if _wd_state["global_429"] >= _WD_GLOBAL_429_THRESH:
-            log.warning(
-                f"Workday: {_wd_state['global_429']} global 429s — "
-                f"pausing harvester {_WD_GLOBAL_PAUSE_SECS}s"
-            )
-            _wd_state["pause_until"] = time.monotonic() + _WD_GLOBAL_PAUSE_SECS
-            _wd_state["global_429"] = 0
+        _wd_note_global_429()
         log.warning(f"  Workday [{name}] 429 on page 0 — skipping tenant")
         record_failure("workday", tenant, "HTTP 429 on first listing page")
         return []
@@ -2726,7 +2738,7 @@ async def _fetch_workday_tenant_async(
                 continue
             postings, query_status = result
             if query_status == 429:
-                _wd_state["global_429"] += 1
+                _wd_note_global_429()
                 tenant_partial = True
             for posting in postings:
                 by_path[posting.get("externalPath") or json.dumps(posting, sort_keys=True)] = posting
@@ -2746,7 +2758,7 @@ async def _fetch_workday_tenant_async(
                 continue
             postings, _, pg_status = pr
             if pg_status == 429:
-                _wd_state["global_429"] += 1
+                _wd_note_global_429()
                 tenant_partial = True
             if postings:
                 all_postings.extend(postings)
