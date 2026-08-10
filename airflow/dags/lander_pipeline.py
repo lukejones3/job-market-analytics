@@ -42,7 +42,7 @@ with DAG(dag_id="lander_nightly",
         empty_flag = " --accept-empty" if source in ("jobvite", "bamboohr", "taleo") else ""
         task_overrides = (
             {
-                "execution_timeout": timedelta(minutes=90),
+                "execution_timeout": timedelta(hours=8),
                 # Employer-first discovery currently routes most immediate
                 # expansion wins to Workday. Do not leave them queued behind
                 # multi-hour broad-source crawls such as Amazon.
@@ -50,8 +50,13 @@ with DAG(dag_id="lander_nightly",
             }
             if source == "workday" else {}
         )
-        ingest = command(f"ingest_{source}",
+        ingest_entrypoint = (
+            f"{PYTHON} python/ingest_workday_resumable.py --apply "
+            if source == "workday" else
             f"{PYTHON} python/ingest_jobs.py --apply --source {source} "
+        )
+        ingest = command(f"ingest_{source}",
+            ingest_entrypoint +
             # A DagRun's start_date changes when a failed run is cleared. Its
             # run_id does not, so use the latter as the durable crawl identity.
             f"--orchestration-run-id '{{{{ dag_run.run_id }}}}'{empty_flag}",

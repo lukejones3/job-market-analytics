@@ -3511,7 +3511,7 @@ def fetch_all_eightfold() -> List[RawJob]:
 
 def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] = None,
                   accept_empty: bool = False) -> None:
-    run_id = f"ingest_{source}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}"
+    run_id = f"ingest_{source}_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S_%f')}"
     log.info(f"Starting ingestion run: {run_id} | apply={apply}")
     reset_tenant_outcomes()
 
