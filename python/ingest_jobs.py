@@ -701,6 +701,24 @@ def _clean(s: str) -> str:
     return s.strip()
 
 
+def _parse_source_posted_date(value) -> Optional[str]:
+    """Normalize explicit ATS publication timestamps without inventing one."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(value, timezone.utc).date().isoformat()
+        except (OverflowError, OSError, ValueError):
+            return None
+    clean = re.sub(r"\s+", " ", str(value)).strip()
+    for fmt in ("%Y-%m-%d", "%B %d, %Y", "%b %d, %Y"):
+        try:
+            return datetime.strptime(clean, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
 _EMPLOYMENT_TYPE_ALIASES = {
     "full time": "full-time",
     "fulltime": "full-time",
@@ -1424,7 +1442,10 @@ def ensure_schema_columns(cur):
           ADD COLUMN IF NOT EXISTS hiring_organization text,
           ADD COLUMN IF NOT EXISTS valid_through timestamptz,
           ADD COLUMN IF NOT EXISTS direct_apply boolean,
-          ADD COLUMN IF NOT EXISTS source_quality_status text NOT NULL DEFAULT 'active'
+          ADD COLUMN IF NOT EXISTS source_quality_status text NOT NULL DEFAULT 'active',
+          ADD COLUMN IF NOT EXISTS source_checked_at timestamptz,
+          ADD COLUMN IF NOT EXISTS source_http_status integer,
+          ADD COLUMN IF NOT EXISTS source_validation_note text
     """)
     cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_jp_source
@@ -1506,7 +1527,13 @@ def ingest_job(cur, job: RawJob) -> bool:
         return False
     crawl_tenant = str(job.metadata.get("board_token") or job.metadata.get("slug") or
                        job.metadata.get("tenant") or job.metadata.get("workable_company_id") or "") or None
-    location_evidence = job.metadata.get("location_evidence") or {}
+    location_evidence = job.metadata.get("location_evidence") or ({
+        "method": "ats_location_normalizer",
+        "raw": job.location,
+        "normalized_city": _loc.city,
+        "normalized_state": _loc.state,
+        "normalized_country": _loc.country,
+    } if job.location else {})
     hiring_organization = job.metadata.get("hiring_organization") or None
     valid_through = job.metadata.get("valid_through") or None
     direct_apply = job.metadata.get("direct_apply")
@@ -1574,7 +1601,23 @@ def ingest_job(cur, job: RawJob) -> bool:
             hiring_organization = COALESCE(EXCLUDED.hiring_organization, job_postings.hiring_organization),
             valid_through = COALESCE(EXCLUDED.valid_through, job_postings.valid_through),
             direct_apply = COALESCE(EXCLUDED.direct_apply, job_postings.direct_apply),
-            source_quality_status = EXCLUDED.source_quality_status
+            source_quality_status = CASE
+                WHEN job_postings.job_url IS DISTINCT FROM EXCLUDED.job_url
+                    THEN EXCLUDED.source_quality_status
+                ELSE job_postings.source_quality_status
+            END,
+            source_checked_at = CASE
+                WHEN job_postings.job_url IS DISTINCT FROM EXCLUDED.job_url THEN NULL
+                ELSE job_postings.source_checked_at
+            END,
+            source_http_status = CASE
+                WHEN job_postings.job_url IS DISTINCT FROM EXCLUDED.job_url THEN NULL
+                ELSE job_postings.source_http_status
+            END,
+            source_validation_note = CASE
+                WHEN job_postings.job_url IS DISTINCT FROM EXCLUDED.job_url THEN NULL
+                ELSE job_postings.source_validation_note
+            END
         """,
         (
             job_id,
@@ -3316,6 +3359,7 @@ def fetch_amazon() -> List[RawJob]:
                         salary_max=None,
                         salary_period=None,
                         workplace_type=workplace_type,
+                        posted_date=_parse_source_posted_date(j.get("posted_date")),
                         metadata={"tenant": "amazon"},
                     ))
 
@@ -3455,6 +3499,9 @@ def fetch_eightfold_company(name: str, subdomain: str, domain: str) -> List[RawJ
                         salary_max=None,
                         salary_period=None,
                         workplace_type=workplace_type,
+                        posted_date=_parse_source_posted_date(
+                            p.get("postedTs") or p.get("creationTs")
+                        ),
                         metadata={"tenant": subdomain},
                     ))
 

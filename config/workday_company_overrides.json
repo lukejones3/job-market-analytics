@@ -1,10 +1,24 @@
 {
   "alkami": "Alkami",
+  "alteryx": "Alteryx",
+  "arrowstreetcapital": "Arrowstreet Capital",
   "costar": "CoStar Group",
+  "cox": "Cox Enterprises",
+  "danaher": "Danaher",
+  "deluxe": "Deluxe",
   "emcins": "EMC Insurance",
+  "generac": "Generac",
+  "harborcapital": "Harbor Capital Advisors",
+  "heinz": "Kraft Heinz",
+  "insulet": "Insulet",
   "mdlz": "Mondelez International",
   "nc": "State of North Carolina",
+  "ouryahoo": "Yahoo",
   "synnex": "Hyve Solutions",
+  "swbc": "SWBC",
   "sysco": "Sysco",
-  "wattswater": "Watts Water Technologies"
+  "wattswater": "Watts Water Technologies",
+  "wgu": "Western Governors University",
+  "wintrust": "Wintrust",
+  "wsgr": "Wilson Sonsini Goodrich & Rosati"
 }

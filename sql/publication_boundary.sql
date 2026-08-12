@@ -11,7 +11,10 @@ ALTER TABLE job_postings
   ADD COLUMN IF NOT EXISTS hiring_organization TEXT,
   ADD COLUMN IF NOT EXISTS valid_through TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS direct_apply BOOLEAN,
-  ADD COLUMN IF NOT EXISTS source_quality_status TEXT NOT NULL DEFAULT 'active';
+  ADD COLUMN IF NOT EXISTS source_quality_status TEXT NOT NULL DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS source_checked_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS source_http_status INTEGER,
+  ADD COLUMN IF NOT EXISTS source_validation_note TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_job_postings_public_feed
   ON job_postings (posted_date DESC, job_id)
@@ -38,6 +41,10 @@ CREATE TABLE IF NOT EXISTS publication_company_exclusions (
 
 INSERT INTO publication_company_exclusions (match_text, match_type, reason)
 VALUES
+  ('demo.levels.fyi', 'exact', 'demo/synthetic ATS tenant'),
+  ('leverdemo193', 'exact', 'demo/synthetic ATS tenant'),
+  ('mergeapiintegrationsandbox', 'exact', 'integration sandbox tenant'),
+  ('careerswift.ai', 'exact', 'synthetic job inventory'),
   ('cgsfederal', 'substring', 'federal/staffing exclusion'),
   ('accenture federal', 'substring', 'federal/staffing exclusion'),
   ('booz allen', 'substring', 'federal/staffing exclusion'),
@@ -82,9 +89,9 @@ SET match_type = EXCLUDED.match_type,
 -- Candidate eligibility is recalculated from mutable ingestion/enrichment
 -- state. Only the publisher reads this view. The public-facing view below is a
 -- stable snapshot of rows that survived the last successful publication.
--- The legacy ATS exception preserves plausible existing unknown-country rows
--- while rejecting explicit foreign evidence. Career-host/custom sources never
--- get that exception: they must carry structured US evidence at ingestion.
+-- Publication is deliberately stricter than ingestion: every indexed record
+-- needs current lifecycle ownership, an explicit source publication date, a
+-- reachable application URL, positive US evidence, and a real current opening.
 CREATE OR REPLACE VIEW public.vw_lander_publication_candidates AS
 WITH eligible AS (
   SELECT
@@ -123,8 +130,18 @@ WITH eligible AS (
     AND jp.experience_level IS NOT NULL
     AND jp.embedding IS NOT NULL
     AND length(COALESCE(jp.description_text, '')) >= 100
+    AND NULLIF(btrim(jp.crawl_tenant), '') IS NOT NULL
+    AND jp.last_seen_at >= now() - interval '72 hours'
+    AND jp.posted_date IS NOT NULL
+    AND jp.posted_date <= current_date
+    AND jp.job_url ~* '^https?://'
     AND COALESCE(jp.source_quality_status, 'active') = 'active'
     AND (jp.valid_through IS NULL OR jp.valid_through >= now())
+    AND jsonb_object_length(COALESCE(jp.location_evidence, '{}'::jsonb)) > 0
+    AND c.company_name !~* '\|wd[0-9]+\|'
+    AND c.company_name !~* '^(senior |sr\.? |lead |principal |staff |junior |jr\.? |associate )?((sustainability|marketing|product|financial|finance|operations|risk|healthcare|clinical|software|platform|quality|compliance|quantitative|research|business intelligence|bi|machine learning|ml|ai|data|analytics) ){1,3}(engineer|developer|scientist|analyst|architect|manager|consultant|specialist)( [ivx0-9]+)?s?$'
+    AND r.role_name !~* '(general (application|interest|submission)|open application|talent (pool|community|network)|join our talent|future (opportunit|role|opening|position)|expression of interest|all future|prospective application)'
+    AND jp.description_text !~* '(do not use this form to apply|this is not a role that is currently open|do not have an immediate(, active)? opening|no immediate opening|not currently hiring)'
     AND NOT EXISTS (
       SELECT 1
       FROM publication_company_exclusions pce
@@ -154,25 +171,12 @@ WITH eligible AS (
         ])
       )
       OR (
-        lower(COALESCE(jp.loc_country, '')) = 'unknown'
+        lower(COALESCE(jp.loc_country, '')) IN ('', 'unknown')
         AND upper(COALESCE(jp.loc_state, '')) = ANY (ARRAY[
           'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME',
           'MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA',
           'RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY','DC','PR','VI','GU','AS','MP'
         ])
-      )
-      OR (
-        lower(COALESCE(jp.loc_country, '')) = 'unknown'
-        AND lower(COALESCE(jp.ingestion_source, '')) IN ('greenhouse', 'lever', 'ashby')
-        AND concat_ws(' ', r.role_name, l.location, jp.loc_city, jp.loc_state)
-          !~* '\m(armenia|asia|australia|austria|baku|belgium|belgrade|berlin|brazil|brasil|canada|china|denmark|dublin|europe|france|germany|gdańsk|herzliya|india|ireland|israel|italy|japan|korea|latin america|london|málaga|mexico|netherlands|poland|portugal|singapore|spain|sweden|switzerland|tokyo|toronto|united kingdom|warsaw)\M'
-      )
-      OR (
-        lower(COALESCE(jp.loc_country, '')) = 'unknown'
-        AND lower(COALESCE(jp.ingestion_source, '')) = 'workday'
-        AND lower(COALESCE(jp.workplace_type, '')) = 'remote'
-        AND concat_ws(' ', r.role_name, l.location, jp.loc_city, jp.loc_state)
-          !~* '\m(armenia|asia|australia|austria|baku|belgium|belgrade|berlin|brazil|brasil|canada|china|denmark|dublin|europe|france|germany|gdańsk|herzliya|india|ireland|israel|italy|japan|korea|latin america|london|málaga|mexico|netherlands|poland|portugal|singapore|spain|sweden|switzerland|tokyo|toronto|united kingdom|warsaw)\M'
       )
     )
 )

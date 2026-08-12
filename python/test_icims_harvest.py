@@ -1,6 +1,8 @@
 import unittest
 
-from icims_harvest import _parse_icims_job_ids
+from unittest.mock import patch
+
+from icims_harvest import _fetch_icims_description, _icims_job_url, _parse_icims_job_ids
 
 
 class IcimsParserTests(unittest.TestCase):
@@ -43,6 +45,31 @@ class IcimsParserTests(unittest.TestCase):
         self.assertEqual(_parse_icims_job_ids(html, "example"), [
             ("123", "Data Analyst", "")
         ])
+
+    def test_preserves_slugged_url_and_reads_json_ld_date(self):
+        search = '<a href="/jobs/4812/data-engineer/job?in_iframe=1">Data Engineer</a>'
+        url = _icims_job_url(search, "https://careers-example.icims.com", "4812")
+        self.assertEqual(
+            url,
+            "https://careers-example.icims.com/jobs/4812/data-engineer/job?in_iframe=1",
+        )
+        detail = """
+        <html><head>
+          <link rel="canonical" href="/jobs/4812/data-engineer/job" />
+          <script type="application/ld+json">
+          {"@context":"https://schema.org","@type":"JobPosting",
+           "datePosted":"2026-08-10","description":"<p>Build systems.</p>"}
+          </script>
+        </head><body><div class="location">Seattle, WA</div></body></html>
+        """
+        with patch("icims_harvest._get_html", return_value=detail):
+            desc, location, posted, canonical = _fetch_icims_description(
+                "https://careers-example.icims.com", "4812", url
+            )
+        self.assertEqual(posted, "2026-08-10")
+        self.assertEqual(canonical, "https://careers-example.icims.com/jobs/4812/data-engineer/job")
+        self.assertIn("Build systems", desc)
+        self.assertEqual(location, "Seattle, WA")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,7 @@ Cron:
 """
 
 import hashlib
+import json
 import logging
 import os
 import re
@@ -34,6 +35,7 @@ import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -284,19 +286,57 @@ def _parse_icims_job_ids(html: str, slug: str) -> List[Tuple[str, str, str]]:
     return results
 
 
-def _fetch_icims_description(base_url: str, job_id: str) -> Tuple[str, str]:
+def _icims_job_url(html: str, base_url: str, job_id: str) -> str:
+    """Preserve the current slugged iCIMS URL; legacy slugless URLs can be 410."""
+    soup = BeautifulSoup(html, "lxml")
+    for anchor in soup.find_all("a", href=_ICIMS_JOB_ID_RE):
+        match = _ICIMS_JOB_ID_RE.search(anchor.get("href", ""))
+        if match and match.group(1) == job_id:
+            return urljoin(base_url, anchor.get("href", ""))
+    return f"{base_url}/jobs/{job_id}/job"
+
+
+def _jobposting_nodes(payload):
+    if isinstance(payload, list):
+        for item in payload:
+            yield from _jobposting_nodes(item)
+    elif isinstance(payload, dict):
+        if payload.get("@type") == "JobPosting":
+            yield payload
+        for key in ("@graph", "mainEntity"):
+            if key in payload:
+                yield from _jobposting_nodes(payload[key])
+
+
+def _fetch_icims_description(
+    base_url: str, job_id: str, job_url: Optional[str] = None
+) -> Tuple[str, str, Optional[str], str]:
     """
     Fetch a single iCIMS job detail page.
-    Returns (description, location).
+    Returns (description, location, explicit datePosted, canonical URL).
     """
-    url = f"{base_url}/jobs/{job_id}/job"
+    url = job_url or f"{base_url}/jobs/{job_id}/job"
     html = _get_html(url)
     if not html:
-        return "", ""
+        return "", "", None, url
 
     soup = BeautifulSoup(html, "lxml")
     desc = ""
     location = ""
+    posted_date = None
+
+    for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
+        try:
+            payload = json.loads(script.string or script.get_text() or "")
+        except (TypeError, ValueError):
+            continue
+        for node in _jobposting_nodes(payload):
+            raw_date = str(node.get("datePosted") or "")[:10]
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_date):
+                posted_date = raw_date
+            if not desc and node.get("description"):
+                desc = _strip_html(str(node["description"]))
+            break
 
     # Try common iCIMS job description containers
     for sel in [
@@ -326,7 +366,15 @@ def _fetch_icims_description(base_url: str, job_id: str) -> Tuple[str, str]:
             location = _clean(el.get_text())
             break
 
-    return desc[:8000], location  # cap description length
+    if posted_date is None:
+        date_el = soup.find(attrs={"itemprop": "datePosted"}) or soup.find("time", attrs={"datetime": True})
+        raw_date = str((date_el or {}).get("content") or (date_el or {}).get("datetime") or "")[:10]
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_date):
+            posted_date = raw_date
+
+    canonical = soup.find("link", attrs={"rel": lambda value: value and "canonical" in value})
+    canonical_url = urljoin(base_url, canonical.get("href")) if canonical and canonical.get("href") else url
+    return desc[:8000], location, posted_date, canonical_url  # cap description length
 
 
 def fetch_icims(company_name: str, slug: str) -> List[RawJob]:
@@ -366,7 +414,10 @@ def fetch_icims(company_name: str, slug: str) -> List[RawJob]:
             seen_ids.add(job_id)
             if not title or not _is_target_role(title):
                 continue
-            desc, detail_location = _fetch_icims_description(base_url, job_id)
+            listing_url = _icims_job_url(html, base_url, job_id)
+            desc, detail_location, posted_date, canonical_url = _fetch_icims_description(
+                base_url, job_id, listing_url
+            )
             time.sleep(REQUEST_DELAY)
 
             if not location and detail_location:
@@ -386,8 +437,9 @@ def fetch_icims(company_name: str, slug: str) -> List[RawJob]:
             jobs.append(RawJob(
                 source="icims", source_id=f"{slug}_{job_id}", title=title,
                 company=company_name, location=location, description=desc,
-                job_url=f"{base_url}/jobs/{job_id}/job",
+                job_url=canonical_url,
                 workplace_type=workplace_type,
+                posted_date=posted_date,
                 metadata={"slug": slug, "icims_job_id": job_id},
             ))
 

@@ -55,6 +55,15 @@ def infer_crawl_tenant(source: str | None, source_id: str | None, job_url: str |
     return None
 
 
+def tenant_from_board_token(source: str, board_token: str) -> Optional[str]:
+    token = (board_token or "").strip()
+    if not token:
+        return None
+    if source in {"workday", "eightfold"}:
+        token = token.split("/", 1)[0]
+    return token.lower() or None
+
+
 def connection():
     return psycopg2.connect(
         host=os.getenv("PGHOST"),
@@ -68,8 +77,21 @@ def connection():
 def backfill(*, apply: bool, limit: int) -> dict[str, int]:
     with connection() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT job_id, COALESCE(ingestion_source, source), source_id, job_url
-               FROM job_postings
+            """SELECT lower(company_name),ats_source,min(board_token)
+               FROM discovered_companies
+               WHERE enabled=true AND company_name IS NOT NULL AND board_token IS NOT NULL
+               GROUP BY lower(company_name),ats_source
+               HAVING count(DISTINCT board_token)=1"""
+        )
+        discovered = {
+            (source, name): tenant_from_board_token(source, token)
+            for name, source, token in cur.fetchall()
+        }
+        cur.execute(
+            """SELECT jp.job_id, COALESCE(jp.ingestion_source, jp.source), jp.source_id,
+                      jp.job_url, lower(c.company_name)
+               FROM job_postings jp
+               LEFT JOIN companies c ON c.company_id=jp.company_id
                WHERE data_tier=1 AND crawl_tenant IS NULL
                ORDER BY last_seen_at DESC NULLS LAST
                LIMIT %s""",
@@ -77,8 +99,10 @@ def backfill(*, apply: bool, limit: int) -> dict[str, int]:
         )
         rows = cur.fetchall()
         repaired = []
-        for job_id, source, source_id, job_url in rows:
+        for job_id, source, source_id, job_url, company_name in rows:
             tenant = infer_crawl_tenant(source, source_id, job_url)
+            if not tenant and source and company_name:
+                tenant = discovered.get((source, company_name))
             if tenant:
                 repaired.append((tenant, job_id))
         if apply and repaired:

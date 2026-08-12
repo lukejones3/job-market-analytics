@@ -15,6 +15,7 @@ Goals:
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import Optional
 
@@ -110,6 +111,8 @@ FOREIGN_COUNTRY_RE = re.compile(
     r"santiago|valparaiso|"
     r"lima|cusco|"
     r"cape town|johannesburg|durban|nairobi|lagos|"
+    r"montreal|ljubljana|cebu|da nang|taoyuan|novi sad|dundee|osasco|"
+    r"ciudad de mexico|villeneuve d'ascq|"
     r"lagunilla|"  # Costa Rica
     r"heredia|"  # Costa Rica
     r"iasi|cluj-napoca|cluj|timisoara|"  # Romania
@@ -128,6 +131,15 @@ FOREIGN_COUNTRY_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+
+
+def _fold_location(value: str) -> str:
+    """Make accented geography comparable to the ASCII foreign lexicon."""
+    return unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii").lower()
+
+
+def _has_foreign_signal(value: str) -> bool:
+    return FOREIGN_COUNTRY_RE.search(_fold_location(value)) is not None
 
 # ---------- US explicit signals ----------
 
@@ -403,7 +415,7 @@ def normalize_location(
     # ---- Empty / null ----
     if not raw or not raw.strip():
         if is_remote:
-            return NormalizedLocation(None, None, "US", True)
+            return NormalizedLocation(None, None, "unknown", True)
         return NormalizedLocation(None, None, "unknown", False)
 
     raw_clean = raw.strip()
@@ -411,14 +423,16 @@ def normalize_location(
     # ---- Recognize 'Remote' prefix even without workplace_type signal ----
     if not is_remote and re.match(r"^remote\b", raw_clean, re.IGNORECASE):
         rest = raw_clean[6:].strip(" -()")
-        if not rest or US_EXPLICIT_RE.search(rest.lower()):
+        if US_EXPLICIT_RE.search(rest.lower()):
             return NormalizedLocation(None, None, "US", True)
+        if not rest:
+            return NormalizedLocation(None, None, "unknown", True)
         if re.match(r"^international$", rest, re.IGNORECASE):
             return NormalizedLocation(None, None, "unknown", True)
-        if FOREIGN_COUNTRY_RE.search(rest.lower()):
+        if _has_foreign_signal(rest):
             return NormalizedLocation(None, None, "foreign", True)
-        # Generic "Remote - <something>" — assume US-remote
-        return NormalizedLocation(None, None, "US", True)
+        # A generic remote label is not positive evidence of US eligibility.
+        return NormalizedLocation(None, None, "unknown", True)
 
     # "N Locations" placeholder
     if N_LOCATIONS_RE.match(raw_clean):
@@ -434,14 +448,17 @@ def normalize_location(
 
     # ---- Remote shortcut ----
     if is_remote:
-        if FOREIGN_COUNTRY_RE.search(raw_clean.lower()) and not US_EXPLICIT_RE.search(raw_clean.lower()):
+        if _has_foreign_signal(raw_clean) and not US_EXPLICIT_RE.search(raw_clean.lower()):
             return NormalizedLocation(None, None, "foreign", True)
-        return NormalizedLocation(None, None, "US", True)
+        if US_EXPLICIT_RE.search(raw_clean.lower()):
+            return NormalizedLocation(None, None, "US", True)
+        # Remote by itself is global/unknown; never manufacture US eligibility.
+        return NormalizedLocation(None, None, "unknown", True)
 
     # ---- Early foreign check on raw string (before _clean_city may strip city names) ----
     # Handles "Title - ForeignCity" patterns where the dash-separator cleanup would
     # otherwise discard the city before FOREIGN_COUNTRY_RE gets a chance to see it.
-    if FOREIGN_COUNTRY_RE.search(raw_clean.lower()) and not US_EXPLICIT_RE.search(raw_clean.lower()):
+    if _has_foreign_signal(raw_clean) and not US_EXPLICIT_RE.search(raw_clean.lower()):
         _raw_parts = [p.strip() for p in raw_clean.split(",")]
         _last_lower = _raw_parts[-1].strip().lower() if _raw_parts else ""
         _parts_for_state = _raw_parts[:-1] if _last_lower in _COLLIDING_COUNTRY_ISO else _raw_parts
@@ -468,7 +485,7 @@ def normalize_location(
         return NormalizedLocation(None, None, "foreign", False)
     if m and m.group(1).lower() == "ca":  # Canada prefix e.g. "CA-Toronto", "CA-Vancouver"
         rest_ca = s[m.end():].strip(" -")
-        if FOREIGN_COUNTRY_RE.search(rest_ca.lower()):
+        if _has_foreign_signal(rest_ca):
             return NormalizedLocation(None, None, "foreign", False)
     # ---- "VA - Mark Center" / "TX - Austin Office" style: US state prefix ----
     if m and m.group(1).upper() in US_STATE_CODES:
@@ -576,7 +593,7 @@ def normalize_location(
 
     # ---- Foreign signal check on remainder (after stripping US suffix) ----
     remaining = ", ".join(parts) if parts else s
-    if FOREIGN_COUNTRY_RE.search(remaining.lower()):
+    if _has_foreign_signal(remaining):
         # US-wins overrides: explicit US marker OR a US state code anywhere in parts.
         # Exclude the last token from the state check if it's a colliding country ISO
         # ("in"=India/Indiana, "ca"=Canada/California) — in suffix position it's a

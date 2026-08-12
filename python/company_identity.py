@@ -8,10 +8,15 @@ from pathlib import Path
 _OVERRIDE_PATH = Path(__file__).resolve().parents[1] / "config" / "workday_company_overrides.json"
 _ROLE_LIKE_COMPANY = re.compile(
     r"^(?:senior|sr\.?|lead|principal|staff|junior|jr\.?|associate)?\s*"
-    r"(?:sustainability|marketing|product|financial|operations|risk|healthcare|clinical)?\s*"
-    r"(?:data|analytics|business intelligence|bi|machine learning|ml|ai)\s+"
-    r"(?:engineer|analyst|scientist|architect|developer|manager|consultant)s?$",
+    r"(?:(?:sustainability|marketing|product|financial|finance|operations|risk|healthcare|clinical|"
+    r"software|platform|quality|compliance|quantitative|research|business intelligence|bi|"
+    r"machine learning|ml|ai|data|analytics)\s+){1,3}"
+    r"(?:engineer|analyst|scientist|architect|developer|manager|consultant|specialist)"
+    r"(?:\s+[ivx0-9]+)?s?$",
     re.I,
+)
+_LOCATOR_LIKE_COMPANY = re.compile(
+    r"(?:^https?://|\|wd\d+\|(?:en|fr|de|ja)(?:-[a-z]{2})?$|/wd\d+/)", re.I
 )
 
 
@@ -24,6 +29,8 @@ def is_plausible_company_name(name: str | None) -> bool:
     """Reject discovery artifacts that are job titles masquerading as employers."""
     clean = re.sub(r"\s+", " ", (name or "")).strip()
     if not clean or len(clean) < 2:
+        return False
+    if _LOCATOR_LIKE_COMPANY.search(clean):
         return False
     return _ROLE_LIKE_COMPANY.fullmatch(clean) is None
 

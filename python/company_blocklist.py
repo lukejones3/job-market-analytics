@@ -18,6 +18,12 @@ Categories:
 # Exact company_name strings as they appear in the companies table.
 # Case-insensitive match applied at ingest time.
 ABSOLUTE_BLOCK: set[str] = {
+    # Explicit ATS demo/sandbox tenants and synthetic job inventories.
+    "Demo.Levels.Fyi",
+    "Leverdemo193",
+    "Mergeapiintegrationsandbox",
+    "Careerswift.Ai",
+
     # Federal staffing aggregator — posts on behalf of DoD/agencies, not a real employer.
     # 569 jobs, only 2.6% recent.
     "cgsfederal",

@@ -34,6 +34,9 @@ CREATE INDEX IF NOT EXISTS idx_ingestion_tenant_runs_complete
     ON ingestion_tenant_runs (source, crawl_tenant, run_id);
 
 ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS canonical_opportunity_id text;
+ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS source_checked_at timestamptz;
+ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS source_http_status integer;
+ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS source_validation_note text;
 ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS crawl_tenant text;
 ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS enrichment_input_hash text;
 ALTER TABLE job_postings ADD COLUMN IF NOT EXISTS expired_reason text;
@@ -83,5 +86,8 @@ CREATE INDEX IF NOT EXISTS idx_job_postings_canonical_opportunity
     WHERE canonical_opportunity_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_job_postings_crawl_tenant
     ON job_postings (ingestion_source, crawl_tenant, last_seen_at);
+CREATE INDEX IF NOT EXISTS idx_job_postings_source_validation
+    ON job_postings (source_checked_at NULLS FIRST, last_seen_at DESC)
+    WHERE data_tier = 1 AND status = 'raw' AND job_url IS NOT NULL;
 
 COMMIT;
