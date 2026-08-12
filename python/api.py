@@ -1285,6 +1285,121 @@ def list_roles(
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
 
+
+@app.get("/v1/internal/outreach/fresh-matches", tags=["Internal"])
+def outreach_fresh_matches(
+    request: Request,
+    days: int = Query(7, ge=1, le=14),
+    limit: int = Query(30, ge=1, le=60),
+    conn=Depends(get_conn),
+):
+    """Return fresh, Luke-aligned jobs plus known company recruiters.
+
+    This is a private server-to-server feed for the Outreach Control Center.
+    It deliberately emits exact job identities rather than a generic recruiter
+    list so the research agent can resolve a recruiter against a real opening.
+    """
+    supplied = request.headers.get("X-Lander-Internal-Key", "")
+    if not LANDER_INTERNAL_API_KEY or not supplied or not hmac.compare_digest(supplied, LANDER_INTERNAL_API_KEY):
+        raise HTTPException(status_code=401, detail="Internal Lander credential required")
+
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute(
+        """
+        WITH fresh AS (
+          SELECT
+            jp.job_id::text AS job_id,
+            COALESCE(NULLIF(BTRIM(r.role_name), ''), NULLIF(BTRIM(jp.role_category), ''), 'Role') AS title,
+            c.company_id::text AS company_id,
+            c.company_name,
+            jp.job_url,
+            COALESCE(jp.posted_date::timestamptz, jp.date_found::timestamptz, jp.ingested_at) AS posted_at,
+            jp.workplace_type,
+            jp.experience_level,
+            jp.salary_min_annual::double precision AS salary_min,
+            jp.salary_max_annual::double precision AS salary_max,
+            COALESCE(NULLIF(BTRIM(jp.loc_city), ''), NULLIF(BTRIM(l.location), ''), '') AS city,
+            COALESCE(NULLIF(BTRIM(jp.loc_state), ''), NULLIF(BTRIM(l.state), ''), '') AS state,
+            COALESCE(NULLIF(BTRIM(jp.ingestion_source), ''), NULLIF(BTRIM(jp.source), ''), 'lander') AS source,
+            LEFT(COALESCE(jp.description_text, ''), 12000) AS description,
+            CASE
+              WHEN LOWER(COALESCE(jp.workplace_type, '')) = 'remote' THEN 3
+              WHEN LOWER(COALESCE(jp.loc_city, '') || ' ' || COALESCE(l.location, '')) ~
+                   '(seattle|bellevue|redmond|kirkland|bothell|shoreline|lynnwood|everett|issaquah|renton|tacoma)' THEN 2
+              ELSE 0
+            END AS location_rank,
+            CASE
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~ '(analytics engineer|data engineer)' THEN 7
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~ '(applied ai|ai engineer|agent|evaluation)' THEN 6
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~ '(machine learning|ml engineer)' THEN 5
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~ '(analytics|data analyst|business intelligence)' THEN 4
+              WHEN LOWER(COALESCE(jp.description_text, '')) ~ '(python|sql|dbt|airflow|postgres|llm|agentic)' THEN 3
+              ELSE 0
+            END AS role_rank
+          FROM job_postings jp
+          JOIN companies c ON c.company_id = jp.company_id
+          LEFT JOIN roles r ON r.role_id = jp.role_id
+          LEFT JOIN locations l ON l.location_id = jp.location_id
+          WHERE jp.is_public = true
+            AND jp.data_tier = 1
+            AND COALESCE(jp.source, '') <> 'adzuna'
+            AND COALESCE(jp.posted_date::timestamptz, jp.date_found::timestamptz, jp.ingested_at)
+                >= NOW() - (%(days)s * INTERVAL '1 day')
+            AND (
+              LOWER(COALESCE(jp.workplace_type, '')) = 'remote'
+              OR LOWER(COALESCE(jp.loc_city, '') || ' ' || COALESCE(l.location, '')) ~
+                 '(seattle|bellevue|redmond|kirkland|bothell|shoreline|lynnwood|everett|issaquah|renton|tacoma)'
+            )
+            AND LOWER(COALESCE(r.role_name, '') || ' ' || COALESCE(jp.role_category, '') || ' ' || COALESCE(jp.description_text, '')) ~
+                '(data engineer|analytics engineer|data analyst|business intelligence|applied ai|ai engineer|machine learning|ml engineer|llm|agentic|python|sql|dbt|airflow)'
+            AND LOWER(COALESCE(r.role_name, jp.role_category, '')) !~
+                '(director|vice president|vp[ ,/-]|principal|staff engineer|head of|chief |architect)'
+            AND (jp.salary_max_annual IS NULL OR jp.salary_max_annual >= 80000)
+        )
+        SELECT fresh.*,
+          COALESCE((
+            SELECT jsonb_agg(jsonb_build_object(
+              'name', cc.full_name,
+              'title', cc.title,
+              'email', cc.email,
+              'linkedinUrl', cc.linkedin_url,
+              'source', cc.source,
+              'verifiedAt', cc.fetched_at
+            ) ORDER BY cc.fetched_at DESC NULLS LAST)
+            FROM company_contacts cc
+            WHERE cc.company_id::text = fresh.company_id
+              AND LOWER(COALESCE(cc.title, '')) ~
+                  '(recruit|talent acquisition|talent partner|staffing|sourc|people partner)'
+          ), '[]'::jsonb) AS known_recruiters
+        FROM fresh
+        WHERE location_rank > 0 AND role_rank > 0
+        ORDER BY location_rank DESC, role_rank DESC, posted_at DESC
+        LIMIT %(limit)s
+        """,
+        {"days": days, "limit": limit},
+    )
+    rows = [dict(row) for row in cur.fetchall()]
+    generated_at = datetime.now(timezone.utc)
+    for row in rows:
+        posted_at = row.get("posted_at")
+        age_days = max(0.0, (generated_at - posted_at).total_seconds() / 86400) if posted_at else None
+        row["posted_at"] = posted_at.isoformat() if posted_at else None
+        row["age_days"] = round(age_days, 2) if age_days is not None else None
+        row["fit_reason"] = (
+            f"{row.get('workplace_type') or 'workplace unknown'}; "
+            f"role alignment {row.get('role_rank')}/7; "
+            f"experience level {row.get('experience_level') or 'not labeled'}"
+        )
+        row.pop("description", None)
+        row.pop("location_rank", None)
+        row.pop("role_rank", None)
+    return {
+        "generated_at": generated_at.isoformat(),
+        "window_days": days,
+        "count": len(rows),
+        "results": rows,
+    }
+
 # ── Role Detail ───────────────────────────────────────────────────────────────
 @app.get("/v1/roles/{job_id}", tags=["Role Intelligence"])
 def role_detail(
