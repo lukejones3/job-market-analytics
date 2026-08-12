@@ -1353,7 +1353,7 @@ def outreach_fresh_matches(
             AND LOWER(COALESCE(r.role_name, '') || ' ' || COALESCE(jp.role_category, '') || ' ' || COALESCE(jp.description_text, '')) ~
                 '(data engineer|analytics engineer|data analyst|business intelligence|applied ai|ai engineer|machine learning|ml engineer|llm|agentic|python|sql|dbt|airflow)'
             AND LOWER(COALESCE(r.role_name, jp.role_category, '')) !~
-                '(director|vice president|vp[ ,/-]|principal|staff engineer|head of|chief |architect)'
+                '(director|vice president|vp[ ,/-]|principal|(^|[^a-z])staff([^a-z]|$)|head of|chief |architect)'
             AND (jp.salary_max_annual IS NULL OR jp.salary_max_annual >= 80000)
         )
         SELECT fresh.*,
