@@ -40,11 +40,12 @@ def normalized_description(value: str | None) -> str:
     return " ".join(NON_WORD_RE.sub(" ", text).split())
 
 
-def shingles(value: str, width: int = 5) -> frozenset[tuple[str, ...]]:
+def shingles(value: str, width: int = 5) -> frozenset[int]:
+    """Return compact process-local hashes for similarity comparison."""
     words = value.split()
     if len(words) < width:
-        return frozenset([tuple(words)]) if words else frozenset()
-    return frozenset(tuple(words[index:index + width]) for index in range(len(words) - width + 1))
+        return frozenset([hash(tuple(words))]) if words else frozenset()
+    return frozenset(hash(tuple(words[index:index + width])) for index in range(len(words) - width + 1))
 
 
 def near_identical(left: frozenset, right: frozenset, threshold: float = 0.995) -> bool:
@@ -134,6 +135,8 @@ def main():
             FROM job_postings jp
             LEFT JOIN roles r ON r.role_id = jp.role_id
             WHERE jp.data_tier = 1
+              AND jp.status = 'raw'
+              AND jp.last_seen_at >= now() - interval '7 days'
         """)
         updates = build_updates(cur.fetchall())
         cur.execute("""

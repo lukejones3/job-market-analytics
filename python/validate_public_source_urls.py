@@ -80,17 +80,17 @@ def classify_response(status_code: int, body: str) -> tuple[str, str]:
 
 def validate_one(job_id: str, url: str, timeout: float) -> Result:
     try:
-        response = _session().get(url, timeout=timeout, allow_redirects=True, stream=True)
-        chunks: list[bytes] = []
-        byte_count = 0
-        for chunk in response.iter_content(chunk_size=16_384):
-            chunks.append(chunk)
-            byte_count += len(chunk)
-            if byte_count >= 750_000:
-                break
-        body = b"".join(chunks).decode(response.encoding or "utf-8", errors="ignore")
-        verdict, note = classify_response(response.status_code, body)
-        return Result(job_id, verdict, response.status_code, note)
+        with _session().get(url, timeout=timeout, allow_redirects=True, stream=True) as response:
+            chunks: list[bytes] = []
+            byte_count = 0
+            for chunk in response.iter_content(chunk_size=16_384):
+                chunks.append(chunk)
+                byte_count += len(chunk)
+                if byte_count >= 750_000:
+                    break
+            body = b"".join(chunks).decode(response.encoding or "utf-8", errors="ignore")
+            verdict, note = classify_response(response.status_code, body)
+            return Result(job_id, verdict, response.status_code, note)
     except requests.RequestException as exc:
         return Result(job_id, "inconclusive", None, f"request_{type(exc).__name__}"[:120])
 

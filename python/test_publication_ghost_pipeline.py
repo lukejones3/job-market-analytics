@@ -76,6 +76,8 @@ def test_canonicalizer_does_not_hold_schema_lock_during_backfill():
     source = (ROOT / "python" / "canonicalize_opportunities.py").read_text()
     assert "ALTER TABLE job_postings" not in source
     assert "lock_timeout" in source
+    assert "jp.status = 'raw'" in source
+    assert "jp.last_seen_at >= now() - interval '7 days'" in source
 
 
 if __name__ == "__main__":
