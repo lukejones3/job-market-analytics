@@ -79,10 +79,7 @@ def build_updates(rows: Iterable[tuple]) -> list[tuple[str, str]]:
             str(state or "").lower(), str(city or "").lower(),
             str(workplace_type or "").lower(),
         )
-        # The exact signature deliberately ignores whitespace boundaries too.
-        # ATS mirrors commonly change punctuation ("full-stack"/"full stack")
-        # without changing the employer-authored opportunity.
-        evidence_key = description_key.replace(" ", "") or f"source:{source_id or job_id}"
+        evidence_key = description_key or f"source:{source_id or job_id}"
         base_id = _canonical_id((*location_key, evidence_key))
         assignments[job_id] = base_id
         if description_key:
@@ -116,9 +113,14 @@ def build_updates(rows: Iterable[tuple]) -> list[tuple[str, str]]:
 
         for left in range(len(members)):
             for right in range(left + 1, len(members)):
-                if members[left][1] == members[right][1] or near_identical(
-                    members[left][2], members[right][2]
-                ):
+                # Exact signatures ignore whitespace boundaries too. ATS
+                # mirrors commonly change punctuation ("full-stack"/"full
+                # stack") without changing the authored opportunity.
+                exact_signature = (
+                    members[left][1].replace(" ", "")
+                    == members[right][1].replace(" ", "")
+                )
+                if exact_signature or near_identical(members[left][2], members[right][2]):
                     union(left, right)
 
         clusters: dict[int, list[int]] = defaultdict(list)
