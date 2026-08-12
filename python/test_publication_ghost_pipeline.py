@@ -28,6 +28,7 @@ def test_publication_predicate_and_total_are_consistent():
     assert "lander.publication_writer" in publisher
     assert "trg_guard_lander_publication_state" in boundary
     assert "publish_gate >> publish_snapshot" in dag
+    assert '"execution_timeout": timedelta(hours=10)' in dag
     assert "backfill_role_scope.py --apply --only-missing" in dag
     assert "repair_publication_quality.py --apply" in dag
     assert "validate_public_source_urls.py --apply" in dag

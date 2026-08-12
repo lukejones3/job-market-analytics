@@ -50,7 +50,11 @@ with DAG(dag_id="lander_nightly",
         empty_flag = " --accept-empty" if source in ("jobvite", "bamboohr", "taleo") else ""
         task_overrides = (
             {
-                "execution_timeout": timedelta(hours=8),
+                # A full ~1,000-tenant inventory currently takes a little over
+                # eight hours. Checkpoints make retries safe, but the timeout
+                # should cover a healthy first pass instead of manufacturing a
+                # routine retry near the end of every crawl.
+                "execution_timeout": timedelta(hours=10),
                 # Employer-first discovery currently routes most immediate
                 # expansion wins to Workday. Do not leave them queued behind
                 # multi-hour broad-source crawls such as Amazon.
