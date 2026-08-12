@@ -60,6 +60,13 @@ def test_career_host_engine_integrates_fast_path_before_direct_crawl():
     assert coverage.get_task("crawl_direct_career_hosts").upstream_task_ids == {"integrate_routed_career_ats"}
 
 
+def test_radar_notifications_survive_optional_research_failure():
+    radar = dag("lander_company_radar_research")
+    notify = radar.get_task("deliver_company_radar_alerts")
+    assert str(notify.trigger_rule).lower().endswith("all_done")
+    assert notify.upstream_task_ids == {"research_company_signals"}
+
+
 def test_workday_expansion_ingest_has_priority_over_broad_sources():
     nightly = dag("lander_nightly")
     assert nightly.get_task("ingest_workday").priority_weight > nightly.get_task("ingest_amazon").priority_weight

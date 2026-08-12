@@ -55,6 +55,12 @@ from python.cache_policy import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
+
+def _log_ref(value: Any) -> str:
+    """Stable, non-reversible reference for identifiers that must not enter logs."""
+    normalized = str(value or "").strip().lower()
+    return hashlib.sha256(normalized.encode()).hexdigest()[:12] if normalized else "empty"
+
 # ── DB config ─────────────────────────────────────────────────────────────────
 DB_CONFIG = dict(
     host=os.getenv("PGHOST"),
@@ -112,7 +118,7 @@ async def lifespan(app: FastAPI):
     log.info("DB pool closed")
 
 def get_conn():
-    conn = pool.getconn()
+    conn = _get_healthy_pool_connection()
     try:
         yield conn
     finally:
@@ -124,6 +130,42 @@ def get_conn():
             pool.putconn(conn, close=True)
         else:
             pool.putconn(conn)
+
+
+def _get_healthy_pool_connection():
+    """Lease a live connection, discarding sockets PostgreSQL has already closed."""
+    last_error: Exception | None = None
+    for _ in range(2):
+        conn = pool.getconn()
+        try:
+            if conn.closed:
+                raise psycopg2.InterfaceError("pooled connection is closed")
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1")
+            conn.rollback()
+            return conn
+        except psycopg2.Error as exc:
+            last_error = exc
+            pool.putconn(conn, close=True)
+    raise psycopg2.OperationalError("could not lease a live database connection") from last_error
+
+
+def _return_pool_connection(conn) -> None:
+    """Return a temporary connection without ever re-pooling a broken socket."""
+    try:
+        conn.rollback()
+    except psycopg2.Error:
+        pool.putconn(conn, close=True)
+    else:
+        pool.putconn(conn)
+
+
+def _rollback_if_usable(conn) -> bool:
+    try:
+        conn.rollback()
+        return True
+    except psycopg2.Error:
+        return False
 
 # ── App ───────────────────────────────────────────────────────────────────────
 app = FastAPI(
@@ -210,44 +252,52 @@ def ttl_payload_cache(seconds: int, key_arg: str | None = None):
 
         @functools.wraps(func)
         def wrapped(*args, **kwargs):
+            replacement_conn = None
             suffix = str(kwargs.get(key_arg, "public")) if key_arg else "public"
             key = f"{func.__name__}:{suffix}"
             now = time.monotonic()
-            with lock:
-                cached = values.get(key)
-                if cached and cached[0] > now:
-                    return cached[1]
+            try:
+                with lock:
+                    cached = values.get(key)
+                    if cached and cached[0] > now:
+                        return cached[1]
 
-                conn = kwargs.get("conn")
-                if conn is not None:
-                    try:
-                        shared = _shared_cache_get(conn, key)
-                        if shared is not None:
-                            values[key] = (now + seconds, shared)
-                            return shared
+                    conn = kwargs.get("conn")
+                    if conn is not None:
+                        try:
+                            shared = _shared_cache_get(conn, key)
+                            if shared is not None:
+                                values[key] = (now + seconds, shared)
+                                return shared
 
-                        # Serialize misses across API workers, then check again in
-                        # case another worker populated the cache while we waited.
-                        lock_id = int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big", signed=True)
-                        with conn.cursor() as cur:
-                            cur.execute("SELECT pg_advisory_xact_lock(%s)", (lock_id,))
-                        shared = _shared_cache_get(conn, key)
-                        if shared is not None:
-                            values[key] = (now + seconds, shared)
-                            return shared
-                    except psycopg2.Error:
-                        log.exception("Shared public cache unavailable for %s; using process cache", key)
-                        conn.rollback()
+                            # Serialize misses across API workers, then check again in
+                            # case another worker populated the cache while we waited.
+                            lock_id = int.from_bytes(hashlib.sha256(key.encode()).digest()[:8], "big", signed=True)
+                            with conn.cursor() as cur:
+                                cur.execute("SELECT pg_advisory_xact_lock(%s)", (lock_id,))
+                            shared = _shared_cache_get(conn, key)
+                            if shared is not None:
+                                values[key] = (now + seconds, shared)
+                                return shared
+                        except psycopg2.Error:
+                            log.exception("Shared public cache unavailable for %s; using a fresh connection", key)
+                            if not _rollback_if_usable(conn):
+                                replacement_conn = _get_healthy_pool_connection()
+                                conn = replacement_conn
+                                kwargs = {**kwargs, "conn": conn}
 
-                payload = func(*args, **kwargs)
-                if conn is not None:
-                    try:
-                        _shared_cache_put(conn, key, payload, seconds)
-                    except psycopg2.Error:
-                        log.exception("Could not populate shared public cache for %s", key)
-                        conn.rollback()
-                values[key] = (now + seconds, payload)
-                return payload
+                    payload = func(*args, **kwargs)
+                    if conn is not None:
+                        try:
+                            _shared_cache_put(conn, key, payload, seconds)
+                        except psycopg2.Error:
+                            log.exception("Could not populate shared public cache for %s", key)
+                            _rollback_if_usable(conn)
+                    values[key] = (now + seconds, payload)
+                    return payload
+            finally:
+                if replacement_conn is not None:
+                    _return_pool_connection(replacement_conn)
         return wrapped
     return decorate
 
@@ -1325,7 +1375,7 @@ async def stripe_webhook(request: Request):
         )
     except Exception as e:
         log.warning(f"Stripe webhook error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Invalid Stripe webhook payload.")
 
     # WEBHOOK_ATTR_ACCESS_v1
     if event["type"] == "checkout.session.completed":
@@ -1361,11 +1411,11 @@ async def stripe_webhook(request: Request):
                     customer_email = (_safe_get(cust, "email", "") or "").strip()
                     if customer_name == "unknown":
                         customer_name = (_safe_get(cust, "name", "") or "").strip() or "unknown"
-                    log.info(f"webhook: fetched email from Customer obj: {customer_email or '(empty)'}")
+                    log.info("webhook: fetched customer email ref=%s", _log_ref(customer_email))
                 except Exception as _e:
                     log.warning(f"webhook: stripe.Customer.retrieve({customer_id}) failed: {_e}")
 
-        log.info(f"webhook: extracted customer_email={customer_email!r} customer_name={customer_name!r}")
+        log.info("webhook: extracted customer ref=%s name_ref=%s", _log_ref(customer_email), _log_ref(customer_name))
 
         if customer_email:
             # WEBHOOK_KEYID_FIX_v1: generate key_id (was missing — schema requires NOT NULL)
@@ -1374,7 +1424,7 @@ async def stripe_webhook(request: Request):
             key_prefix = get_key_prefix(placeholder)
             key_id     = "K" + secrets.token_hex(8)
 
-            conn = pool.getconn()
+            conn = _get_healthy_pool_connection()
             try:
                 with conn.cursor() as cur:
                     cur.execute("""
@@ -1393,7 +1443,7 @@ async def stripe_webhook(request: Request):
                         WHERE email = %s
                     """, (key_id, customer_email,))
                     conn.commit()
-                log.info(f"New subscriber: {customer_email} — token prefix: {key_prefix}")
+                log.info("New subscriber ref=%s token_prefix=%s", _log_ref(customer_email), key_prefix)
 
                 # WEBHOOK_EMAIL_LINESWAP_v1: send Pro welcome email via Resend
                 lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
@@ -1415,17 +1465,17 @@ async def stripe_webhook(request: Request):
                         timeout=10,
                     )
                     if _r.status_code in (200, 201):
-                        log.info(f"webhook: Pro welcome email sent via Resend to {customer_email}")
+                        log.info("webhook: Pro welcome email sent ref=%s", _log_ref(customer_email))
                     else:
-                        log.warning(f"webhook: Resend error {_r.status_code} for {customer_email}: {_r.text[:200]}")
+                        log.warning("webhook: Resend error %s for ref=%s", _r.status_code, _log_ref(customer_email))
                 except Exception as _e:
-                    log.warning(f"webhook: failed Pro welcome email to {customer_email}: {_e}")
+                    log.warning("webhook: failed Pro welcome email ref=%s: %s", _log_ref(customer_email), _e)
 
             except Exception as e:
                 conn.rollback()
                 log.error(f"Error provisioning access: {e}")
             finally:
-                pool.putconn(conn)
+                _return_pool_connection(conn)
 
     elif event["type"] == "customer.subscription.deleted":
         # Deactivate key when subscription cancelled
@@ -1435,7 +1485,7 @@ async def stripe_webhook(request: Request):
             customer = stripe.Customer.retrieve(customer_id)
             email = customer.get("email", "")
             if email:
-                conn = pool.getconn()
+                conn = _get_healthy_pool_connection()
                 try:
                     with conn.cursor() as cur:
                         cur.execute(
@@ -1443,9 +1493,9 @@ async def stripe_webhook(request: Request):
                             (email,)
                         )
                         conn.commit()
-                    log.info(f"Deactivated access for {email}")
+                    log.info("Deactivated access ref=%s", _log_ref(email))
                 finally:
-                    pool.putconn(conn)
+                    _return_pool_connection(conn)
         except Exception as e:
             log.error(f"Error deactivating: {e}")
 
@@ -1545,7 +1595,7 @@ def _send_free_signup_email(email: str, access_url: str, subject_suffix: str = "
 
     api_key = os.getenv("RESEND_API_KEY", "")
     if not api_key:
-        log.warning(f"RESEND_API_KEY not set — cannot send email to {email}")
+        log.warning("RESEND_API_KEY not set — cannot send email ref=%s", _log_ref(email))
         return
 
     # Use onboarding@resend.dev until a sending domain is verified.
@@ -1573,11 +1623,11 @@ def _send_free_signup_email(email: str, access_url: str, subject_suffix: str = "
             timeout=10,
         )
         if r.status_code in (200, 201):
-            log.info(f"Free signup email sent via Resend: {email}")
+            log.info("Free signup email sent via Resend ref=%s", _log_ref(email))
         else:
-            log.warning(f"Resend error {r.status_code} for {email}: {r.text[:200]}")
+            log.warning("Resend error %s for ref=%s", r.status_code, _log_ref(email))
     except Exception as e:
-        log.warning(f"Failed to send Resend email to {email}: {e}")
+        log.warning("Failed to send Resend email ref=%s: %s", _log_ref(email), e)
 
 
 # FREEMIUM_BACKEND_v1_reorder
@@ -1602,10 +1652,10 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
     # AI_PROTECTION_v1: reject disposable email domains
     email_domain = email.split("@")[-1].lower()
     if email_domain in DISPOSABLE_EMAIL_DOMAINS:
-        log.info(f"Rejected disposable email signup: {email}")
+        log.info("Rejected disposable email signup ref=%s", _log_ref(email))
         raise HTTPException(status_code=400, detail="Please use a permanent email address")
 
-    conn = pool.getconn()
+    conn = _get_healthy_pool_connection()
     try:
         with conn.cursor() as cur:
             # Always prefer an active Pro key if one exists — free_signups.api_key_id
@@ -1686,17 +1736,18 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
         log.warning(f"Free signup error: {e}")
         raise HTTPException(status_code=500, detail="Signup failed. Please try again.")
     finally:
-        pool.putconn(conn)
+        _return_pool_connection(conn)
 
 
 @app.get("/auth/verify")
-async def verify_token(token: str):
+@limiter.limit("10/minute")
+async def verify_token(request: Request, token: str):
     if not token or len(token) < 20:
         raise HTTPException(status_code=400, detail="Invalid token")
 
     token_hash = hashlib.sha256(token.encode()).hexdigest()
 
-    conn = pool.getconn()
+    conn = _get_healthy_pool_connection()
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             legacy_link = False
@@ -1766,7 +1817,7 @@ async def verify_token(token: str):
         log.warning(f"Token verify error: {e}")
         raise HTTPException(status_code=500, detail="Verification failed")
     finally:
-        pool.putconn(conn)
+        _return_pool_connection(conn)
 
 
 # ── Stripe Checkout Session ───────────────────────────────────────────────────
@@ -1826,8 +1877,8 @@ def _stripe_customer_id_for_email(email: str) -> str:
     try:
         customers = stripe.Customer.list(email=email, limit=10)
     except Exception as e:
-        log.warning(f"Stripe Customer.list failed for {email!r}: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        log.warning("Stripe Customer.list failed for ref=%s: %s", _log_ref(email), e)
+        raise HTTPException(status_code=400, detail="Unable to retrieve the billing profile.")
     matches = [
         c
         for c in (customers.data or [])
@@ -1840,7 +1891,7 @@ def _stripe_customer_id_for_email(email: str) -> str:
         )
     if len(matches) > 1:
         ids = [c.id for c in matches]
-        log.warning(f"Stripe: multiple customers for {email!r}: {ids}")
+        log.warning("Stripe: multiple customers for ref=%s: %s", _log_ref(email), ids)
         raise HTTPException(
             status_code=409,
             detail="Multiple billing profiles found for this email. Please contact support.",
@@ -1856,7 +1907,7 @@ def _first_cancellable_subscription(customer_id: str):
                 return subs.data[0]
     except Exception as e:
         log.warning(f"Stripe Subscription.list failed for {customer_id}: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Unable to retrieve the subscription.")
     return None
 
 
@@ -1891,8 +1942,8 @@ async def create_portal(
         )
         return {"portal_url": session.url}
     except Exception as e:
-        log.warning(f"Stripe billing portal failed for {email!r} ({customer_id}): {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        log.warning("Stripe billing portal failed for ref=%s (%s): %s", _log_ref(email), customer_id, e)
+        raise HTTPException(status_code=400, detail="Unable to open the billing portal.")
 
 
 @app.post("/stripe/cancel-subscription")
@@ -1921,15 +1972,15 @@ async def cancel_subscription(
         else:
             stripe.Subscription.modify(sub.id, cancel_at_period_end=True)
     except Exception as e:
-        log.warning(f"Stripe subscription cancel failed for {email!r} ({sub.id}): {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+        log.warning("Stripe subscription cancel failed for ref=%s (%s): %s", _log_ref(email), sub.id, e)
+        raise HTTPException(status_code=400, detail="Unable to cancel the subscription.")
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE api_keys SET active = false WHERE key_id = %s",
             (key["key_id"],),
         )
         conn.commit()
-    log.info(f"Cancelled subscription {sub.id} for {email!r} (immediate={immediate})")
+    log.info("Cancelled subscription %s for ref=%s (immediate=%s)", sub.id, _log_ref(email), immediate)
     return {"ok": True, "cancelled": True}
 
 

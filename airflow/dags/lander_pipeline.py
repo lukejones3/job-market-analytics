@@ -165,7 +165,10 @@ with DAG(dag_id="lander_company_radar_research",
     research = command("research_company_signals",
         f"{PYTHON} python/company_radar_research.py --apply --limit 40")
     notify = command("deliver_company_radar_alerts",
-        f"{PYTHON} python/company_radar_notify.py --apply")
+        f"{PYTHON} python/company_radar_notify.py --apply",
+        # Deterministic Radar alerts are generated during the nightly snapshot.
+        # External research is optional enrichment and must never suppress them.
+        trigger_rule="all_done")
     research >> notify
 
 with DAG(dag_id="lander_career_host_engine",

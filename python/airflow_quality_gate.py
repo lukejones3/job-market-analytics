@@ -20,6 +20,16 @@ def scalar(cursor, sql):
     cursor.execute(sql)
     return cursor.fetchone()[0]
 
+
+def bad_ingest_sources(crawl_rows, tenant_failures):
+    """Return sources whose latest source or tenant outcome is incomplete."""
+    return [
+        source for source in INGEST_SOURCES
+        if not crawl_rows.get(source, (False, 1, 0))[0]
+        or crawl_rows[source][1] > 0
+        or tenant_failures.get(source, 0) > 0
+    ]
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("gate", choices=("shadow", "ingest", "publish"))
@@ -33,18 +43,36 @@ def main():
                 raise RuntimeError(f"implausibly small job table: {total}")
             print(f"shadow gate passed: jobs={total}")
         elif gate == "ingest":
-            # Airflow retries can leave more than one crawl row for a source.
-            # A plain dict silently selected an arbitrary row and could pass a
-            # run while a sibling attempt was still marked running.
-            cursor.execute("""SELECT source,
-                    bool_or(status IN ('complete_nonzero', 'complete_zero')) AS succeeded,
-                    count(*) FILTER (WHERE finished_at IS NULL OR status='running') AS running,
-                    sum(jobs_written) FILTER (WHERE status IN ('complete_nonzero', 'complete_zero')) AS jobs_written
-                FROM ingestion_crawl_runs WHERE orchestration_run_id=%s
-                GROUP BY source""", (args.since,))
+            # Evaluate the latest retry for every source, then independently
+            # require the latest outcome for every observed tenant to be clean.
+            # This prevents one successful sibling from masking a partial batch.
+            cursor.execute("""WITH ranked AS (
+                    SELECT source, status, finished_at, jobs_written,
+                           row_number() OVER (PARTITION BY source ORDER BY started_at DESC, run_id DESC) AS rn
+                    FROM ingestion_crawl_runs WHERE orchestration_run_id=%s
+                )
+                SELECT source,
+                       status IN ('complete_nonzero', 'complete_zero') AS succeeded,
+                       CASE WHEN finished_at IS NULL OR status='running' THEN 1 ELSE 0 END AS running,
+                       jobs_written
+                FROM ranked WHERE rn=1""", (args.since,))
             crawl_rows = {row[0]: row[1:] for row in cursor.fetchall()}
-            bad = [source for source in INGEST_SOURCES
-                   if not crawl_rows.get(source, (False,))[0] or crawl_rows[source][1] > 0]
+            cursor.execute("""WITH ranked AS (
+                    SELECT tr.source, tr.crawl_tenant, tr.status,
+                           row_number() OVER (
+                               PARTITION BY tr.source, tr.crawl_tenant
+                               ORDER BY cr.started_at DESC, tr.run_id DESC
+                           ) AS rn
+                    FROM ingestion_tenant_runs tr
+                    JOIN ingestion_crawl_runs cr ON cr.run_id=tr.run_id
+                    WHERE cr.orchestration_run_id=%s
+                )
+                SELECT source, count(*) FILTER (
+                    WHERE status NOT IN ('complete_nonzero', 'complete_zero')
+                )::integer AS failed_tenants
+                FROM ranked WHERE rn=1 GROUP BY source""", (args.since,))
+            tenant_failures = dict(cursor.fetchall())
+            bad = bad_ingest_sources(crawl_rows, tenant_failures)
             if bad:
                 raise RuntimeError(f"ingest gate failed; incomplete crawl outcome for: {', '.join(bad)}")
             cursor.execute("""SELECT ingestion_source, COUNT(*) FROM job_postings

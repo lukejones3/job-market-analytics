@@ -244,12 +244,13 @@ def ai_briefs(company_name: str, sources: list[Source]) -> list[dict[str, Any]] 
 
 def monthly_usage(cur, provider: str) -> int:
     cur.execute(
-        """SELECT COALESCE(SUM(request_count), 0)::integer
+        """SELECT COALESCE(SUM(request_count), 0)::integer AS request_count
            FROM company_radar_usage
            WHERE provider=%s AND created_at >= date_trunc('month', now())""",
         (provider,),
     )
-    return int(cur.fetchone()[0])
+    row = cur.fetchone()
+    return int(row["request_count"] if row else 0)
 
 
 def candidate_companies(cur, limit: int) -> list[dict[str, Any]]:

@@ -1,3 +1,4 @@
+import psycopg2
 from unittest.mock import MagicMock, Mock, patch
 
 from python.api import (
@@ -78,3 +79,26 @@ def test_public_payload_cache_populates_shared_storage_once() -> None:
     assert first == second
     assert calls == 1
     conn.commit.assert_called_once()
+
+
+def test_public_payload_cache_replaces_a_closed_connection() -> None:
+    broken = MagicMock()
+    broken.cursor.side_effect = psycopg2.OperationalError("SSL connection has been closed unexpectedly")
+    broken.rollback.side_effect = psycopg2.InterfaceError("connection already closed")
+    healthy = MagicMock()
+    healthy_cursor = MagicMock()
+    healthy.cursor.return_value.__enter__.return_value = healthy_cursor
+    healthy_cursor.fetchone.side_effect = [None, None]
+
+    @ttl_payload_cache(300)
+    def endpoint(*, conn):
+        assert conn is healthy
+        return {"ok": True}
+
+    with (
+        patch("python.api._get_healthy_pool_connection", return_value=healthy),
+        patch("python.api._return_pool_connection") as return_connection,
+    ):
+        assert endpoint(conn=broken) == {"ok": True}
+
+    return_connection.assert_called_once_with(healthy)

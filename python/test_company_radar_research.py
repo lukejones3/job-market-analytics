@@ -5,6 +5,7 @@ from company_radar_research import (
     classify_event,
     deterministic_brief,
     extract_response_text,
+    monthly_usage,
     normalize_sources,
 )
 from company_radar_notify import render_digest
@@ -52,6 +53,18 @@ def test_extract_responses_output_text():
         ]
     }
     assert extract_response_text(payload) == '{"briefs":[]}'
+
+
+def test_monthly_usage_reads_real_dict_cursor_shape():
+    class Cursor:
+        def execute(self, sql, params):
+            assert "AS request_count" in sql
+            assert params == ("serper",)
+
+        def fetchone(self):
+            return {"request_count": 17}
+
+    assert monthly_usage(Cursor(), "serper") == 17
 
 
 def test_digest_escapes_external_company_text():

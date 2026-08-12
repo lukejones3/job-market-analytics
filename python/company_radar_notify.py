@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import logging
 import os
@@ -135,7 +136,8 @@ def main():
                     alerts = alerts_for_ids(cur, alert_ids)
                     subject, body = render_digest(alerts, cadence)
                     if not args.apply:
-                        log.info("DRY RUN %s digest to %s with %s alerts", cadence, user["client_email"], len(alerts))
+                        recipient_ref = hashlib.sha256(user["client_email"].strip().lower().encode()).hexdigest()[:12]
+                        log.info("DRY RUN %s digest to ref=%s with %s alerts", cadence, recipient_ref, len(alerts))
                         continue
                     try:
                         message_id = send_email(api_key or "", str(user["client_email"]), subject, body)
@@ -145,7 +147,8 @@ def main():
                             (user["user_id"], cadence, digest_date, alert_ids, message_id),
                         )
                         db.commit()
-                        log.info("Delivered %s Radar alerts to %s", len(alerts), user["client_email"])
+                        recipient_ref = hashlib.sha256(user["client_email"].strip().lower().encode()).hexdigest()[:12]
+                        log.info("Delivered %s Radar alerts to ref=%s", len(alerts), recipient_ref)
                     except Exception:
                         db.rollback()
                         log.exception("Radar digest delivery failed for user %s", user["user_id"])

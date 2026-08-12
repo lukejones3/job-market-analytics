@@ -303,7 +303,8 @@ def enrich_recruiter_emails(contacts: list[dict], limit: int) -> tuple[list[dict
                     contact["evidence_urls"] = list(dict.fromkeys(contact.get("evidence_urls", []) + [source_url]))
                 contact["evidence"] = f"{contact.get('evidence') or ''} Public business email found in cited web evidence.".strip()
         except Exception as exc:
-            log.warning("Recruiter email search failed for %s: %s", name, exc)
+            contact_ref = hashlib.sha256(name.strip().lower().encode()).hexdigest()[:12]
+            log.warning("Recruiter email search failed for ref=%s: %s", contact_ref, exc)
     return contacts, queries
 
 
