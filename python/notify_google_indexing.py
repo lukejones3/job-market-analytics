@@ -4,8 +4,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 import psycopg2
 from psycopg2.extras import RealDictCursor
+
+
+MAX_DAILY_LIMIT = 10_000
+DEFAULT_MIN_INTERVAL_SECONDS = 0.20
 
 
 def _credentials():
@@ -46,7 +51,21 @@ def compact_and_fetch_pending(cur, limit: int):
     return compacted, cur.fetchall()
 
 
-def main(limit: int = 200) -> None:
+def sent_since_pacific_midnight(cur) -> int:
+    """Count successful publishes in Google's current quota day."""
+    cur.execute(
+        """SELECT COUNT(*)::int AS sent
+           FROM public.seo_indexing_queue
+           WHERE sent_at >= (
+             date_trunc('day', now() AT TIME ZONE 'America/Los_Angeles')
+             AT TIME ZONE 'America/Los_Angeles'
+           )"""
+    )
+    row = cur.fetchone()
+    return int(row["sent"] if isinstance(row, dict) else row[0])
+
+
+def main(limit: int = 200, min_interval_seconds: float = DEFAULT_MIN_INTERVAL_SECONDS) -> None:
     credentials = _credentials()
     if credentials is None:
         print({"status": "skipped", "reason": "Google Indexing credentials not configured"})
@@ -56,23 +75,36 @@ def main(limit: int = 200) -> None:
     dsn = os.getenv("DATABASE_URL")
     conn = psycopg2.connect(dsn) if dsn else psycopg2.connect(host=os.environ["PGHOST"],port=os.getenv("PGPORT","5432"),dbname=os.environ.get("PGDATABASE","job_analytics"),user=os.environ["PGUSER"],password=os.environ["PGPASSWORD"])
     sent=failed=compacted=0
+    sent_before_run=0
     quota_exhausted = False
     try:
         with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
-            compacted, pending = compact_and_fetch_pending(cur, limit)
+            sent_before_run = sent_since_pacific_midnight(cur)
+            remaining = max(0, limit - sent_before_run)
+            compacted, pending = compact_and_fetch_pending(cur, remaining)
+            last_request_started = None
             for row in pending:
+                if last_request_started is not None:
+                    wait = min_interval_seconds - (time.monotonic() - last_request_started)
+                    if wait > 0:
+                        time.sleep(wait)
+                last_request_started = time.monotonic()
                 response=session.post("https://indexing.googleapis.com/v3/urlNotifications:publish",json={"url":row["url"],"type":row["notification_type"]},timeout=20)
                 if response.ok:
                     cur.execute("UPDATE public.seo_indexing_queue SET sent_at=now(),attempts=attempts+1,last_error=NULL WHERE job_id=%s AND notification_type=%s AND queued_at=%s",(row["job_id"],row["notification_type"],row["queued_at"]));sent+=1
                 else:
-                    cur.execute("UPDATE public.seo_indexing_queue SET attempts=attempts+1,last_error=%s WHERE job_id=%s AND notification_type=%s AND queued_at=%s",(response.text[:1000],row["job_id"],row["notification_type"],row["queued_at"]));failed+=1
                     if response.status_code == 429 or "RESOURCE_EXHAUSTED" in response.text:
+                        # Quota exhaustion is project-level, not a defect in this
+                        # URL. Preserve its retry budget for the next quota day.
+                        cur.execute("UPDATE public.seo_indexing_queue SET last_error=%s WHERE job_id=%s AND notification_type=%s AND queued_at=%s",(response.text[:1000],row["job_id"],row["notification_type"],row["queued_at"]));failed+=1
                         quota_exhausted = True
                         break
+                    cur.execute("UPDATE public.seo_indexing_queue SET attempts=attempts+1,last_error=%s WHERE job_id=%s AND notification_type=%s AND queued_at=%s",(response.text[:1000],row["job_id"],row["notification_type"],row["queued_at"]));failed+=1
     finally: conn.close()
-    print({"compacted":compacted,"sent":sent,"failed":failed,"quota_exhausted":quota_exhausted})
+    print({"daily_limit":limit,"sent_before_run":sent_before_run,"compacted":compacted,"sent":sent,"failed":failed,"quota_exhausted":quota_exhausted})
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--limit", type=int, default=200, choices=range(1, 201))
+    parser.add_argument("--limit", type=int, default=int(os.getenv("GOOGLE_INDEXING_DAILY_LIMIT", "200")), choices=range(1, MAX_DAILY_LIMIT + 1))
+    parser.add_argument("--min-interval-seconds", type=float, default=float(os.getenv("GOOGLE_INDEXING_MIN_INTERVAL_SECONDS", str(DEFAULT_MIN_INTERVAL_SECONDS))))
     args = parser.parse_args()
-    main(args.limit)
+    main(args.limit, args.min_interval_seconds)

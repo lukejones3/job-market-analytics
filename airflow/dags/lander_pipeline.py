@@ -130,7 +130,7 @@ with DAG(dag_id="lander_nightly",
     refresh_seo_index = command("refresh_seo_collection_index",
         f"{PYTHON} python/refresh_seo_collection_index.py")
     notify_google_indexing = command("notify_google_indexing",
-        f"{PYTHON} python/notify_google_indexing.py")
+        f"{PYTHON} python/notify_google_indexing.py --limit 10000 --min-interval-seconds 0.20")
     report = command("morning_report", f"{PYTHON} python/morning_report.py")
     funnel_report = command("ingestion_funnel_report",
         f"{PYTHON} python/ingestion_funnel_report.py")

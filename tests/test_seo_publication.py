@@ -5,7 +5,12 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from python.notify_google_indexing import compact_and_fetch_pending, main as notify_main
+from python.notify_google_indexing import (
+    MAX_DAILY_LIMIT,
+    compact_and_fetch_pending,
+    main as notify_main,
+    sent_since_pacific_midnight,
+)
 from python.publish_snapshot import _slug
 
 
@@ -42,6 +47,21 @@ class SeoPublicationTest(unittest.TestCase):
         self.assertIn('response.status_code == 429', source)
         self.assertIn('"RESOURCE_EXHAUSTED" in response.text', source)
         self.assertRegex(source, r"quota_exhausted = True\s+break")
+        quota_branch = source[source.index("if response.status_code == 429"):source.index("quota_exhausted = True")]
+        self.assertNotIn("attempts=attempts+1", quota_branch)
+
+    def test_google_quota_day_uses_pacific_midnight(self):
+        cursor = MagicMock()
+        cursor.fetchone.return_value = {"sent": 187}
+
+        self.assertEqual(sent_since_pacific_midnight(cursor), 187)
+        sql = cursor.execute.call_args.args[0]
+        self.assertIn("America/Los_Angeles", sql)
+
+    def test_requested_daily_quota_is_supported(self):
+        self.assertEqual(MAX_DAILY_LIMIT, 10_000)
+        dag = (Path(__file__).parents[1] / "airflow" / "dags" / "lander_pipeline.py").read_text()
+        self.assertIn("notify_google_indexing.py --limit 10000", dag)
 
 
 if __name__ == "__main__":
