@@ -47,11 +47,14 @@ def test_nightly_is_bounded_and_parallelizes_ingest_writers():
 def test_nightly_has_complete_safe_publish_path():
     nightly = dag("lander_nightly")
     assert nightly.dagrun_timeout.total_seconds() == 18 * 60 * 60
-    assert "refresh_repost_signals" in nightly.get_task("expire_jobs").downstream_task_ids
+    assert nightly.get_task("deduplicate_sources").downstream_task_ids == {"repair_missing_crawl_tenants"}
+    assert nightly.get_task("repair_missing_crawl_tenants").downstream_task_ids == {"repair_publication_quality"}
+    assert nightly.get_task("repair_publication_quality").downstream_task_ids == {"canonicalize_opportunities"}
+    assert nightly.get_task("canonicalize_opportunities").downstream_task_ids == {"expire_jobs"}
+    assert nightly.get_task("expire_jobs").downstream_task_ids == {"validate_public_source_urls"}
+    assert nightly.get_task("validate_public_source_urls").downstream_task_ids == {"refresh_repost_signals"}
     assert "dbt_build" in nightly.get_task("refresh_repost_signals").downstream_task_ids
     assert "canonicalize_opportunities" in nightly.task_ids
-    assert "canonicalize_opportunities" in nightly.get_task("deduplicate_sources").downstream_task_ids
-    assert "repair_missing_crawl_tenants" in nightly.get_task("canonicalize_opportunities").downstream_task_ids
     assert "dag_run.run_id" in nightly.get_task("expire_jobs").bash_command
     assert "publish_quality_gate" in nightly.get_task("dbt_build").downstream_task_ids
     assert "extract_skills" in nightly.get_task("enrich_jobs").downstream_task_ids
