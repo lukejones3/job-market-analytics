@@ -12,7 +12,9 @@ import html
 import os
 import re
 from collections import defaultdict
+from itertools import groupby
 from pathlib import Path
+from typing import Iterable
 
 import psycopg2
 from dotenv import load_dotenv
@@ -63,10 +65,10 @@ def _canonical_id(parts: tuple[str, ...]) -> str:
     return "CO" + hashlib.md5("|".join(parts).encode("utf-8")).hexdigest()[:20]
 
 
-def build_updates(rows: list[tuple]) -> list[tuple[str, str]]:
+def build_updates(rows: Iterable[tuple]) -> list[tuple[str, str]]:
     """Return (job_id, canonical_id) assignments for database candidate rows."""
     assignments: dict[str, str] = {}
-    groups: dict[tuple[str, ...], list[tuple[str, str, frozenset, str]]] = defaultdict(list)
+    prepared: list[tuple[tuple[str, ...], str, str, str]] = []
 
     for (job_id, company_id, role_name, description, source_id, country, state, city,
          workplace_type) in rows:
@@ -81,12 +83,19 @@ def build_updates(rows: list[tuple]) -> list[tuple[str, str]]:
         base_id = _canonical_id((*location_key, evidence_key))
         assignments[job_id] = base_id
         if description_key:
-            groups[location_key].append((job_id, description_key, shingles(description_key), base_id))
+            prepared.append((location_key, job_id, description_key, base_id))
 
     # Exact normalization already shares base_id. This second pass catches only
     # descriptions that differ by a vanishingly small amount (>=99.5% Jaccard),
     # such as an ATS footer or tracking token, within an identical role/location.
-    for members in groups.values():
+    # Sort and process one group at a time so shingle sets for the entire corpus
+    # are never resident in memory together.
+    prepared.sort(key=lambda member: member[0])
+    for _, group in groupby(prepared, key=lambda member: member[0]):
+        members = [
+            (job_id, description, shingles(description), base_id)
+            for _, job_id, description, base_id in group
+        ]
         if len(members) < 2:
             continue
         parent = list(range(len(members)))
@@ -138,7 +147,11 @@ def main():
               AND jp.status = 'raw'
               AND jp.last_seen_at >= now() - interval '7 days'
         """)
-        updates = build_updates(cur.fetchall())
+        def rows():
+            while batch := cur.fetchmany(1000):
+                yield from batch
+
+        updates = build_updates(rows())
         cur.execute("""
             CREATE TEMP TABLE tmp_canonical_updates (
                 job_id TEXT PRIMARY KEY,
