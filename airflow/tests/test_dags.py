@@ -14,6 +14,22 @@ def test_dags_import_cleanly():
     assert {"lander_nightly", "lander_resume_embeddings", "lander_shadow_validation",
             "lander_ats_discovery", "lander_career_host_engine"} <= set(bag.dags)
 
+
+def test_schedules_are_explicit_central_time():
+    expected = {
+        "lander_nightly": "0 0 * * *",
+        "lander_ats_discovery_daily": "0 6 * * *",
+        "lander_ats_discovery": "0 7 * * 0",
+        "lander_company_radar_research": "0 9 * * *",
+        "lander_career_host_engine": "0 10 * * *",
+        "lander_resume_embeddings": "*/5 * * * *",
+    }
+    bag = dag_bag()
+    for dag_id, expression in expected.items():
+        configured = bag.dags[dag_id]
+        assert str(configured.timezone) == "America/Chicago"
+        assert f"expression='{expression}'" in repr(configured.timetable)
+
 def test_nightly_is_bounded_and_parallelizes_ingest_writers():
     nightly = dag("lander_nightly")
     assert nightly.max_active_runs == 1

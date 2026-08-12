@@ -1,5 +1,7 @@
 """Production orchestration for Lander's nightly data platform."""
-from datetime import datetime, timedelta
+from datetime import timedelta
+
+import pendulum
 from airflow.sdk import DAG
 from airflow.providers.standard.operators.bash import BashOperator
 
@@ -8,6 +10,12 @@ PYTHON = f"{ROOT}/.venv/bin/python"
 DBT = f"{ROOT}/.venv/bin/dbt"
 DEFAULT_ARGS = {"owner": "lander", "retries": 1, "retry_delay": timedelta(minutes=10),
                 "execution_timeout": timedelta(hours=3)}
+LOCAL_TIMEZONE = pendulum.timezone("America/Chicago")
+
+
+def local_start(year: int, month: int, day: int) -> pendulum.DateTime:
+    """Keep operator-facing schedules stable across Central Time DST changes."""
+    return pendulum.datetime(year, month, day, tz=LOCAL_TIMEZONE)
 
 def command(task_id: str, body: str, **kwargs) -> BashOperator:
     return BashOperator(task_id=task_id,
@@ -16,7 +24,7 @@ def command(task_id: str, body: str, **kwargs) -> BashOperator:
 
 with DAG(dag_id="lander_nightly",
     description="Backup, ingest, enrich, validate, publish, and report Lander data",
-    schedule="0 5 * * *", start_date=datetime(2026, 7, 25), catchup=False,
+    schedule="0 0 * * *", start_date=local_start(2026, 7, 25), catchup=False,
     max_active_runs=1, max_active_tasks=3, default_args=DEFAULT_ARGS,
     dagrun_timeout=timedelta(hours=18),
     tags=["lander", "production"]) as nightly:
@@ -134,7 +142,7 @@ with DAG(dag_id="lander_nightly",
 
 with DAG(dag_id="lander_ats_discovery",
     description="Discover, validate, and activate new ATS tenants",
-    schedule="0 12 * * 0", start_date=datetime(2026, 7, 26), catchup=False,
+    schedule="0 7 * * 0", start_date=local_start(2026, 7, 26), catchup=False,
     max_active_runs=1, max_active_tasks=1, default_args=DEFAULT_ARGS,
     dagrun_timeout=timedelta(hours=12), tags=["lander", "discovery"]) as ats_discovery:
     discover_tenants = command("discover_ats_tenants",
@@ -159,7 +167,7 @@ with DAG(dag_id="lander_ats_discovery",
 
 with DAG(dag_id="lander_company_radar_research",
     description="Refresh sourced external evidence for followed and high-momentum companies",
-    schedule="0 14 * * *", start_date=datetime(2026, 8, 8), catchup=False,
+    schedule="0 9 * * *", start_date=local_start(2026, 8, 8), catchup=False,
     max_active_runs=1, max_active_tasks=1, default_args=DEFAULT_ARGS,
     dagrun_timeout=timedelta(hours=2), tags=["lander", "company-radar", "research"]) as company_radar_research:
     research = command("research_company_signals",
@@ -173,7 +181,7 @@ with DAG(dag_id="lander_company_radar_research",
 
 with DAG(dag_id="lander_career_host_engine",
     description="Resolve employers to career hosts, route ATS tenants, and shadow-crawl direct job pages",
-    schedule="0 15 * * *", start_date=datetime(2026, 8, 9), catchup=False,
+    schedule="0 10 * * *", start_date=local_start(2026, 8, 9), catchup=False,
     max_active_runs=1, max_active_tasks=1, default_args=DEFAULT_ARGS,
     dagrun_timeout=timedelta(hours=12), tags=["lander", "coverage", "career-hosts"]) as career_host_engine:
     career_schema = command("ensure_career_host_schema",
@@ -203,7 +211,7 @@ with DAG(dag_id="lander_career_host_engine",
 
 with DAG(dag_id="lander_ats_discovery_daily",
     description="Daily broad-domain ATS discovery and stale-candidate recovery",
-    schedule="0 11 * * *", start_date=datetime(2026, 8, 5), catchup=False,
+    schedule="0 6 * * *", start_date=local_start(2026, 8, 5), catchup=False,
     max_active_runs=1, max_active_tasks=1, default_args=DEFAULT_ARGS,
     dagrun_timeout=timedelta(hours=4), tags=["lander", "discovery"]) as ats_discovery_daily:
     discover_daily = command("discover_serper_daily",
@@ -218,7 +226,7 @@ with DAG(dag_id="lander_ats_discovery_daily",
 
 with DAG(dag_id="lander_resume_embeddings",
     description="Process newly uploaded resumes without overlapping workers",
-    schedule="*/5 * * * *", start_date=datetime(2026, 7, 24), catchup=False,
+    schedule="*/5 * * * *", start_date=local_start(2026, 7, 24), catchup=False,
     max_active_runs=1, max_active_tasks=1,
     default_args={**DEFAULT_ARGS, "execution_timeout": timedelta(minutes=20)},
     tags=["lander", "production"]) as resume_embeddings:
