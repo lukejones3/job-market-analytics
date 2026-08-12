@@ -56,6 +56,7 @@ def main(limit: int = 200) -> None:
     dsn = os.getenv("DATABASE_URL")
     conn = psycopg2.connect(dsn) if dsn else psycopg2.connect(host=os.environ["PGHOST"],port=os.getenv("PGPORT","5432"),dbname=os.environ.get("PGDATABASE","job_analytics"),user=os.environ["PGUSER"],password=os.environ["PGPASSWORD"])
     sent=failed=compacted=0
+    quota_exhausted = False
     try:
         with conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
             compacted, pending = compact_and_fetch_pending(cur, limit)
@@ -65,8 +66,11 @@ def main(limit: int = 200) -> None:
                     cur.execute("UPDATE public.seo_indexing_queue SET sent_at=now(),attempts=attempts+1,last_error=NULL WHERE job_id=%s AND notification_type=%s AND queued_at=%s",(row["job_id"],row["notification_type"],row["queued_at"]));sent+=1
                 else:
                     cur.execute("UPDATE public.seo_indexing_queue SET attempts=attempts+1,last_error=%s WHERE job_id=%s AND notification_type=%s AND queued_at=%s",(response.text[:1000],row["job_id"],row["notification_type"],row["queued_at"]));failed+=1
+                    if response.status_code == 429 or "RESOURCE_EXHAUSTED" in response.text:
+                        quota_exhausted = True
+                        break
     finally: conn.close()
-    print({"compacted":compacted,"sent":sent,"failed":failed})
+    print({"compacted":compacted,"sent":sent,"failed":failed,"quota_exhausted":quota_exhausted})
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--limit", type=int, default=200, choices=range(1, 201))

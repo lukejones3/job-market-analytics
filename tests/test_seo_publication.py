@@ -2,6 +2,7 @@ import io
 import os
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from python.notify_google_indexing import compact_and_fetch_pending, main as notify_main
@@ -35,6 +36,12 @@ class SeoPublicationTest(unittest.TestCase):
         self.assertIn("stale.url = newer.url", delete_sql)
         self.assertIn("notification_type='URL_DELETED'", select_sql)
         self.assertEqual(cursor.execute.call_args_list[1].args[1], (200,))
+
+    def test_indexing_notifier_source_stops_after_quota_exhaustion(self):
+        source = (Path(__file__).parents[1] / "python" / "notify_google_indexing.py").read_text()
+        self.assertIn('response.status_code == 429', source)
+        self.assertIn('"RESOURCE_EXHAUSTED" in response.text', source)
+        self.assertRegex(source, r"quota_exhausted = True\s+break")
 
 
 if __name__ == "__main__":
