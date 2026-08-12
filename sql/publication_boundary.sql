@@ -137,7 +137,7 @@ WITH eligible AS (
     AND jp.job_url ~* '^https?://'
     AND COALESCE(jp.source_quality_status, 'active') = 'active'
     AND (jp.valid_through IS NULL OR jp.valid_through >= now())
-    AND jsonb_object_length(COALESCE(jp.location_evidence, '{}'::jsonb)) > 0
+    AND COALESCE(jp.location_evidence, '{}'::jsonb) <> '{}'::jsonb
     AND c.company_name !~* '\|wd[0-9]+\|'
     AND c.company_name !~* '^(senior |sr\.? |lead |principal |staff |junior |jr\.? |associate )?((sustainability|marketing|product|financial|finance|operations|risk|healthcare|clinical|software|platform|quality|compliance|quantitative|research|business intelligence|bi|machine learning|ml|ai|data|analytics) ){1,3}(engineer|developer|scientist|analyst|architect|manager|consultant|specialist)( [ivx0-9]+)?s?$'
     AND r.role_name !~* '(general (application|interest|submission)|open application|talent (pool|community|network)|join our talent|future (opportunit|role|opening|position)|expression of interest|all future|prospective application)'

@@ -22,6 +22,8 @@ def test_publication_predicate_and_total_are_consistent():
     assert "WHERE jp.is_public = true" in boundary
     assert "scope_status IN ('accepted_core', 'accepted_evidence')" in boundary
     assert "representative_rank = 1" in boundary
+    assert "location_evidence, '{}'::jsonb) <> '{}'::jsonb" in boundary
+    assert "jsonb_object_length" not in boundary
     assert "pg_advisory_xact_lock" in publisher
     assert "publish_gate >> publish_snapshot" in dag
     assert "backfill_role_scope.py --apply --only-missing" in dag
