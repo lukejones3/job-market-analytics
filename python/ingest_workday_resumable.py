@@ -80,6 +80,10 @@ def run_batch(
         "workday",
         "--orchestration-run-id",
         orchestration_run_id,
+        # A scoped batch may legitimately contain only tenants with no current
+        # target openings. The child still records each verified tenant as
+        # complete_zero; treating that as a provider outage strands the DAG.
+        "--accept-empty",
     ]
     if apply:
         command.append("--apply")

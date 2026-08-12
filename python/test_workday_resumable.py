@@ -31,5 +31,7 @@ def test_run_batch_scopes_child_ingestor(monkeypatch):
 
     assert captured["check"] is True
     assert captured["env"]["WORKDAY_TENANT_FILTER"] == "acme,beta"
+    assert "--accept-empty" in captured["command"]
     assert captured["command"][-1] == "--apply"
-    assert captured["command"][-3:-1] == ["--orchestration-run-id", "manual__one"]
+    run_id_index = captured["command"].index("--orchestration-run-id")
+    assert captured["command"][run_id_index + 1] == "manual__one"

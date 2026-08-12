@@ -175,7 +175,7 @@ def quarantine_blocked_hosts(cur, *, apply: bool) -> int:
             (blocked_ids,),
         )
         cur.execute(
-            """UPDATE job_postings SET source_quality_status='quarantine',is_public=false
+            """UPDATE job_postings SET source_quality_status='quarantine'
                WHERE crawl_tenant=ANY(%s)
                  AND ingestion_source IN ('career_site','oracle_cloud')""",
             (blocked_ids,),
@@ -964,7 +964,7 @@ def _expire_host_jobs(cur, host: dict, run_started: datetime) -> int:
         (source, host["host_id"], run_started),
     )
     cur.execute(
-        """UPDATE job_postings SET status='expired',expired_reason='career_host_closed',is_public=false
+        """UPDATE job_postings SET status='expired',expired_reason='career_host_closed'
            WHERE ingestion_source=%s AND crawl_tenant=%s AND status='raw'
              AND last_seen_at < %s""",
         (source, host["host_id"], run_started),

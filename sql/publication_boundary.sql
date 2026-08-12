@@ -29,6 +29,29 @@ CREATE TABLE IF NOT EXISTS publication_runs (
   deactivated_count INTEGER NOT NULL
 );
 
+-- Enforce atomic publication at the database boundary. A crawler, repair job,
+-- or ad-hoc UPDATE must never shrink the live snapshot between publications.
+CREATE OR REPLACE FUNCTION public.guard_lander_publication_state()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF (
+    NEW.is_public IS DISTINCT FROM OLD.is_public
+    OR NEW.published_at IS DISTINCT FROM OLD.published_at
+  ) AND current_setting('lander.publication_writer', true) IS DISTINCT FROM 'on' THEN
+    RAISE EXCEPTION
+      'is_public and published_at are owned by publish_snapshot.py';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_guard_lander_publication_state ON job_postings;
+CREATE TRIGGER trg_guard_lander_publication_state
+BEFORE UPDATE OF is_public, published_at ON job_postings
+FOR EACH ROW EXECUTE FUNCTION public.guard_lander_publication_state();
+
 -- Database-owned company exclusions replace drift-prone copies in every
 -- consumer. Substring matches are intentional for branded federal divisions.
 CREATE TABLE IF NOT EXISTS publication_company_exclusions (
@@ -198,6 +221,7 @@ COMMENT ON VIEW public.vw_lander_visible_opportunities IS
   'Stable public snapshot from the last successful publication; all product consumers join through this view.';
 
 -- Safe first-deploy seed. Later changes happen only in publish_snapshot.py.
+SELECT set_config('lander.publication_writer', 'on', true);
 UPDATE job_postings jp
 SET is_public = true,
     published_at = COALESCE(published_at, now())

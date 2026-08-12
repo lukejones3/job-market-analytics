@@ -25,6 +25,8 @@ def test_publication_predicate_and_total_are_consistent():
     assert "location_evidence, '{}'::jsonb) <> '{}'::jsonb" in boundary
     assert "jsonb_object_length" not in boundary
     assert "pg_advisory_xact_lock" in publisher
+    assert "lander.publication_writer" in publisher
+    assert "trg_guard_lander_publication_state" in boundary
     assert "publish_gate >> publish_snapshot" in dag
     assert "backfill_role_scope.py --apply --only-missing" in dag
     assert "repair_publication_quality.py --apply" in dag
@@ -61,10 +63,23 @@ def test_changed_descriptions_invalidate_enrichment():
                   "experience_level_v2=NULL", "experience_level_v3=NULL",
                   "experience_level_evidence=NULL", "DELETE FROM job_skills"):
         assert field in ingest
-    assert "job_postings.description_text IS DISTINCT FROM EXCLUDED.description_text" in ingest
-    assert "job_postings.loc_country IS DISTINCT FROM EXCLUDED.loc_country" in ingest
-    assert "THEN false" in ingest
-    assert ingest.count("is_public=false") >= 3
+    assert 'previous["desc_hash"] != desc_hash' in ingest
+    assert "if description_changed:" in ingest
+    assert "job_postings.job_url IS DISTINCT FROM EXCLUDED.job_url" in ingest
+    # Mutable source/enrichment state is invalidated immediately, while the
+    # last good public snapshot remains stable until the gated publisher swaps.
+    assert "THEN false" not in ingest
+    assert "is_public" not in ingest
+
+
+def test_only_publisher_mutates_publication_state():
+    ingest = (ROOT / "python/ingest_jobs.py").read_text()
+    career_hosts = (ROOT / "python/career_host_engine.py").read_text()
+    publisher = (ROOT / "python/publish_snapshot.py").read_text()
+    assert "is_public" not in ingest
+    assert "SET is_public" not in career_hosts
+    assert "SET is_public=false" in publisher
+    assert "SET is_public=true, published_at=now()" in publisher
 
 
 def test_v2_experience_is_promoted_with_canonical_labels():

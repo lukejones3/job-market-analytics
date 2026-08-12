@@ -46,6 +46,11 @@ def publish(*, apply: bool, minimum: int, floor_ratio: float) -> dict:
             if not apply:
                 return result
 
+            # The database guard makes the publisher the sole owner of the
+            # snapshot flag. Ingestion can mutate candidate inputs, but the
+            # visible set changes only in this transaction after all gates pass.
+            cur.execute("SELECT set_config('lander.publication_writer', 'on', true)")
+
             cur.execute(f"""
                 SELECT jp.job_id, r.role_name
                 FROM job_postings jp
