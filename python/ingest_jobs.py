@@ -1416,42 +1416,61 @@ def load_existing_hashes(cur) -> set:
     """)
     return {(r["ingestion_source"], r["source_id"]) for r in cur.fetchall()}
 
+_INGESTION_COLUMN_DEFINITIONS = {
+    "ingestion_source": "text",
+    "source_id": "text",
+    "crawl_tenant": "text",
+    "description_quality": "text DEFAULT 'full'",
+    "job_url": "text",
+    "domain_classification_method": "text",
+    "scope_status": "text",
+    "scope_rule_id": "text",
+    "scope_confidence": "double precision",
+    "experience_level_v3": "text",
+    "experience_level_confidence": "double precision",
+    "experience_level_evidence": "jsonb",
+    "experience_classifier_version": "text",
+    "experience_classified_at": "timestamptz",
+    "management_level": "text",
+    "location_evidence": "jsonb NOT NULL DEFAULT '{}'::jsonb",
+    "hiring_organization": "text",
+    "valid_through": "timestamptz",
+    "direct_apply": "boolean",
+    "source_quality_status": "text NOT NULL DEFAULT 'active'",
+    "source_checked_at": "timestamptz",
+    "source_http_status": "integer",
+    "source_validation_note": "text",
+}
+
+
 def ensure_schema_columns(cur):
-    """
-    Add ingestion_source and source_id columns to job_postings if they don't exist.
-    Safe to run on every startup.
-    """
-    cur.execute("""
-        ALTER TABLE job_postings
-          ADD COLUMN IF NOT EXISTS ingestion_source text,
-          ADD COLUMN IF NOT EXISTS source_id        text,
-          ADD COLUMN IF NOT EXISTS crawl_tenant     text,
-          ADD COLUMN IF NOT EXISTS description_quality text DEFAULT 'full',
-          ADD COLUMN IF NOT EXISTS job_url          text,
-          ADD COLUMN IF NOT EXISTS domain_classification_method text,
-          ADD COLUMN IF NOT EXISTS scope_status text,
-          ADD COLUMN IF NOT EXISTS scope_rule_id text,
-          ADD COLUMN IF NOT EXISTS scope_confidence double precision,
-          ADD COLUMN IF NOT EXISTS experience_level_v3 text,
-          ADD COLUMN IF NOT EXISTS experience_level_confidence double precision,
-          ADD COLUMN IF NOT EXISTS experience_level_evidence jsonb,
-          ADD COLUMN IF NOT EXISTS experience_classifier_version text,
-          ADD COLUMN IF NOT EXISTS experience_classified_at timestamptz,
-          ADD COLUMN IF NOT EXISTS management_level text,
-          ADD COLUMN IF NOT EXISTS location_evidence jsonb NOT NULL DEFAULT '{}'::jsonb,
-          ADD COLUMN IF NOT EXISTS hiring_organization text,
-          ADD COLUMN IF NOT EXISTS valid_through timestamptz,
-          ADD COLUMN IF NOT EXISTS direct_apply boolean,
-          ADD COLUMN IF NOT EXISTS source_quality_status text NOT NULL DEFAULT 'active',
-          ADD COLUMN IF NOT EXISTS source_checked_at timestamptz,
-          ADD COLUMN IF NOT EXISTS source_http_status integer,
-          ADD COLUMN IF NOT EXISTS source_validation_note text
-    """)
-    cur.execute("""
-        CREATE INDEX IF NOT EXISTS idx_jp_source
-        ON job_postings(ingestion_source, source_id)
-        WHERE ingestion_source IS NOT NULL
-    """)
+    """Apply bootstrap DDL only when a required ingestion column is absent."""
+    cur.execute("""SELECT column_name FROM information_schema.columns
+                   WHERE table_schema='public' AND table_name='job_postings'""")
+    existing = {row[0] for row in cur.fetchall()}
+    missing = [
+        f"ADD COLUMN {name} {definition}"
+        for name, definition in _INGESTION_COLUMN_DEFINITIONS.items()
+        if name not in existing
+    ]
+    if missing:
+        # Identifiers and definitions come only from the static mapping above.
+        cur.execute("ALTER TABLE job_postings " + ", ".join(missing))
+    cur.execute("SELECT to_regclass('public.idx_jp_source')")
+    if cur.fetchone()[0] is None:
+        cur.execute("""CREATE INDEX idx_jp_source
+                       ON job_postings(ingestion_source, source_id)
+                       WHERE ingestion_source IS NOT NULL""")
+
+
+def ensure_observability_schema(cur) -> None:
+    """Avoid no-op ALTER locks when the Airflow schema task already ran."""
+    cur.execute("""SELECT to_regclass('public.ingestion_crawl_runs'),
+                          to_regclass('public.ingestion_tenant_runs'),
+                          to_regclass('public.role_scope_decisions'),
+                          to_regclass('public.job_posting_events')""")
+    if any(value is None for value in cur.fetchone()):
+        cur.execute(Path("sql/ingestion_observability.sql").read_text(encoding="utf-8"))
 
 # ============================================================
 # DB: INGESTION
@@ -3692,7 +3711,7 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
 
     try:
         ensure_schema_columns(cur)
-        cur.execute(Path("sql/ingestion_observability.sql").read_text(encoding="utf-8"))
+        ensure_observability_schema(cur)
         cur.execute("""INSERT INTO ingestion_crawl_runs
             (run_id, source, orchestration_run_id, status)
             VALUES (%s, %s, %s, 'running') ON CONFLICT (run_id) DO NOTHING""",
