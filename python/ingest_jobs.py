@@ -1620,7 +1620,22 @@ def ingest_job(cur, job: RawJob) -> bool:
             hiring_organization = COALESCE(EXCLUDED.hiring_organization, job_postings.hiring_organization),
             valid_through = COALESCE(EXCLUDED.valid_through, job_postings.valid_through),
             direct_apply = COALESCE(EXCLUDED.direct_apply, job_postings.direct_apply),
+            is_public = CASE WHEN
+                job_postings.description_text IS DISTINCT FROM EXCLUDED.description_text
+                OR job_postings.job_url IS DISTINCT FROM EXCLUDED.job_url
+                OR job_postings.loc_country IS DISTINCT FROM EXCLUDED.loc_country
+                OR job_postings.loc_state IS DISTINCT FROM EXCLUDED.loc_state
+                OR job_postings.loc_city IS DISTINCT FROM EXCLUDED.loc_city
+                OR job_postings.workplace_type IS DISTINCT FROM EXCLUDED.workplace_type
+                OR job_postings.valid_through IS DISTINCT FROM
+                   COALESCE(EXCLUDED.valid_through, job_postings.valid_through)
+                OR EXCLUDED.source_quality_status <> 'active'
+                THEN false
+                ELSE job_postings.is_public
+            END,
             source_quality_status = CASE
+                WHEN EXCLUDED.source_quality_status <> 'active'
+                    THEN EXCLUDED.source_quality_status
                 WHEN job_postings.job_url IS DISTINCT FROM EXCLUDED.job_url
                     THEN EXCLUDED.source_quality_status
                 ELSE job_postings.source_quality_status
@@ -1717,10 +1732,9 @@ def ingest_job(cur, job: RawJob) -> bool:
         )
         # Source identity is authoritative. Updating existing rows lets a fixed
         # ATS tenant label repair historical contamination on the next crawl.
-        cur.execute(
-            "UPDATE job_postings SET company_id = %s WHERE job_id = %s AND company_id IS DISTINCT FROM %s",
-            (company_id, job_id, company_id)
-        )
+        cur.execute("""UPDATE job_postings SET company_id=%s,is_public=false
+                       WHERE job_id=%s AND company_id IS DISTINCT FROM %s""",
+                    (company_id, job_id, company_id))
 
     if inserted and job.title:
         role_id = _md5_id("R", job.title)
@@ -1732,10 +1746,9 @@ def ingest_job(cur, job: RawJob) -> bool:
             """,
             (role_id, job.title)
         )
-        cur.execute(
-            "UPDATE job_postings SET role_id = %s WHERE job_id = %s AND role_id IS NULL",
-            (role_id, job_id)
-        )
+        cur.execute("""UPDATE job_postings SET role_id=%s,is_public=false
+                       WHERE job_id=%s AND role_id IS DISTINCT FROM %s""",
+                    (role_id, job_id, role_id))
 
     if inserted and job.location:
         # Extract state from "City, ST" pattern
@@ -1752,10 +1765,9 @@ def ingest_job(cur, job: RawJob) -> bool:
             """,
             (location_id, job.location, state)
         )
-        cur.execute(
-            "UPDATE job_postings SET location_id = %s WHERE job_id = %s AND location_id IS NULL",
-            (location_id, job_id)
-        )
+        cur.execute("""UPDATE job_postings SET location_id=%s,is_public=false
+                       WHERE job_id=%s AND location_id IS DISTINCT FROM %s""",
+                    (location_id, job_id, location_id))
 
     if inserted and _DOMAIN_CLASSIFIER_AVAILABLE:
         alias_map = _get_alias_map(cur.connection)

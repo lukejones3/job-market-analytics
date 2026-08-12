@@ -79,7 +79,10 @@ def build_updates(rows: Iterable[tuple]) -> list[tuple[str, str]]:
             str(state or "").lower(), str(city or "").lower(),
             str(workplace_type or "").lower(),
         )
-        evidence_key = description_key or f"source:{source_id or job_id}"
+        # The exact signature deliberately ignores whitespace boundaries too.
+        # ATS mirrors commonly change punctuation ("full-stack"/"full stack")
+        # without changing the employer-authored opportunity.
+        evidence_key = description_key.replace(" ", "") or f"source:{source_id or job_id}"
         base_id = _canonical_id((*location_key, evidence_key))
         assignments[job_id] = base_id
         if description_key:

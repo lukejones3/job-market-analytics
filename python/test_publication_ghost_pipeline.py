@@ -61,6 +61,10 @@ def test_changed_descriptions_invalidate_enrichment():
                   "experience_level_v2=NULL", "experience_level_v3=NULL",
                   "experience_level_evidence=NULL", "DELETE FROM job_skills"):
         assert field in ingest
+    assert "job_postings.description_text IS DISTINCT FROM EXCLUDED.description_text" in ingest
+    assert "job_postings.loc_country IS DISTINCT FROM EXCLUDED.loc_country" in ingest
+    assert "THEN false" in ingest
+    assert ingest.count("is_public=false") >= 3
 
 
 def test_v2_experience_is_promoted_with_canonical_labels():

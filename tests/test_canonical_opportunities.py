@@ -17,6 +17,14 @@ def test_exact_normalized_duplicates_share_opportunity():
     assert updates["one"] == updates["two"]
 
 
+def test_exact_signature_ignores_word_boundary_punctuation():
+    updates = dict(build_updates([
+        row("one", "Build Salesforce integrations"),
+        row("two", "Build sales-force integrations"),
+    ]))
+    assert updates["one"] == updates["two"]
+
+
 def test_near_duplicate_descriptions_cluster_but_real_differences_do_not():
     def token(index: int) -> str:
         return "word" + "".join(chr(97 + ((index // power) % 26)) for power in (676, 26, 1))
