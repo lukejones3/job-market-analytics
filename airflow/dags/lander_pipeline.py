@@ -151,7 +151,8 @@ with DAG(dag_id="lander_nightly",
     honesty >> discover >> dedup >> repair_crawl_tenants >> repair_publication_quality >> canonicalize >> expiry >> validate_source_urls >> refresh_repost_signals >> dbt_build >> publish_gate >> publish_snapshot
     publish_snapshot >> [company_history_snapshot, refresh_seo_index]
     refresh_seo_index >> [notify_google_indexing, notify_indexnow]
-    [notify_google_indexing, notify_indexnow] >> [report, funnel_report]
+    notify_google_indexing >> [report, funnel_report]
+    notify_indexnow >> [report, funnel_report]
 
 with DAG(dag_id="lander_ats_discovery",
     description="Discover, validate, and activate new ATS tenants",
