@@ -175,7 +175,7 @@ def _growth_answer(cur, slug: str) -> dict[str, Any]:
                  END AS active_change_pct_7d,
                  latest.day::text AS observation_date
           FROM current JOIN prior USING(company_id,domain) JOIN latest ON true
-          JOIN companies c ON c.company_id=current.company_id
+          JOIN public.seo_company_index c ON c.company_id=current.company_id
           WHERE current.active_opportunities>=5
             AND current.coverage_started_at<=latest.day-14
             AND {predicate}
