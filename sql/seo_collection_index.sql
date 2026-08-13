@@ -57,4 +57,10 @@ CREATE TABLE IF NOT EXISTS public.seo_indexing_queue (
   last_error text,
   PRIMARY KEY(job_id, notification_type, queued_at)
 );
+ALTER TABLE public.seo_indexing_queue
+  ADD COLUMN IF NOT EXISTS indexnow_sent_at timestamptz,
+  ADD COLUMN IF NOT EXISTS indexnow_attempts integer NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS indexnow_last_error text;
 CREATE INDEX IF NOT EXISTS seo_indexing_queue_pending ON public.seo_indexing_queue(queued_at) WHERE sent_at IS NULL;
+CREATE INDEX IF NOT EXISTS seo_indexing_queue_indexnow_pending
+  ON public.seo_indexing_queue(queued_at) WHERE indexnow_sent_at IS NULL;

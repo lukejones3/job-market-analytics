@@ -32,6 +32,8 @@ def test_publication_predicate_and_total_are_consistent():
     assert "backfill_role_scope.py --apply --only-missing" in dag
     assert "repair_publication_quality.py --apply" in dag
     assert "validate_public_source_urls.py --apply" in dag
+    assert "notify_indexnow.py --limit 10000" in dag
+    assert "refresh_seo_index >> [notify_google_indexing, notify_indexnow]" in dag
     assert "repair_publication_quality >> canonicalize" in dag
     assert "validate_source_urls >> refresh_repost_signals" in dag
     assert "bool_or(status IN ('complete_nonzero','complete_zero'))" in expiry

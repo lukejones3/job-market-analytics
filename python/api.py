@@ -50,6 +50,7 @@ from python.cache_policy import (
     PUBLIC_INSIGHT_CACHE_CONTROL,
     public_cache_control,
 )
+from python.public_market_answers import PUBLIC_MARKET_ANSWER_SLUGS, query_public_market_answer
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -506,7 +507,7 @@ async def log_requests(request: Request, call_next):
     if request.method in {"GET", "HEAD"} and public_policy and response.status_code == 200:
         response.headers["Cache-Control"] = public_policy
         response.headers["X-Lander-Cache-Policy"] = (
-            "public-insight-15m" if request.url.path.startswith("/v1/public/insights/")
+            "public-insight-15m" if request.url.path.startswith(("/v1/public/insights/", "/v1/public/answers/"))
             else "public-market-5m"
         )
     else:
@@ -787,6 +788,36 @@ def public_insight(insight_slug: str, request: Request, response: Response, conn
 def public_insight_head(insight_slug: str):
     if insight_slug not in PUBLIC_INSIGHT_SLUGS:
         raise HTTPException(status_code=404, detail="Unknown public insight")
+    return Response(status_code=200)
+
+
+@app.get("/v1/public/answers/{answer_slug}", tags=["Public"])
+@limiter.limit("60/minute")
+@ttl_payload_cache(900, "answer_slug")
+def public_market_answer(answer_slug: str, request: Request, response: Response, conn=Depends(get_conn)):
+    """A small, curated set of dated answers derived from the public snapshot."""
+    response.headers["Cache-Control"] = PUBLIC_INSIGHT_CACHE_CONTROL
+    if answer_slug not in PUBLIC_MARKET_ANSWER_SLUGS:
+        raise HTTPException(status_code=404, detail="Unknown public market answer")
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    _set_public_query_timeout(cur)
+    payload = query_public_market_answer(
+        cur,
+        answer_slug,
+        PUBLIC_FEED_WHERE,
+        {
+            "us_states": list(PUBLIC_US_STATES),
+            "blocked_companies": list(PUBLIC_BLOCKED_COMPANY_FRAGMENTS),
+        },
+    )
+    payload["generated_at"] = datetime.now(timezone.utc)
+    return payload
+
+
+@app.head("/v1/public/answers/{answer_slug}", include_in_schema=False)
+def public_market_answer_head(answer_slug: str):
+    if answer_slug not in PUBLIC_MARKET_ANSWER_SLUGS:
+        raise HTTPException(status_code=404, detail="Unknown public market answer")
     return Response(status_code=200)
 
 # ── Market Overview ───────────────────────────────────────────────────────────

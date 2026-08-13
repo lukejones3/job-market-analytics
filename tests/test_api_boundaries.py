@@ -58,6 +58,7 @@ def test_health_and_public_endpoints_support_head() -> None:
     assert "/health" in head_paths
     assert "/v1/public/market" in head_paths
     assert "/v1/public/insights/{insight_slug}" in head_paths
+    assert "/v1/public/answers/{answer_slug}" in head_paths
 
 
 def test_public_payload_cache_populates_shared_storage_once() -> None:

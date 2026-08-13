@@ -38,7 +38,8 @@ with DAG(dag_id="lander_nightly",
         "-f sql/career_host_engine.sql "
         "-f sql/company_history_intelligence.sql "
         "-f sql/company_radar.sql "
-        "-f sql/feed_performance_indexes.sql")
+        "-f sql/feed_performance_indexes.sql "
+        "-f sql/seo_collection_index.sql")
     backup >> observability_schema
     ingests = []
     for source in ("greenhouse", "lever", "ashby", "workday", "eightfold", "amazon",
@@ -135,6 +136,8 @@ with DAG(dag_id="lander_nightly",
         f"{PYTHON} python/refresh_seo_collection_index.py")
     notify_google_indexing = command("notify_google_indexing",
         f"{PYTHON} python/notify_google_indexing.py --limit 10000 --min-interval-seconds 0.20")
+    notify_indexnow = command("notify_indexnow",
+        f"{PYTHON} python/notify_indexnow.py --limit 10000")
     report = command("morning_report", f"{PYTHON} python/morning_report.py")
     funnel_report = command("ingestion_funnel_report",
         f"{PYTHON} python/ingestion_funnel_report.py")
@@ -147,7 +150,8 @@ with DAG(dag_id="lander_nightly",
     [experience, skills] >> honesty
     honesty >> discover >> dedup >> repair_crawl_tenants >> repair_publication_quality >> canonicalize >> expiry >> validate_source_urls >> refresh_repost_signals >> dbt_build >> publish_gate >> publish_snapshot
     publish_snapshot >> [company_history_snapshot, refresh_seo_index]
-    refresh_seo_index >> notify_google_indexing >> [report, funnel_report]
+    refresh_seo_index >> [notify_google_indexing, notify_indexnow]
+    [notify_google_indexing, notify_indexnow] >> [report, funnel_report]
 
 with DAG(dag_id="lander_ats_discovery",
     description="Discover, validate, and activate new ATS tenants",

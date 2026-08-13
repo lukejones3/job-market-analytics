@@ -21,13 +21,19 @@ def scalar(cursor, sql):
     return cursor.fetchone()[0]
 
 
-def bad_ingest_sources(crawl_rows, tenant_failures):
-    """Return sources whose latest source or tenant outcome is incomplete."""
+def bad_ingest_sources(crawl_rows):
+    """Return sources whose orchestration never completed successfully.
+
+    Resumable sources can create many crawl rows in one Airflow task, so the
+    caller aggregates the entire orchestration instead of inspecting only its
+    last checkpoint. Individual tenant failures are intentionally not fatal:
+    they remain observable and expire_jobs only mutates tenants with a clean
+    current-run outcome.
+    """
     return [
         source for source in INGEST_SOURCES
         if not crawl_rows.get(source, (False, 1, 0))[0]
         or crawl_rows[source][1] > 0
-        or tenant_failures.get(source, 0) > 0
     ]
 
 def main():
@@ -43,19 +49,16 @@ def main():
                 raise RuntimeError(f"implausibly small job table: {total}")
             print(f"shadow gate passed: jobs={total}")
         elif gate == "ingest":
-            # Evaluate the latest retry for every source, then independently
-            # require the latest outcome for every observed tenant to be clean.
-            # This prevents one successful sibling from masking a partial batch.
-            cursor.execute("""WITH ranked AS (
-                    SELECT source, status, finished_at, jobs_written,
-                           row_number() OVER (PARTITION BY source ORDER BY started_at DESC, run_id DESC) AS rn
-                    FROM ingestion_crawl_runs WHERE orchestration_run_id=%s
-                )
-                SELECT source,
-                       status IN ('complete_nonzero', 'complete_zero') AS succeeded,
-                       CASE WHEN finished_at IS NULL OR status='running' THEN 1 ELSE 0 END AS running,
-                       jobs_written
-                FROM ranked WHERE rn=1""", (args.since,))
+            # A resumable source (currently Workday) records one crawl row per
+            # checkpoint. Aggregate the complete Airflow orchestration so a
+            # small final checkpoint cannot hide the successful full crawl.
+            cursor.execute("""SELECT source,
+                       bool_and(status IN ('complete_nonzero', 'complete_zero')) AS succeeded,
+                       count(*) FILTER (WHERE finished_at IS NULL OR status='running')::integer AS running,
+                       COALESCE(sum(jobs_written), 0)::integer AS jobs_written
+                FROM ingestion_crawl_runs
+                WHERE orchestration_run_id=%s
+                GROUP BY source""", (args.since,))
             crawl_rows = {row[0]: row[1:] for row in cursor.fetchall()}
             cursor.execute("""WITH ranked AS (
                     SELECT tr.source, tr.crawl_tenant, tr.status,
@@ -72,9 +75,9 @@ def main():
                 )::integer AS failed_tenants
                 FROM ranked WHERE rn=1 GROUP BY source""", (args.since,))
             tenant_failures = dict(cursor.fetchall())
-            bad = bad_ingest_sources(crawl_rows, tenant_failures)
+            bad = bad_ingest_sources(crawl_rows)
             if bad:
-                raise RuntimeError(f"ingest gate failed; incomplete crawl outcome for: {', '.join(bad)}")
+                raise RuntimeError(f"ingest gate failed; incomplete source orchestration for: {', '.join(bad)}")
             cursor.execute("""SELECT ingestion_source, COUNT(*) FROM job_postings
                 WHERE data_tier=1 AND last_seen_at >= COALESCE(
                     (SELECT MIN(started_at) FROM ingestion_crawl_runs
@@ -87,7 +90,9 @@ def main():
                        if (crawl_rows[source][2] or 0) > 0 and counts.get(source, 0) == 0]
             if missing:
                 raise RuntimeError(f"ingest gate failed; no current-run rows for: {', '.join(missing)}")
-            print(f"ingest gate passed: " + ", ".join(f"{s}={counts.get(s, 0)}" for s in INGEST_SOURCES))
+            warning = {source: count for source, count in tenant_failures.items() if count}
+            print(f"ingest gate passed: " + ", ".join(f"{s}={counts.get(s, 0)}" for s in INGEST_SOURCES)
+                  + f"; isolated_tenant_failures={warning}")
         else:
             candidate = scalar(cursor, "SELECT COUNT(*) FROM public.vw_lander_publication_candidates")
             current = scalar(cursor, "SELECT COUNT(*) FROM job_postings WHERE is_public=true")

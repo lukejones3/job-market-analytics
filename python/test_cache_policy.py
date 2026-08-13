@@ -10,6 +10,7 @@ class CachePolicyTests(unittest.TestCase):
     def test_only_public_aggregate_routes_are_cacheable(self):
         self.assertIn("s-maxage=300", public_cache_control("/v1/public/market") or "")
         self.assertEqual(public_cache_control("/v1/public/insights/skill-salary-premiums"), PUBLIC_INSIGHT_CACHE_CONTROL)
+        self.assertEqual(public_cache_control("/v1/public/answers/remote-job-market"), PUBLIC_INSIGHT_CACHE_CONTROL)
         self.assertIsNone(public_cache_control("/v1/roles"))
         self.assertIsNone(public_cache_control("/v1/resume/upload"))
         self.assertIsNone(public_cache_control("/auth/verify"))

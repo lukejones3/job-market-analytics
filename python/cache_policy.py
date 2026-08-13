@@ -10,6 +10,6 @@ PUBLIC_INSIGHT_CACHE_CONTROL = "public, max-age=60, s-maxage=900, stale-while-re
 
 
 def public_cache_control(path: str) -> Optional[str]:
-    if path.startswith("/v1/public/insights/"):
+    if path.startswith("/v1/public/insights/") or path.startswith("/v1/public/answers/"):
         return PUBLIC_INSIGHT_CACHE_CONTROL
     return PUBLIC_CACHE_POLICIES.get(path)
