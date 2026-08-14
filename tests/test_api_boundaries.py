@@ -1,14 +1,41 @@
-import psycopg2
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, Mock, patch
+
+import psycopg2
 
 from python.api import (
     MOBILE_AUTH_CALLBACK,
     _billing_portal_return_url,
+    _legacy_credential_is_expired,
     _normalize_mobile_auth_callback,
     _set_public_query_timeout,
     app,
     ttl_payload_cache,
 )
+
+
+def test_fresh_magic_link_renews_an_expired_account_credential() -> None:
+    expired = datetime.now(timezone.utc) - timedelta(days=1)
+
+    assert not _legacy_credential_is_expired(
+        legacy_link=False,
+        credential_expires_at=expired,
+    )
+
+
+def test_legacy_credential_link_still_honors_credential_expiry() -> None:
+    now = datetime.now(timezone.utc)
+
+    assert _legacy_credential_is_expired(
+        legacy_link=True,
+        credential_expires_at=now - timedelta(seconds=1),
+        now=now,
+    )
+    assert not _legacy_credential_is_expired(
+        legacy_link=True,
+        credential_expires_at=now + timedelta(seconds=1),
+        now=now,
+    )
 
 
 def test_billing_portal_return_url_is_server_owned() -> None:

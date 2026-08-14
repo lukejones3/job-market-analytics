@@ -441,6 +441,24 @@ def _rotate_api_credential(cur, key_id: str, previous_hash: str | None = None) -
     )
     return raw_key
 
+
+def _legacy_credential_is_expired(
+    *,
+    legacy_link: bool,
+    credential_expires_at: datetime | None,
+    now: datetime | None = None,
+) -> bool:
+    """Only legacy credential links inherit the credential expiry.
+
+    A current magic link has its own short expiry in ``auth_magic_tokens``. Its
+    purpose is to renew the durable API credential, so an older account's
+    expired credential must not invalidate a newly issued challenge.
+    """
+    if not legacy_link or credential_expires_at is None:
+        return False
+    return credential_expires_at < (now or datetime.now(timezone.utc))
+
+
 async def verify_api_key(request: Request, conn=Depends(get_conn)) -> dict:
     # Credentials in URLs leak into browser history, proxy logs, referrers and
     # analytics. Authenticated clients must use the request header.
@@ -1592,7 +1610,7 @@ async def stripe_webhook(request: Request):
                 log.info("New subscriber ref=%s token_prefix=%s", _log_ref(customer_email), key_prefix)
 
                 # WEBHOOK_EMAIL_LINESWAP_v1: send Pro welcome email via Resend
-                lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
+                lander_base = os.environ.get("LANDER_BASE_URL", "https://www.landerjob.com")
                 access_url = f"{lander_base}/auth/verify?token={raw_key}"
                 try:
                     import requests as _rq
@@ -1864,14 +1882,17 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
             conn.commit()
 
         # Send welcome email asynchronously (don't block the response)
-        lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
+        lander_base = os.environ.get("LANDER_BASE_URL", "https://www.landerjob.com")
         if client == "mobile":
             access_url = f"{lander_base}/mobile-auth?token={raw_key}"
             if callback_url and callback_url != MOBILE_AUTH_CALLBACK:
                 access_url += f"&callback={quote(callback_url, safe='')}"
         else:
             access_url = f"{lander_base}/auth/verify?token={raw_key}"
-        subject_suffix = raw_key[-4:].upper() if client == "mobile" else ""
+        # Keep repeated web requests visually distinct too. The newest request
+        # replaces the prior one-time challenge, and Gmail otherwise groups the
+        # messages under an identical subject where an older link is easy to tap.
+        subject_suffix = raw_key[-4:].upper()
         background_tasks.add_task(_send_free_signup_email, email, access_url, subject_suffix)
 
         return {"status": "ok", "message": "Check your email for access link"}
@@ -1932,7 +1953,10 @@ async def verify_token(request: Request, token: str):
             if not row["active"]:
                 raise HTTPException(status_code=401, detail="Token deactivated")
 
-            if row["expires_at"] and row["expires_at"] < datetime.now(timezone.utc):
+            if _legacy_credential_is_expired(
+                legacy_link=legacy_link,
+                credential_expires_at=row["expires_at"],
+            ):
                 raise HTTPException(status_code=401, detail="Token expired")
 
             cur.execute("SELECT api_key_hash FROM api_keys WHERE key_id=%s", (row["key_id"],))
@@ -1981,7 +2005,7 @@ async def create_checkout(
     # these from the browser would let a caller create checkout sessions for an
     # arbitrary price/customer or redirect Stripe through an untrusted URL.
     email = _client_email_for_key(conn, key)
-    lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com")
+    lander_base = os.environ.get("LANDER_BASE_URL", "https://www.landerjob.com")
     success_url = f"{lander_base}/upgrade-success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{lander_base}/pricing"
     try:
@@ -2070,7 +2094,7 @@ async def verify_billing_client(request: Request, conn=Depends(get_conn)) -> dic
 
 def _billing_portal_return_url() -> str:
     """Return the server-owned post-Stripe destination."""
-    lander_base = os.environ.get("LANDER_BASE_URL", "https://landerjob.com").rstrip("/")
+    lander_base = os.environ.get("LANDER_BASE_URL", "https://www.landerjob.com").rstrip("/")
     return f"{lander_base}/settings"
 
 
