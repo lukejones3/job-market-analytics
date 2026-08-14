@@ -6,9 +6,9 @@ import psycopg2
 from python.api import (
     MOBILE_AUTH_CALLBACK,
     _billing_portal_return_url,
+    _cursor_value,
     _legacy_credential_is_expired,
     _normalize_mobile_auth_callback,
-    _previous_credential_hash,
     _set_public_query_timeout,
     app,
     ttl_payload_cache,
@@ -39,9 +39,10 @@ def test_legacy_credential_link_still_honors_credential_expiry() -> None:
     )
 
 
-def test_magic_link_rotation_reads_real_dict_cursor_rows_by_name() -> None:
-    assert _previous_credential_hash({"api_key_hash": "test-value"}) == "test-value"  # pragma: allowlist secret
-    assert _previous_credential_hash(None) is None
+def test_magic_link_rotation_reads_tuple_and_real_dict_cursor_rows() -> None:
+    assert _cursor_value({"api_key_hash": "test-value"}, "api_key_hash") == "test-value"  # pragma: allowlist secret
+    assert _cursor_value(("test-value",), "api_key_hash") == "test-value"  # pragma: allowlist secret
+    assert _cursor_value(None, "api_key_hash") is None
 
 
 def test_billing_portal_return_url_is_server_owned() -> None:

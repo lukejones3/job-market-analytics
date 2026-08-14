@@ -459,12 +459,13 @@ def _legacy_credential_is_expired(
     return credential_expires_at < (now or datetime.now(timezone.utc))
 
 
-def _previous_credential_hash(row: dict | None) -> str | None:
-    """Read a credential hash from RealDictCursor-compatible rows."""
-    if not row:
+def _cursor_value(row: Any, key: str) -> Any | None:
+    """Read one selected value from tuple or RealDictCursor rows."""
+    if row is None:
         return None
-    value = row.get("api_key_hash")
-    return str(value) if value else None
+    if isinstance(row, dict):
+        return row.get(key)
+    return row[0] if row else None
 
 
 async def verify_api_key(request: Request, conn=Depends(get_conn)) -> dict:
@@ -1692,17 +1693,20 @@ def _migrate_rotating_credential_rows(cur, key_id: str, previous_hash: str | Non
         return
     legacy_ids: set[str] = set()
     for table in ("user_applied_jobs", "user_saved_jobs", "career_campaigns", "career_profiles", "resumes"):
-        cur.execute("SELECT to_regclass(%s)", (f"public.{table}",))
-        if not cur.fetchone()[0]:
+        cur.execute("SELECT to_regclass(%s) AS relation_name", (f"public.{table}",))
+        if not _cursor_value(cur.fetchone(), "relation_name"):
             continue
-        cur.execute(f"SELECT DISTINCT user_id::text FROM {table} WHERE user_id IS NOT NULL")
-        for (candidate,) in cur.fetchall():
+        cur.execute(f"SELECT DISTINCT user_id::text AS user_id FROM {table} WHERE user_id IS NOT NULL")
+        for candidate_row in cur.fetchall():
+            candidate = _cursor_value(candidate_row, "user_id")
+            if not isinstance(candidate, str):
+                continue
             if candidate != key_id and hashlib.sha256(candidate.encode()).hexdigest() == previous_hash:
                 legacy_ids.add(candidate)
 
     for legacy in legacy_ids:
-        cur.execute("SELECT to_regclass('public.user_applied_jobs')")
-        if cur.fetchone()[0]:
+        cur.execute("SELECT to_regclass('public.user_applied_jobs') AS relation_name")
+        if _cursor_value(cur.fetchone(), "relation_name"):
             cur.execute("""
                 INSERT INTO user_applied_jobs(user_id,job_id,applied_at,outcome,outcome_captured_at,outcome_email_sent_at)
                 SELECT %s,job_id,applied_at,outcome,outcome_captured_at,outcome_email_sent_at
@@ -1714,8 +1718,8 @@ def _migrate_rotating_credential_rows(cur, key_id: str, previous_hash: str | Non
                   outcome_email_sent_at=COALESCE(user_applied_jobs.outcome_email_sent_at,EXCLUDED.outcome_email_sent_at)
             """, (key_id, legacy))
             cur.execute("DELETE FROM user_applied_jobs WHERE user_id=%s", (legacy,))
-        cur.execute("SELECT to_regclass('public.user_saved_jobs')")
-        if cur.fetchone()[0]:
+        cur.execute("SELECT to_regclass('public.user_saved_jobs') AS relation_name")
+        if _cursor_value(cur.fetchone(), "relation_name"):
             cur.execute("""
                 INSERT INTO user_saved_jobs(user_id,job_id,saved_at)
                 SELECT %s,job_id,saved_at FROM user_saved_jobs WHERE user_id=%s
@@ -1723,11 +1727,11 @@ def _migrate_rotating_credential_rows(cur, key_id: str, previous_hash: str | Non
             """, (key_id, legacy))
             cur.execute("DELETE FROM user_saved_jobs WHERE user_id=%s", (legacy,))
         for table in ("career_campaigns", "resumes"):
-            cur.execute("SELECT to_regclass(%s)", (f"public.{table}",))
-            if cur.fetchone()[0]:
+            cur.execute("SELECT to_regclass(%s) AS relation_name", (f"public.{table}",))
+            if _cursor_value(cur.fetchone(), "relation_name"):
                 cur.execute(f"UPDATE {table} SET user_id=%s WHERE user_id=%s", (key_id, legacy))
-        cur.execute("SELECT to_regclass('public.career_profiles')")
-        if cur.fetchone()[0]:
+        cur.execute("SELECT to_regclass('public.career_profiles') AS relation_name")
+        if _cursor_value(cur.fetchone(), "relation_name"):
             cur.execute("""
                 INSERT INTO career_profiles(user_id,candidate_summary,requirements,links,created_at,updated_at)
                 SELECT %s,candidate_summary,requirements,links,created_at,updated_at
@@ -1969,7 +1973,8 @@ async def verify_token(request: Request, token: str):
 
             cur.execute("SELECT api_key_hash FROM api_keys WHERE key_id=%s", (row["key_id"],))
             previous = cur.fetchone()
-            api_key = _rotate_api_credential(cur, row["key_id"], _previous_credential_hash(previous))
+            previous_hash = _cursor_value(previous, "api_key_hash")
+            api_key = _rotate_api_credential(cur, row["key_id"], str(previous_hash) if previous_hash else None)
             if not legacy_link:
                 cur.execute("UPDATE auth_magic_tokens SET used_at=NOW() WHERE token_hash=%s", (token_hash,))
             cur.execute("""
