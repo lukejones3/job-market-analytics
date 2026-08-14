@@ -8,6 +8,7 @@ from python.api import (
     _billing_portal_return_url,
     _legacy_credential_is_expired,
     _normalize_mobile_auth_callback,
+    _previous_credential_hash,
     _set_public_query_timeout,
     app,
     ttl_payload_cache,
@@ -36,6 +37,11 @@ def test_legacy_credential_link_still_honors_credential_expiry() -> None:
         credential_expires_at=now + timedelta(seconds=1),
         now=now,
     )
+
+
+def test_magic_link_rotation_reads_real_dict_cursor_rows_by_name() -> None:
+    assert _previous_credential_hash({"api_key_hash": "test-value"}) == "test-value"  # pragma: allowlist secret
+    assert _previous_credential_hash(None) is None
 
 
 def test_billing_portal_return_url_is_server_owned() -> None:

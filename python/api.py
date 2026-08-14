@@ -459,6 +459,14 @@ def _legacy_credential_is_expired(
     return credential_expires_at < (now or datetime.now(timezone.utc))
 
 
+def _previous_credential_hash(row: dict | None) -> str | None:
+    """Read a credential hash from RealDictCursor-compatible rows."""
+    if not row:
+        return None
+    value = row.get("api_key_hash")
+    return str(value) if value else None
+
+
 async def verify_api_key(request: Request, conn=Depends(get_conn)) -> dict:
     # Credentials in URLs leak into browser history, proxy logs, referrers and
     # analytics. Authenticated clients must use the request header.
@@ -1961,7 +1969,7 @@ async def verify_token(request: Request, token: str):
 
             cur.execute("SELECT api_key_hash FROM api_keys WHERE key_id=%s", (row["key_id"],))
             previous = cur.fetchone()
-            api_key = _rotate_api_credential(cur, row["key_id"], previous[0] if previous else None)
+            api_key = _rotate_api_credential(cur, row["key_id"], _previous_credential_hash(previous))
             if not legacy_link:
                 cur.execute("UPDATE auth_magic_tokens SET used_at=NOW() WHERE token_hash=%s", (token_hash,))
             cur.execute("""
