@@ -1373,9 +1373,12 @@ def outreach_fresh_matches(
             jp.job_url,
             COALESCE(jp.posted_date::timestamptz, jp.date_found::timestamptz, jp.ingested_at) AS posted_at,
             jp.workplace_type,
+            jp.employment_type,
             jp.experience_level,
             jp.salary_min_annual::double precision AS salary_min,
             jp.salary_max_annual::double precision AS salary_max,
+            jp.salary_period,
+            COALESCE(jp.loc_country, 'unknown') AS country,
             COALESCE(NULLIF(BTRIM(jp.loc_city), ''), NULLIF(BTRIM(l.location), ''), '') AS city,
             COALESCE(NULLIF(BTRIM(jp.loc_state), ''), NULLIF(BTRIM(l.state), ''), '') AS state,
             COALESCE(NULLIF(BTRIM(jp.ingestion_source), ''), NULLIF(BTRIM(jp.source), ''), 'lander') AS source,
@@ -1383,7 +1386,7 @@ def outreach_fresh_matches(
             CASE
               WHEN LOWER(COALESCE(jp.workplace_type, '')) = 'remote' THEN 3
               WHEN LOWER(COALESCE(jp.loc_city, '') || ' ' || COALESCE(l.location, '')) ~
-                   '(seattle|bellevue|redmond|kirkland|bothell|shoreline|lynnwood|everett|issaquah|renton|tacoma)' THEN 2
+                   '(seattle|bellevue|redmond|kirkland|bothell|shoreline|lynnwood|everett|issaquah|renton|woodinville|mercer island)' THEN 2
               ELSE 0
             END AS location_rank,
             CASE
@@ -1401,18 +1404,25 @@ def outreach_fresh_matches(
           WHERE jp.is_public = true
             AND jp.data_tier = 1
             AND COALESCE(jp.source, '') <> 'adzuna'
+            AND COALESCE(jp.loc_country, 'unknown') IN ('US', 'United States', 'USA', 'unknown')
             AND COALESCE(jp.posted_date::timestamptz, jp.date_found::timestamptz, jp.ingested_at)
                 >= NOW() - (%(days)s * INTERVAL '1 day')
             AND (
               LOWER(COALESCE(jp.workplace_type, '')) = 'remote'
               OR LOWER(COALESCE(jp.loc_city, '') || ' ' || COALESCE(l.location, '')) ~
-                 '(seattle|bellevue|redmond|kirkland|bothell|shoreline|lynnwood|everett|issaquah|renton|tacoma)'
+                 '(seattle|bellevue|redmond|kirkland|bothell|shoreline|lynnwood|everett|issaquah|renton|woodinville|mercer island)'
             )
             AND LOWER(COALESCE(r.role_name, '') || ' ' || COALESCE(jp.role_category, '') || ' ' || COALESCE(jp.description_text, '')) ~
                 '(data engineer|analytics engineer|data analyst|business intelligence|applied ai|ai engineer|machine learning|ml engineer|llm|agentic|python|sql|dbt|airflow)'
             AND LOWER(COALESCE(r.role_name, jp.role_category, '')) !~
                 '(director|vice president|vp[ ,/-]|principal|(^|[^a-z])staff([^a-z]|$)|head of|chief |architect)'
-            AND (jp.salary_max_annual IS NULL OR jp.salary_max_annual >= 80000)
+            AND (
+              jp.salary_max_annual >= 80000
+              OR (
+                jp.salary_max_annual IS NULL
+                AND COALESCE(jp.description_text, '') ~ '\$[0-9][0-9,]*'
+              )
+            )
         )
         SELECT fresh.*,
           COALESCE((
@@ -1422,7 +1432,10 @@ def outreach_fresh_matches(
               'email', cc.email,
               'linkedinUrl', cc.linkedin_url,
               'source', cc.source,
-              'verifiedAt', cc.fetched_at
+              'verifiedAt', cc.fetched_at,
+              'emailVerification', CASE WHEN cc.email IS NOT NULL AND cc.source = 'apollo' THEN 'provider_verified' ELSE 'unverified' END,
+              'emailSourceUrl', NULL,
+              'recruiterScope', 'unknown'
             ) ORDER BY cc.fetched_at DESC NULLS LAST)
             FROM company_contacts cc
             WHERE cc.company_id::text = fresh.company_id
@@ -1448,7 +1461,10 @@ def outreach_fresh_matches(
             f"role alignment {row.get('role_rank')}/7; "
             f"experience level {row.get('experience_level') or 'not labeled'}"
         )
-        row.pop("description", None)
+        row["description_excerpt"] = row.pop("description", "")
+        row["compensation_basis"] = (
+            "published annual base" if row.get("salary_min") or row.get("salary_max") else "verify from description excerpt"
+        )
         row.pop("location_rank", None)
         row.pop("role_rank", None)
     return {

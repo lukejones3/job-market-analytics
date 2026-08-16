@@ -11,6 +11,7 @@ from python.api import (
     _normalize_mobile_auth_callback,
     _set_public_query_timeout,
     app,
+    outreach_fresh_matches,
     ttl_payload_cache,
 )
 
@@ -137,3 +138,48 @@ def test_public_payload_cache_replaces_a_closed_connection() -> None:
         assert endpoint(conn=broken) == {"ok": True}
 
     return_connection.assert_called_once_with(healthy)
+
+
+def test_outreach_feed_preserves_the_evidence_needed_for_strict_career_review() -> None:
+    conn = MagicMock()
+    cursor = MagicMock()
+    conn.cursor.return_value = cursor
+    posted = datetime.now(timezone.utc) - timedelta(days=1)
+    cursor.fetchall.return_value = [{
+        "job_id": "job-1",
+        "title": "Sales Data Analyst",
+        "company_id": "company-1",
+        "company_name": "Example",
+        "job_url": "https://example.com/careers/job-1",
+        "posted_at": posted,
+        "workplace_type": "Remote",
+        "employment_type": "Full-time",
+        "experience_level": "Mid",
+        "salary_min": 76500.0,
+        "salary_max": 103500.0,
+        "salary_period": "year",
+        "country": "US",
+        "city": "",
+        "state": "",
+        "source": "workday",
+        "description": "Build production SQL and Python pipelines. Remote in the United States.",
+        "location_rank": 3,
+        "role_rank": 4,
+        "known_recruiters": [],
+    }]
+    request = MagicMock()
+    request.headers = {"X-Lander-Internal-Key": "test-key"}
+
+    with patch("python.api.LANDER_INTERNAL_API_KEY", "test-key"):
+        payload = outreach_fresh_matches(request=request, days=7, limit=30, conn=conn)
+
+    result = payload["results"][0]
+    assert result["description_excerpt"].startswith("Build production SQL")
+    assert result["employment_type"] == "Full-time"
+    assert result["salary_min"] == 76500.0
+    assert result["salary_max"] == 103500.0
+    assert "open_verified_at" not in result, "the feed must not impersonate a live employer-page check"
+    query = cursor.execute.call_args.args[0]
+    assert "jp.loc_country" in query
+    assert "salary_max_annual >= 80000" in query
+    assert "tacoma" not in query.lower()
