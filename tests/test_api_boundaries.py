@@ -182,4 +182,9 @@ def test_outreach_feed_preserves_the_evidence_needed_for_strict_career_review() 
     query = cursor.execute.call_args.args[0]
     assert "jp.loc_country" in query
     assert "salary_max_annual >= 80000" in query
+    assert "forward.?deployed" in query
+    assert "ai evaluation" in query
+    assert "semantic search" in query
+    assert "talent intelligence" in query
+    assert "developer productivity" in query
     assert "tacoma" not in query.lower()

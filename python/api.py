@@ -1390,11 +1390,28 @@ def outreach_fresh_matches(
               ELSE 0
             END AS location_rank,
             CASE
-              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~ '(analytics engineer|data engineer)' THEN 7
-              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~ '(applied ai|ai engineer|agent|evaluation)' THEN 6
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~
+                   '(analytics engineer|data engineer|data platform|data infrastructure|data reliability|data quality engineer|data product engineer)' THEN 9
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~
+                   '(applied ai|ai engineer|agent engineer|agentic|ai product engineer|ai automation|agent platform)' THEN 9
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~
+                   '(ai evaluation|llm evaluation|ai quality|ai reliability|agent evaluation|benchmark engineer)' THEN 9
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~
+                   '(retrieval engineer|rag engineer|semantic search|search relevance|knowledge systems|knowledge graph|context engineer)' THEN 8
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~
+                   '(developer tools|developer productivity|devex|code intelligence|ai platform|ai governance|ai security)' THEN 8
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~
+                   '(forward.?deployed|solutions? engineer|customer engineer|implementation engineer|technical consultant)' THEN 7
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~
+                   '(automation engineer|integration engineer|workflow engineer|business systems engineer)' THEN 7
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~
+                   '(people analytics|workforce analytics|recruiting analytics|talent intelligence|labor market|people data)' THEN 6
+              WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~
+                   '(product engineer|prototype engineer|prototyping engineer|innovation engineer|founding engineer)' THEN 6
               WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~ '(machine learning|ml engineer)' THEN 5
               WHEN LOWER(COALESCE(r.role_name, jp.role_category, '')) ~ '(analytics|data analyst|business intelligence)' THEN 4
-              WHEN LOWER(COALESCE(jp.description_text, '')) ~ '(python|sql|dbt|airflow|postgres|llm|agentic)' THEN 3
+              WHEN LOWER(COALESCE(jp.description_text, '')) ~
+                   '(python|sql|dbt|airflow|postgres|llm|agentic|retrieval|evaluation pipeline|regression test|mcp|pgvector)' THEN 3
               ELSE 0
             END AS role_rank
           FROM job_postings jp
@@ -1412,15 +1429,13 @@ def outreach_fresh_matches(
               OR LOWER(COALESCE(jp.loc_city, '') || ' ' || COALESCE(l.location, '')) ~
                  '(seattle|bellevue|redmond|kirkland|bothell|shoreline|lynnwood|everett|issaquah|renton|woodinville|mercer island)'
             )
-            AND LOWER(COALESCE(r.role_name, '') || ' ' || COALESCE(jp.role_category, '') || ' ' || COALESCE(jp.description_text, '')) ~
-                '(data engineer|analytics engineer|data analyst|business intelligence|applied ai|ai engineer|machine learning|ml engineer|llm|agentic|python|sql|dbt|airflow)'
             AND LOWER(COALESCE(r.role_name, jp.role_category, '')) !~
                 '(director|vice president|vp[ ,/-]|principal|(^|[^a-z])staff([^a-z]|$)|head of|chief |architect)'
             AND (
               jp.salary_max_annual >= 80000
               OR (
                 jp.salary_max_annual IS NULL
-                AND COALESCE(jp.description_text, '') ~ '\$[0-9][0-9,]*'
+                AND COALESCE(jp.description_text, '') ~ '\\$[0-9][0-9,]*'
               )
             )
         )
@@ -1458,7 +1473,7 @@ def outreach_fresh_matches(
         row["age_days"] = round(age_days, 2) if age_days is not None else None
         row["fit_reason"] = (
             f"{row.get('workplace_type') or 'workplace unknown'}; "
-            f"role alignment {row.get('role_rank')}/7; "
+            f"role alignment {row.get('role_rank')}/9; "
             f"experience level {row.get('experience_level') or 'not labeled'}"
         )
         row["description_excerpt"] = row.pop("description", "")
