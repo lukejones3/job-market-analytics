@@ -2363,6 +2363,21 @@ def _skills_payload(skills_dict):
     return out
 
 
+FREE_RESUME_VISIBLE_MATCHES = 5
+FREE_RESUME_PREVIEW_MATCHES = 3
+PRO_RESUME_VISIBLE_MATCHES = 50
+
+
+def _resume_match_delivery_window(is_pro: bool) -> tuple[int, int]:
+    """Return trusted-server delivery size and browser-visible match limit."""
+    if is_pro:
+        return PRO_RESUME_VISIBLE_MATCHES, PRO_RESUME_VISIBLE_MATCHES
+    return (
+        FREE_RESUME_VISIBLE_MATCHES + FREE_RESUME_PREVIEW_MATCHES,
+        FREE_RESUME_VISIBLE_MATCHES,
+    )
+
+
 @app.post("/v1/resume/upload", tags=["Resume"])
 async def upload_resume_v1(
     file: UploadFile = File(...),
@@ -2444,6 +2459,7 @@ async def upload_resume_v1(
 
         tier = key.get("tier", "free") if isinstance(key, dict) else "free"
         is_pro = tier == "pro"
+        delivery_limit, visible_match_limit = _resume_match_delivery_window(is_pro)
 
         if is_pro:
             skill_gaps = find_skill_gaps(
@@ -2452,16 +2468,21 @@ async def upload_resume_v1(
                 db_cursor=cur,
                 top_n=5,
             ) or []
-            jobs_out = matched_jobs[:50]
         else:
             skill_gaps = []
-            jobs_out = matched_jobs[:3]
+
+        # Free requests come only from Lander's authenticated server. Send three
+        # extra rows so it can build a sanitized locked preview; the browser gets
+        # full scoring, skill, URL, and contact data for five rows only.
+        jobs_out = matched_jobs[:delivery_limit]
 
         return {
             "ok": True,
             "skills_found": _skills_payload(skills),
             "experience_level_inferred": exp_level,
             "matched_jobs": jobs_out,
+            "visible_match_limit": visible_match_limit,
+            "total_candidate_matches": len(matched_jobs),
             "skill_gaps": skill_gaps,
         }
 

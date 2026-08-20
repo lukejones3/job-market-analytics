@@ -13,12 +13,18 @@ from python.api import (
     _legacy_credential_is_expired,
     _normalize_mobile_auth_callback,
     _normalize_web_return_path,
+    _resume_match_delivery_window,
     _set_public_query_timeout,
     app,
     outreach_fresh_matches,
     social_auth,
     ttl_payload_cache,
 )
+
+
+def test_resume_match_delivery_keeps_only_five_free_matches_open() -> None:
+    assert _resume_match_delivery_window(False) == (8, 5)
+    assert _resume_match_delivery_window(True) == (50, 50)
 
 
 def test_fresh_magic_link_renews_an_expired_account_credential() -> None:
