@@ -1,7 +1,10 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, Mock, patch
 
 import psycopg2
+import pytest
+from fastapi import HTTPException
 
 from python.api import (
     MOBILE_AUTH_CALLBACK,
@@ -9,9 +12,11 @@ from python.api import (
     _cursor_value,
     _legacy_credential_is_expired,
     _normalize_mobile_auth_callback,
+    _normalize_web_return_path,
     _set_public_query_timeout,
     app,
     outreach_fresh_matches,
+    social_auth,
     ttl_payload_cache,
 )
 
@@ -79,9 +84,34 @@ def test_mobile_callback_requires_an_exact_operator_allow_list_entry() -> None:
         assert _normalize_mobile_auth_callback(f"{allowed}/other") is None
 
 
+def test_magic_link_return_path_preserves_product_context_without_open_redirects() -> None:
+    assert _normalize_web_return_path("/openings/J1/apply") == "/openings/J1/apply"
+    assert _normalize_web_return_path("/jobs?company=Acme") == "/jobs?company=Acme"
+    assert _normalize_web_return_path("https://attacker.example") is None
+    assert _normalize_web_return_path("//attacker.example") is None
+    assert _normalize_web_return_path("/auth/verify?token=stolen") is None
+
+
 def test_api_docs_are_private_by_default() -> None:
     assert app.docs_url is None
     assert app.openapi_url is None
+
+
+def test_social_auth_is_internal_only() -> None:
+    route = next(route for route in app.routes if route.path == "/auth/social")
+    assert "POST" in route.methods
+
+    source = route.endpoint.__doc__ or ""
+    assert "trusted Lander server" in source
+
+    request = MagicMock()
+    request.headers = {}
+    with (
+        patch("python.api.LANDER_INTERNAL_API_KEY", "configured-internal-key"),
+        pytest.raises(HTTPException) as rejected,
+    ):
+        asyncio.run(social_auth(request))
+    assert rejected.value.status_code == 401
 
 
 def test_health_and_public_endpoints_support_head() -> None:

@@ -21,7 +21,7 @@ import asyncio
 import functools
 import threading
 import json
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from datetime import datetime, timezone, date
 from typing import Optional, List
 from contextlib import asynccontextmanager
@@ -324,6 +324,22 @@ def _normalize_mobile_auth_callback(value: str | None) -> str | None:
         if item.strip()
     }
     return callback if callback in allowed else None
+
+
+def _normalize_web_return_path(value: str | None) -> str | None:
+    """Allow a magic link to carry only a same-origin, non-auth product path."""
+    candidate = (value or "").strip()[:1500]
+    if not candidate or not candidate.startswith("/") or candidate.startswith("//"):
+        return None
+    if "\\" in candidate:
+        return None
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc:
+        return None
+    blocked = ("/api", "/auth", "/signup", "/mobile-auth", "/unsubscribe")
+    if any(parsed.path == prefix or parsed.path.startswith(f"{prefix}/") for prefix in blocked):
+        return None
+    return parsed.path + (f"?{parsed.query}" if parsed.query else "")
 
 
 # ── Role family SQL ───────────────────────────────────────────────────────────
@@ -1849,6 +1865,7 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
     if client not in {"web", "mobile"}:
         client = "web"
     callback_url = _normalize_mobile_auth_callback(body.get("callback_url"))
+    return_to = _normalize_web_return_path(body.get("return_to")) if client == "web" else None
     if client == "mobile" and callback_url is None:
         raise HTTPException(status_code=400, detail="Invalid mobile callback URL")
     user_agent = request.headers.get("user-agent", "")[:200]
@@ -1932,6 +1949,8 @@ async def free_signup(request: Request, background_tasks: BackgroundTasks):
                 access_url += f"&callback={quote(callback_url, safe='')}"
         else:
             access_url = f"{lander_base}/auth/verify?token={raw_key}"
+            if return_to:
+                access_url += f"&return_to={quote(return_to, safe='')}"
         # Keep repeated web requests visually distinct too. The newest request
         # replaces the prior one-time challenge, and Gmail otherwise groups the
         # messages under an identical subject where an older link is easy to tap.
@@ -2030,6 +2049,122 @@ async def verify_token(request: Request, token: str):
     except Exception as e:
         log.warning(f"Token verify error: {e}")
         raise HTTPException(status_code=500, detail="Verification failed")
+    finally:
+        _return_pool_connection(conn)
+
+
+# ── Social authentication ────────────────────────────────────────────────────
+@app.post("/auth/social")
+async def social_auth(request: Request):
+    """Provision an account after the trusted Lander server verifies OAuth."""
+    supplied = request.headers.get("X-Lander-Internal-Key", "")
+    if (
+        not LANDER_INTERNAL_API_KEY
+        or not supplied
+        or not hmac.compare_digest(supplied, LANDER_INTERNAL_API_KEY)
+    ):
+        raise HTTPException(status_code=401, detail="Internal Lander credential required")
+
+    body = await request.json()
+    provider = str(body.get("provider") or "").strip().lower()
+    subject = str(body.get("subject") or "").strip()
+    email = str(body.get("email") or "").strip().lower()
+    display_name = str(body.get("name") or "").strip()[:120]
+
+    if provider not in {"google", "apple"} or not subject:
+        raise HTTPException(status_code=400, detail="Invalid social identity")
+    if not email or not EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Verified email is required")
+
+    conn = _get_healthy_pool_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            # A verified provider email links to the same durable account as a
+            # magic link. Prefer Pro if historical duplicate keys exist.
+            cur.execute(
+                """
+                SELECT key_id, api_key_hash, tier
+                FROM api_keys
+                WHERE LOWER(client_email) = %s AND active = true
+                ORDER BY CASE WHEN tier = 'pro' THEN 0 ELSE 1 END, created_at DESC
+                LIMIT 1
+                FOR UPDATE
+                """,
+                (email,),
+            )
+            account = cur.fetchone()
+            user_agent = request.headers.get("user-agent", "")[:200]
+
+            if account:
+                key_id = account["key_id"]
+                previous_hash = account["api_key_hash"]
+                tier = account["tier"]
+                cur.execute(
+                    """
+                    INSERT INTO free_signups
+                        (email, api_key_id, referral_source, user_agent)
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (email) DO UPDATE SET
+                        api_key_id = EXCLUDED.api_key_id,
+                        last_seen_at = NOW(),
+                        user_agent = EXCLUDED.user_agent
+                    """,
+                    (email, key_id, f"oauth:{provider}", user_agent),
+                )
+            else:
+                key_id = "K" + secrets.token_hex(8)
+                placeholder = secrets.token_urlsafe(32)
+                previous_hash = hash_key(placeholder)
+                tier = "free"
+                cur.execute(
+                    """
+                    INSERT INTO api_keys
+                        (key_id, client_name, client_email, api_key_hash, api_key_prefix,
+                         tier, active, created_at, expires_at)
+                    VALUES (%s, %s, %s, %s, %s, 'free', true, NOW(), NOW() + INTERVAL '30 days')
+                    """,
+                    (
+                        key_id,
+                        display_name or email.split("@")[0],
+                        email,
+                        previous_hash,
+                        get_key_prefix(placeholder),
+                    ),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO free_signups
+                        (email, api_key_id, referral_source, user_agent)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (email, key_id, f"oauth:{provider}", user_agent),
+                )
+
+            api_key = _rotate_api_credential(cur, key_id, str(previous_hash))
+            conn.commit()
+            log.info(
+                "Social auth completed provider=%s identity_ref=%s account_ref=%s",
+                provider,
+                _log_ref(subject),
+                _log_ref(email),
+            )
+            return {
+                "api_key": api_key,
+                "key_id": key_id,
+                "email": email,
+                "tier": tier,
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        log.warning(
+            "Social auth failed provider=%s account_ref=%s: %s",
+            provider,
+            _log_ref(email),
+            e,
+        )
+        raise HTTPException(status_code=500, detail="Social sign-in failed")
     finally:
         _return_pool_connection(conn)
 
