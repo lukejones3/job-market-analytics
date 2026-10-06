@@ -219,16 +219,24 @@ with DAG(dag_id="lander_career_host_engine",
         "psql -v ON_ERROR_STOP=1 -f sql/career_host_engine.sql -f sql/publication_boundary.sql")
     seed_career_hosts = command("seed_employer_universe",
         f"{PYTHON} python/career_host_engine.py seed --apply --limit 2000 --include-sec")
+    # Resolution makes one Serper search per candidate (plus fetches of the
+    # best results). Five hundred is a daily quota ceiling, not a promise
+    # that every candidate resolves in one run; failed searches stay pending
+    # and are not retried for seven days.
     resolve_career_hosts = command("resolve_official_career_hosts",
-        f"{PYTHON} python/career_host_engine.py resolve --apply --limit 200")
+        f"{PYTHON} python/career_host_engine.py resolve --apply --limit 500")
     route_career_ats = command("route_supported_career_ats",
         f"{PYTHON} python/career_host_engine.py route --apply --limit 1000")
     validate_routed_ats = command("validate_routed_career_ats",
         f"{PYTHON} python/validate_ats_candidates.py --apply --limit 1000 --workers 8")
     integrate_routed_ats = command("integrate_routed_career_ats",
         f"{PYTHON} python/integrate_ats_candidates.py --apply")
+    # Hosts are committed one at a time, so raising the queue ceiling does
+    # not roll back completed hosts if the eight-hour task timeout lands.
+    # It can leave the tail for the next day; watch duration before treating
+    # 100 as the routine completion rate rather than an upper bound.
     crawl_direct_hosts = command("crawl_direct_career_hosts",
-        f"{PYTHON} python/career_host_engine.py crawl --apply --limit 20 "
+        f"{PYTHON} python/career_host_engine.py crawl --apply --limit 100 "
         "--max-pages-per-host 2000 --workers 8 --activate-mature",
         execution_timeout=timedelta(hours=8))
     career_host_report = command("career_host_report",

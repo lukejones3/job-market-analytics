@@ -77,6 +77,10 @@ def test_career_host_engine_integrates_fast_path_before_direct_crawl():
     assert "validate_routed_career_ats" in coverage.get_task("route_supported_career_ats").downstream_task_ids
     assert coverage.get_task("integrate_routed_career_ats").upstream_task_ids == {"validate_routed_career_ats"}
     assert coverage.get_task("crawl_direct_career_hosts").upstream_task_ids == {"integrate_routed_career_ats"}
+    assert "--limit 500" in coverage.get_task("resolve_official_career_hosts").bash_command
+    crawl = coverage.get_task("crawl_direct_career_hosts")
+    assert "--limit 100" in crawl.bash_command
+    assert crawl.execution_timeout.total_seconds() == 8 * 60 * 60
 
 
 def test_radar_notifications_survive_optional_research_failure():

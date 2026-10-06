@@ -88,6 +88,14 @@ class Fingerprint:
     server: Optional[str] = None
 
 
+DEFAULT_MATURATION_DAYS = 7
+ZERO_MISMATCH_FAST_MATURATION_DAYS = 2
+# A multi-brand employer can state a subsidiary as the hiring organization.
+# Those postings may be attributed to that brand, but a brand minority cannot
+# by itself prove the candidate host is clean.
+BRAND_ATTRIBUTED_CLEAN_MAX_SHARE = 0.25
+
+
 @dataclass
 class CrawlStats:
     pages_discovered: int = 0
@@ -96,6 +104,8 @@ class CrawlStats:
     target_jobs: int = 0
     explicit_us_jobs: int = 0
     accepted_jobs: int = 0
+    host_attributed_jobs: int = 0
+    brand_attributed_jobs: int = 0
     written_jobs: int = 0
     duplicate_jobs: int = 0
     identity_mismatches: int = 0
@@ -103,6 +113,8 @@ class CrawlStats:
     quality_rejections: int = 0
     errors: int = 0
     rejection_reasons: Counter[str] = field(default_factory=Counter)
+    identity_mismatch_organizations: Counter[str] = field(default_factory=Counter)
+    brand_attributed_organizations: Counter[str] = field(default_factory=Counter)
 
 
 def connection():
@@ -815,6 +827,61 @@ def organization_matches(company_name: str, organization_name: str) -> bool:
     return len(expected & actual) / max(1, min(len(expected), len(actual))) >= 0.6
 
 
+def _same_registered_domain(host: dict, page_url: str) -> bool:
+    """Whether a leaf page is on the host's registered domain.
+
+    Brand attribution trusts the hiring organization stated by a posting only
+    when the posting itself was collected from the employer's own domain. A
+    name copied from an unrelated board never becomes attribution evidence.
+    """
+    jobs_host = str(host.get("jobs_host") or _hostname(str(host.get("careers_url") or ""))).lower()
+    page_host = _hostname(page_url)
+    return bool(jobs_host and page_host and _registeredish_domain(jobs_host) == _registeredish_domain(page_host))
+
+
+def _brand_attribution_company(host: dict, organization: str, page_url: str) -> Optional[str]:
+    """Return a site-stated subsidiary/brand when it is safe to attribute.
+
+    This is deliberately narrower than accepting every mismatched posting:
+    the organization must be named, unblocked, and collected from the host's
+    own registered domain. The resulting jobs identify the stated brand in
+    ``RawJob.company``; the host company remains in job metadata.
+    """
+    name = str(organization or "").strip()
+    if not name or not _company_tokens(name) or is_company_blocked(name):
+        return None
+    if is_blocked_result(page_url) or not _same_registered_domain(host, page_url):
+        return None
+    return name
+
+
+def _maturation_interval_days(
+    *, identity_mismatches: int, job_count: int,
+    first_clean_crawl_at: Optional[datetime], now: Optional[datetime] = None,
+) -> int:
+    """Days a shadow host must age before a clean crawl may activate it.
+
+    The normal path remains seven days. A host may use the two-day path only
+    when a previous clean crawl exists, the current crawl produced jobs, and
+    there are no unattributed identity mismatches. Brand-attributed jobs do
+    not increment ``identity_mismatches``; blocked/unattributed names do.
+    """
+    if identity_mismatches or job_count <= 0 or first_clean_crawl_at is None:
+        return DEFAULT_MATURATION_DAYS
+    current = now or datetime.now(timezone.utc)
+    first_clean = first_clean_crawl_at
+    if first_clean.tzinfo is None:
+        first_clean = first_clean.replace(tzinfo=timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    age = current - first_clean
+    return (
+        ZERO_MISMATCH_FAST_MATURATION_DAYS
+        if age.total_seconds() >= ZERO_MISMATCH_FAST_MATURATION_DAYS * 86_400
+        else DEFAULT_MATURATION_DAYS
+    )
+
+
 def _parse_timestamp(value: Any) -> Optional[datetime]:
     text = str(value or "").strip()
     if not text:
@@ -840,10 +907,24 @@ def posting_to_job(host: dict, posting: dict, page_url: str, stats: CrawlStats) 
         return None
     stats.explicit_us_jobs += 1
     organization = _text(posting.get("hiringOrganization")).strip()
-    if not organization or not organization_matches(host["company_name"], organization):
+    attributed_company = host["company_name"]
+    identity_attribution = "host"
+    if not organization:
         stats.identity_mismatches += 1
+        stats.identity_mismatch_organizations["<missing>"] += 1
         stats.rejection_reasons["hiring_organization_mismatch"] += 1
         return None
+    if organization_matches(host["company_name"], organization):
+        pass
+    else:
+        brand_company = _brand_attribution_company(host, organization, page_url)
+        if brand_company is None:
+            stats.identity_mismatches += 1
+            stats.identity_mismatch_organizations[organization] += 1
+            stats.rejection_reasons["hiring_organization_mismatch"] += 1
+            return None
+        attributed_company = brand_company
+        identity_attribution = "posting_brand"
     description = BeautifulSoup(str(posting.get("description") or ""), "html.parser").get_text("\n", strip=True)
     if len(description) < 100:
         stats.quality_rejections += 1
@@ -861,11 +942,17 @@ def posting_to_job(host: dict, posting: dict, page_url: str, stats: CrawlStats) 
     employment = posting.get("employmentType")
     employment = employment[0] if isinstance(employment, list) and employment else employment
     stats.accepted_jobs += 1
+    if identity_attribution == "posting_brand":
+        stats.brand_attributed_jobs += 1
+        stats.brand_attributed_organizations[attributed_company] += 1
+        stats.rejection_reasons["brand_attributed_job"] += 1
+    else:
+        stats.host_attributed_jobs += 1
     return RawJob(
         source="career_site",
         source_id=f"{host['host_id']}|{source_id}",
         title=title,
-        company=host["company_name"],
+        company=attributed_company,
         location=location[0],
         description=description,
         job_url=canonical_url,
@@ -877,6 +964,8 @@ def posting_to_job(host: dict, posting: dict, page_url: str, stats: CrawlStats) 
             "tenant": host["host_id"],
             "location_evidence": location[1],
             "hiring_organization": organization,
+            "host_company_name": host["company_name"],
+            "identity_attribution": identity_attribution,
             "valid_through": valid_through,
             "direct_apply": posting.get("directApply"),
             "source_quality_status": "active" if host["status"] == "active" else "quarantine",
@@ -1176,7 +1265,16 @@ def _classify_host_run(jobs: list[RawJob], stats: CrawlStats, detail: dict) -> t
         # Preserve conservative behavior for historical/legacy detail shapes.
         sitemap_complete = int(detail.get("sitemap_errors") or 0) == 0
     complete = stats.errors == 0 and sitemap_complete
-    clean = bool(jobs) and complete and identity_rate <= 0.01
+    brand_share = stats.brand_attributed_jobs / max(1, stats.target_jobs)
+    # Brand-attributed postings are accepted, but they corroborate a clean
+    # host only as a minority alongside host-attributed jobs. If brands take
+    # over the crawl, the run completes for diagnostics and retries tomorrow
+    # instead of quarantining the employer or activating it on brand volume.
+    brand_corroborated = (
+        stats.brand_attributed_jobs == 0
+        or (stats.host_attributed_jobs > 0 and brand_share <= BRAND_ATTRIBUTED_CLEAN_MAX_SHARE)
+    )
+    clean = bool(jobs) and complete and identity_rate <= 0.01 and brand_corroborated
     if not complete:
         return "partial_failure", clean
     if stats.target_jobs and identity_rate > 0.01:
@@ -1257,7 +1355,11 @@ def crawl_hosts(
                          stats.target_jobs, stats.explicit_us_jobs, stats.accepted_jobs, stats.written_jobs,
                          stats.duplicate_jobs, stats.identity_mismatches, stats.foreign_rejections,
                          stats.quality_rejections, stats.errors, Json(dict(stats.rejection_reasons)),
-                         Json({**detail, "expired_jobs": expired}), run_id),
+                         Json({**detail, "expired_jobs": expired,
+                               "host_attributed_jobs": stats.host_attributed_jobs,
+                               "brand_attributed_jobs": stats.brand_attributed_jobs,
+                               "brand_attributed_organizations": dict(stats.brand_attributed_organizations),
+                               "identity_mismatch_organizations": dict(stats.identity_mismatch_organizations)}), run_id),
                     )
                     if run_status in ("complete_nonzero", "complete_zero"):
                         cur.execute(
@@ -1279,11 +1381,29 @@ def crawl_hosts(
                             (run_status, host["host_id"]),
                         )
                     if activate_mature and clean and host["status"] == "shadow":
+                        maturation_days = _maturation_interval_days(
+                            identity_mismatches=stats.identity_mismatches,
+                            job_count=len(jobs),
+                            first_clean_crawl_at=host.get("first_clean_crawl_at"),
+                        )
                         cur.execute(
-                            """UPDATE career_hosts SET status='active',activated_at=now(),updated_at=now()
-                               WHERE host_id=%s AND first_clean_crawl_at <= now()-interval '7 days'
+                            """UPDATE career_hosts SET status='active',activated_at=now(),updated_at=now(),
+                               evidence=evidence || %s::jsonb
+                               WHERE host_id=%s
+                                 AND first_clean_crawl_at <= now()-(%s * interval '1 day')
                                RETURNING host_id""",
-                            (host["host_id"],),
+                            (
+                                Json({
+                                    "maturation_days": maturation_days,
+                                    "maturation_path": (
+                                        "zero_mismatch_fast_track"
+                                        if maturation_days == ZERO_MISMATCH_FAST_MATURATION_DAYS
+                                        else "standard"
+                                    ),
+                                }),
+                                host["host_id"],
+                                maturation_days,
+                            ),
                         )
                         if cur.fetchone():
                             source = _host_source(host)
@@ -1327,6 +1447,134 @@ def crawl_hosts(
                 "blocked_hosts": blocked_hosts}
 
 
+def _review_requeue_evidence(actor: str, reason: str, from_status: str) -> dict[str, Any]:
+    return {
+        "review_requeue": {
+            "actor": actor,
+            "reason": reason,
+            "from_status": from_status,
+            "requeued_at": datetime.now(timezone.utc).isoformat(),
+        }
+    }
+
+
+def requeue_review_items(
+    *, apply: bool, limit: int, actor: str, reason: str, entity: str = "all",
+) -> dict[str, Any]:
+    """Return manually reviewed items to their safe pre-crawl queues.
+
+    Candidates in ``needs_review`` become ``pending`` so the resolver can try
+    again. Hosts in ``quarantined`` become ``shadow`` with pending identity and
+    a fresh maturation clock; any raw jobs attached to the host are forced
+    back to quarantine. Resolver-blocked hosts are excluded because the crawl
+    would immediately quarantine them again. Every applied transition is
+    recorded in ``career_host_review_actions`` before/with the state change.
+    """
+    if limit <= 0:
+        raise ValueError("limit must be positive")
+    if entity not in {"all", "candidates", "hosts"}:
+        raise ValueError(f"unknown review entity: {entity}")
+    actor = str(actor or "").strip()
+    reason = str(reason or "").strip()
+    if apply and (not actor or not reason):
+        raise ValueError("actor and reason are required when applying a review requeue")
+
+    result: dict[str, Any] = {
+        "applied": apply,
+        "candidates_requeued": 0,
+        "hosts_requeued": 0,
+        "candidate_ids": [],
+        "host_ids": [],
+    }
+    with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        if entity in {"all", "candidates"}:
+            cur.execute(
+                """SELECT * FROM career_host_candidates
+                   WHERE status='needs_review'
+                   ORDER BY lead_job_count DESC, discovered_at
+                   LIMIT %s
+                   FOR UPDATE SKIP LOCKED""",
+                (limit,),
+            )
+            candidates = list(cur.fetchall())
+            result["candidate_ids"] = [row["candidate_id"] for row in candidates]
+            result["candidates_requeued"] = len(candidates)
+            if apply:
+                for candidate in candidates:
+                    metadata = {
+                        "company_key": candidate["company_key"],
+                        "previous_evidence_keys": sorted((candidate.get("evidence") or {}).keys()),
+                    }
+                    cur.execute(
+                        """INSERT INTO career_host_review_actions
+                            (entity_kind,candidate_id,from_status,to_status,actor,reason,metadata)
+                           VALUES ('candidate',%s,'needs_review','pending',%s,%s,%s)""",
+                        (candidate["candidate_id"], actor, reason, Json(metadata)),
+                    )
+                    cur.execute(
+                        """UPDATE career_host_candidates
+                           SET status='pending',last_attempted_at=NULL,resolved_at=NULL,
+                               evidence=evidence || %s
+                           WHERE candidate_id=%s""",
+                        (Json(_review_requeue_evidence(actor, reason, "needs_review")),
+                         candidate["candidate_id"]),
+                    )
+
+        if entity in {"all", "hosts"}:
+            cur.execute(
+                """SELECT * FROM career_hosts
+                   WHERE status='quarantined' AND identity_status='needs_review'
+                     AND evidence->>'resolver_blocked' IS DISTINCT FROM 'true'
+                   ORDER BY updated_at
+                   LIMIT %s
+                   FOR UPDATE SKIP LOCKED""",
+                (limit,),
+            )
+            hosts = list(cur.fetchall())
+            result["host_ids"] = [row["host_id"] for row in hosts]
+            result["hosts_requeued"] = len(hosts)
+            if apply:
+                for host in hosts:
+                    metadata = {
+                        "company_key": host["company_key"],
+                        "previous_identity_status": host["identity_status"],
+                        "previous_first_clean_crawl_at": (
+                            host["first_clean_crawl_at"].isoformat()
+                            if host.get("first_clean_crawl_at") else None
+                        ),
+                    }
+                    cur.execute(
+                        """INSERT INTO career_host_review_actions
+                            (entity_kind,host_id,from_status,to_status,actor,reason,metadata)
+                           VALUES ('host',%s,'quarantined','shadow',%s,%s,%s)""",
+                        (host["host_id"], actor, reason, Json(metadata)),
+                    )
+                    cur.execute(
+                        """UPDATE career_hosts
+                           SET status='shadow',identity_status='pending',
+                               first_clean_crawl_at=NULL,activated_at=NULL,
+                               failure_streak=0,next_crawl_at=now(),
+                               evidence=evidence || %s,updated_at=now()
+                           WHERE host_id=%s""",
+                        (Json(_review_requeue_evidence(actor, reason, "quarantined")),
+                         host["host_id"]),
+                    )
+                    # A host that was once active must prove itself again.
+                    # Its old jobs cannot remain publication-eligible while
+                    # the new shadow crawl is pending.
+                    cur.execute(
+                        """UPDATE job_postings SET source_quality_status='quarantine'
+                           WHERE crawl_tenant=%s AND status='raw'
+                             AND ingestion_source IN ('career_site','oracle_cloud')""",
+                        (host["host_id"],),
+                    )
+        if apply:
+            conn.commit()
+        else:
+            conn.rollback()
+    return result
+
+
 def report() -> dict[str, Any]:
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute("SELECT COUNT(*)::int count FROM public.vw_lander_visible_opportunities")
@@ -1363,14 +1611,22 @@ def report() -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("migrate", "seed", "resolve", "review-oracle", "route", "crawl", "run", "report"))
+    parser.add_argument("action", choices=("migrate", "seed", "resolve", "review-oracle", "requeue-review", "route", "crawl", "run", "report"))
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--max-pages-per-host", type=int, default=2000)
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--include-sec", action="store_true")
     parser.add_argument("--activate-mature", action="store_true")
+    parser.add_argument("--entity", choices=("all", "candidates", "hosts"), default="all",
+                        help="Review queue to requeue (requeue-review only)")
+    parser.add_argument("--actor", default=os.getenv("USER", "operator"),
+                        help="Reviewer recorded in the audit trail (requeue-review only)")
+    parser.add_argument("--reason", default="",
+                        help="Review note recorded in the audit trail (requeue-review only)")
     args = parser.parse_args()
+    if args.action == "requeue-review" and args.apply and not args.reason.strip():
+        parser.error("--reason is required when applying a review requeue")
     if args.action == "migrate":
         migrate()
         print({"migrated": True})
@@ -1380,6 +1636,9 @@ def main() -> None:
         print(resolve_candidates(apply=args.apply, limit=args.limit))
     elif args.action == "review-oracle":
         print(review_oracle_candidates(apply=args.apply, limit=args.limit))
+    elif args.action == "requeue-review":
+        print(requeue_review_items(apply=args.apply, limit=args.limit, actor=args.actor,
+                                   reason=args.reason, entity=args.entity))
     elif args.action == "route":
         print(route_supported_ats(apply=args.apply, limit=args.limit))
     elif args.action == "crawl":

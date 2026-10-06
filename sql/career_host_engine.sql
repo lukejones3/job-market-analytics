@@ -83,6 +83,25 @@ CREATE INDEX IF NOT EXISTS idx_career_hosts_crawl_queue
 CREATE INDEX IF NOT EXISTS idx_career_hosts_platform
     ON career_hosts (platform, status);
 
+-- Manual review decisions are part of the operating record, not just the
+-- current mutable status. A requeue must say who reviewed it and why.
+CREATE TABLE IF NOT EXISTS career_host_review_actions (
+    action_id bigserial PRIMARY KEY,
+    entity_kind text NOT NULL CHECK (entity_kind IN ('candidate','host')),
+    candidate_id bigint REFERENCES career_host_candidates(candidate_id) ON DELETE CASCADE,
+    host_id text REFERENCES career_hosts(host_id) ON DELETE CASCADE,
+    from_status text NOT NULL,
+    to_status text NOT NULL,
+    actor text NOT NULL,
+    reason text NOT NULL,
+    metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    CHECK (num_nonnulls(candidate_id, host_id) = 1)
+);
+
+CREATE INDEX IF NOT EXISTS idx_career_host_review_actions_entity
+    ON career_host_review_actions (entity_kind, candidate_id, host_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS career_host_runs (
     run_id text PRIMARY KEY,
     host_id text NOT NULL REFERENCES career_hosts(host_id) ON DELETE CASCADE,

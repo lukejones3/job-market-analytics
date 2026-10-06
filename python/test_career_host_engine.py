@@ -5,11 +5,14 @@ from datetime import datetime, timedelta, timezone
 import gzip
 
 from backfill_crawl_tenants import infer_crawl_tenant
+import career_host_engine as engine
 from career_host_engine import (
     CrawlStats,
+    _brand_attribution_company,
     _classify_host_run,
     _jsonld_objects,
     _location_evidence,
+    _maturation_interval_days,
     _parse_sitemap,
     company_key,
     fingerprint_url,
@@ -153,3 +156,145 @@ def test_historical_tenant_repair_is_source_specific() -> None:
     assert infer_crawl_tenant("workday", None, "https://acme.wd5.myworkdayjobs.com/en-US/Careers/job/1") == "acme"
     assert infer_crawl_tenant("greenhouse", None, "https://job-boards.greenhouse.io/stripe/jobs/1") == "stripe"
     assert infer_crawl_tenant("jobvite", "contoso|REQ-1", None) == "contoso"
+
+
+def _posting(organization: str, identifier: str = "REQ-1") -> dict:
+    return {
+        "@type": "JobPosting",
+        "title": "Senior Data Engineer",
+        "description": "Build reliable data products. " * 10,
+        "hiringOrganization": {"@type": "Organization", "name": organization},
+        "jobLocation": {
+            "@type": "Place",
+            "address": {"addressLocality": "Chicago", "addressRegion": "IL", "addressCountry": "US"},
+        },
+        "identifier": {"value": identifier},
+        "url": "https://careers.acme.com/jobs/req-1",
+        "datePosted": "2026-08-09",
+        "validThrough": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+        "directApply": True,
+    }
+
+
+def test_brand_posting_on_employer_domain_is_attributed_to_stated_brand() -> None:
+    host = {
+        "host_id": "CH123", "company_name": "Acme Parent",
+        "jobs_host": "careers.acme.com", "status": "shadow",
+    }
+    stats = CrawlStats()
+    job = posting_to_job(host, _posting("Globex"), "https://careers.acme.com/jobs/req-1", stats)
+
+    assert job is not None
+    assert job.company == "Globex"
+    assert job.metadata["identity_attribution"] == "posting_brand"
+    assert job.metadata["host_company_name"] == "Acme Parent"
+    assert stats.host_attributed_jobs == 0
+    assert stats.brand_attributed_jobs == 1
+    assert stats.identity_mismatches == 0
+
+
+def test_brand_attribution_requires_the_employer_domain() -> None:
+    host = {"company_name": "Acme Parent", "jobs_host": "careers.acme.com"}
+    assert _brand_attribution_company(host, "Globex", "https://careers.acme.com/jobs/1") == "Globex"
+    assert _brand_attribution_company(host, "Globex", "https://builtin.com/jobs/1") is None
+
+
+def test_brand_minority_can_corroborate_clean_run_but_brand_takeover_cannot() -> None:
+    jobs = [object(), object()]
+    minority = CrawlStats(target_jobs=100, host_attributed_jobs=1, brand_attributed_jobs=1)
+    assert _classify_host_run(jobs, minority, {}) == ("complete_nonzero", True)
+
+    takeover = CrawlStats(target_jobs=100, host_attributed_jobs=1, brand_attributed_jobs=30)
+    assert _classify_host_run(jobs, takeover, {}) == ("complete_nonzero", False)
+
+
+def test_zero_mismatch_hosts_mature_in_two_days_only_after_prior_clean_crawl() -> None:
+    now = datetime(2026, 10, 6, tzinfo=timezone.utc)
+    assert _maturation_interval_days(
+        identity_mismatches=0, job_count=3,
+        first_clean_crawl_at=now - timedelta(days=3), now=now,
+    ) == 2
+    assert _maturation_interval_days(
+        identity_mismatches=1, job_count=3,
+        first_clean_crawl_at=now - timedelta(days=3), now=now,
+    ) == 7
+    assert _maturation_interval_days(
+        identity_mismatches=0, job_count=0,
+        first_clean_crawl_at=now - timedelta(days=3), now=now,
+    ) == 7
+    assert _maturation_interval_days(
+        identity_mismatches=0, job_count=3,
+        first_clean_crawl_at=now - timedelta(days=1), now=now,
+    ) == 7
+    assert _maturation_interval_days(
+        identity_mismatches=0, job_count=3, first_clean_crawl_at=None, now=now,
+    ) == 7
+
+
+class _FakeCursor:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+        self._rows: list[dict] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        return None
+
+    def execute(self, sql: str, params=None) -> None:
+        self.calls.append((sql, params))
+        if "FROM career_host_candidates" in sql:
+            self._rows = [{
+                "candidate_id": 42, "company_key": "acme", "evidence": {},
+            }]
+        elif "FROM career_hosts" in sql:
+            self._rows = [{
+                "host_id": "CH123", "company_key": "acme",
+                "identity_status": "needs_review", "first_clean_crawl_at": None,
+            }]
+
+    def fetchall(self) -> list[dict]:
+        return self._rows
+
+
+class _FakeConnection:
+    def __init__(self) -> None:
+        self.cursor_instance = _FakeCursor()
+        self.committed = False
+        self.rolled_back = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args) -> None:
+        return None
+
+    def cursor(self, cursor_factory=None):
+        return self.cursor_instance
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+
+def test_review_requeue_records_audit_and_resets_host_maturation(monkeypatch) -> None:
+    fake = _FakeConnection()
+    monkeypatch.setattr(engine, "connection", lambda: fake)
+
+    result = engine.requeue_review_items(
+        apply=True, limit=10, actor="evan", reason="reviewed employer evidence",
+        entity="all",
+    )
+
+    assert result["candidates_requeued"] == 1
+    assert result["hosts_requeued"] == 1
+    assert fake.committed is True
+    sql = "\n".join(call[0] for call in fake.cursor_instance.calls)
+    assert sql.count("career_host_review_actions") == 2
+    assert "SET status='pending'" in sql
+    assert "status='shadow'" in sql
+    assert "first_clean_crawl_at=NULL" in sql
+    assert "source_quality_status='quarantine'" in sql
