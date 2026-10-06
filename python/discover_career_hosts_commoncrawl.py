@@ -106,7 +106,9 @@ def discover(*, apply: bool, platforms: list[str], crawls: int, limit_per_query:
                 token = seed["token"].split("/", 1)[0]
                 name = _humanize(token)
                 # Oracle pod hostnames are opaque and cannot establish employer
-                # identity. Preserve them for review instead of auto-resolving.
+                # identity. Preserve them for identity auto-review (which asks
+                # the site itself who it is) instead of resolving from the
+                # hostname: `career_host_engine.py review-oracle`.
                 status = "needs_review" if seed["platform"] == "oracle_cloud" else "pending"
                 digest = hashlib.sha256(seed["url"].encode()).hexdigest()[:12]
                 key = company_key(name) if status == "pending" else f"oracle-{token}-{digest}"
@@ -120,6 +122,8 @@ def discover(*, apply: bool, platforms: list[str], crawls: int, limit_per_query:
                     (name, key, seed["url"], status, Json({
                         "platform": seed["platform"], "tenant": seed["token"],
                         "server": seed["server"], "crawl_indexes": sorted(set(seed["indexes"])),
+                        **({"identity_review": "pending_oracle_auto"}
+                           if seed["platform"] == "oracle_cloud" else {}),
                     })),
                 )
                 inserted += int(cur.rowcount > 0)

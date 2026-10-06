@@ -569,6 +569,104 @@ def resolve_candidates(*, apply: bool, limit: int, min_score: float = 0.58) -> d
         return {"attempted": len(candidates), "resolved": resolved, "needs_review": review, "rejected": rejected}
 
 
+def review_oracle_candidates(*, apply: bool, limit: int, sample_pages: int = 3) -> dict[str, int]:
+    """Auto-review Oracle seeds parked in needs_review.
+
+    Common Crawl Oracle pod hostnames are opaque, so discovery parks those
+    seeds instead of resolving them from the hostname. This reviewer asks the
+    site itself who it is: it samples the public requisition collection and,
+    when the payload does not state an employer, the JobPosting JSON-LD on
+    sampled job pages. A candidate only progresses when that site-stated
+    identity matches the candidate name (or, for opaque token names, when the
+    site consistently states one employer, which we adopt). A stated identity
+    that does not match is rejected; no evidence at all leaves the candidate
+    in needs_review. Progression creates a shadow host only — jobs remain
+    quarantined until a clean crawl and the maturation window activate it.
+    """
+    with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute(
+            """SELECT * FROM career_host_candidates
+               WHERE status='needs_review' AND evidence->>'platform'='oracle_cloud'
+               ORDER BY discovered_at
+               LIMIT %s""",
+            (limit,),
+        )
+        candidates = list(cur.fetchall())
+        resolved = rejected = still_review = 0
+        session = requests.Session()
+        for candidate in candidates:
+            url = str(candidate.get("discovered_url") or candidate.get("careers_url") or "")
+            evidence: dict[str, Any] = {"identity_review": "oracle_auto"}
+            try:
+                origin, site = _oracle_locator(url)
+                listings, total = probe_oracle_listings(origin, site, session=session, limit=25)
+                organizations = extract_oracle_organizations(listings)
+                if len(organizations) < 2:
+                    organizations += _oracle_page_organizations(
+                        session, origin, site, listings, max_pages=sample_pages)
+                evidence.update({
+                    "oracle_site": site, "oracle_total_jobs": total,
+                    "sampled_listings": len(listings),
+                    "identity_organizations": sorted(set(organizations)),
+                })
+                decision, company_name, reason = decide_oracle_review(
+                    str(candidate.get("company_name") or ""), organizations)
+            except Exception as exc:
+                decision, company_name, reason = "needs_review", candidate["company_name"], "probe_failed"
+                evidence["last_error"] = str(exc)[:500]
+            evidence["identity_reason"] = reason
+            if decision == "resolved":
+                resolved += 1
+            elif decision == "rejected":
+                rejected += 1
+            else:
+                still_review += 1
+            if not apply:
+                continue
+            if decision == "resolved":
+                key = company_key(company_name)
+                jobs_url = f"{origin}/hcmUI/CandidateExperience/en/sites/{site}"
+                host_id = "CH" + hashlib.md5(f"{key}|{jobs_url}".encode()).hexdigest()[:16]
+                cur.execute(
+                    """INSERT INTO career_hosts
+                        (host_id,company_id,company_name,company_key,official_domain,careers_url,jobs_host,
+                         platform,tenant_token,extraction_strategy,discovery_source,resolver_confidence,
+                         identity_status,status,evidence)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,'oracle_cloud',%s,'oracle_cloud',%s,0,'pending','shadow',%s)
+                       ON CONFLICT (company_key,careers_url) DO UPDATE SET
+                         platform=EXCLUDED.platform,tenant_token=EXCLUDED.tenant_token,
+                         extraction_strategy=EXCLUDED.extraction_strategy,
+                         evidence=career_hosts.evidence || EXCLUDED.evidence,updated_at=now()""",
+                    (host_id, candidate["company_id"], company_name, key,
+                     _registeredish_domain(_hostname(url)), jobs_url, _hostname(jobs_url),
+                     site.lower(), candidate["discovery_source"], Json(evidence)),
+                )
+                cur.execute(
+                    """UPDATE career_host_candidates SET status='resolved',company_name=%s,company_key=%s,
+                       careers_url=%s,resolved_at=now(),last_attempted_at=now(),
+                       evidence=evidence || %s WHERE candidate_id=%s""",
+                    (company_name, key, jobs_url, Json(evidence), candidate["candidate_id"]),
+                )
+            elif decision == "rejected":
+                cur.execute(
+                    """UPDATE career_host_candidates SET status='rejected',last_attempted_at=now(),
+                       evidence=evidence || %s WHERE candidate_id=%s""",
+                    (Json(evidence), candidate["candidate_id"]),
+                )
+            else:
+                cur.execute(
+                    """UPDATE career_host_candidates SET last_attempted_at=now(),
+                       evidence=evidence || %s WHERE candidate_id=%s""",
+                    (Json(evidence), candidate["candidate_id"]),
+                )
+            conn.commit()
+            log.info("Oracle review %s -> %s (%s)", candidate["company_name"], decision, reason)
+        if not apply:
+            conn.rollback()
+        return {"attempted": len(candidates), "resolved": resolved,
+                "rejected": rejected, "needs_review": still_review}
+
+
 def route_supported_ats(*, apply: bool, limit: int) -> dict[str, int]:
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         cur.execute(
@@ -830,25 +928,159 @@ def _oracle_locator(url: str) -> tuple[str, str]:
     return f"{parsed.scheme}://{parsed.netloc}", match.group(1)
 
 
+def _oracle_listings_page(
+    session: requests.Session, origin: str, site: str, limit: int, offset: int = 0,
+) -> tuple[list[dict], int]:
+    """One page of the public Oracle CE requisition collection."""
+    endpoint = f"{origin}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
+    response = _safe_get(session, endpoint, params={
+        "onlyData": "true",
+        "expand": "requisitionList",
+        "finder": f"findReqs;siteNumber={site},limit={limit},offset={offset}",
+    })
+    item = (response.json().get("items") or [{}])[0]
+    batch = item.get("requisitionList") or []
+    total = int(item.get("TotalJobsCount") or len(batch))
+    return batch, total
+
+
+def probe_oracle_listings(
+    origin: str, site: str, *, session: Optional[requests.Session] = None, limit: int = 25,
+) -> tuple[list[dict], int]:
+    """Sample a site's live requisitions for validation / identity review."""
+    return _oracle_listings_page(session or requests.Session(), origin, site, limit, 0)
+
+
+_ORACLE_ORG_KEYS = (
+    "Organization", "OrganizationName", "HiringOrganization", "HiringOrganisation",
+    "Company", "CompanyName", "Employer", "EmployerName",
+)
+
+
+def extract_oracle_organizations(listings: Iterable[dict]) -> list[str]:
+    """Employer names stated by the Oracle payload itself, in payload order."""
+    organizations: list[str] = []
+    for listing in listings:
+        if not isinstance(listing, dict):
+            continue
+        for key in _ORACLE_ORG_KEYS:
+            name = _text(listing.get(key)).strip()
+            if name:
+                organizations.append(name)
+                break
+    return organizations
+
+
+def _oracle_page_organizations(
+    session: requests.Session, origin: str, site: str, listings: list[dict], max_pages: int = 3,
+) -> list[str]:
+    """Identity evidence from JobPosting JSON-LD on sampled Oracle job pages."""
+    organizations: list[str] = []
+    for listing in listings[:max_pages]:
+        requisition_id = str(listing.get("Id") or "").strip()
+        if not requisition_id:
+            continue
+        page_url = f"{origin}/hcmUI/CandidateExperience/en/sites/{site}/job/{requisition_id}"
+        try:
+            _, postings, error = _fetch_jobposting_page(page_url)
+        except Exception:
+            continue
+        if error:
+            continue
+        for posting in postings:
+            name = _text(posting.get("hiringOrganization")).strip()
+            if name:
+                organizations.append(name)
+    return organizations
+
+
+_ORACLE_OPAQUE_TOKENS = {
+    "cx", "site", "sites", "career", "careers", "job", "jobs", "oracle", "cloud",
+    "hcmui", "candidate", "experience", "en", "us",
+}
+
+
+def _is_opaque_oracle_name(name: str) -> bool:
+    """True when a candidate name is just a humanized pod/site token."""
+    meaningful = [
+        token for token in _company_tokens(name)
+        if token not in _ORACLE_OPAQUE_TOKENS and not token.isdigit()
+    ]
+    return not meaningful
+
+
+def decide_oracle_review(candidate_name: str, organizations: list[str]) -> tuple[str, str, str]:
+    """Decide a needs_review Oracle candidate from site-stated identity.
+
+    Returns (decision, company_name, reason) where decision is one of
+    ``resolved`` / ``rejected`` / ``needs_review``. Nothing here weakens the
+    downstream gates: a resolved candidate only becomes a *shadow* host, and
+    its jobs stay quarantined until a clean crawl and maturation activate it.
+    """
+    orgs = [str(org or "").strip() for org in organizations if str(org or "").strip()]
+    if not orgs:
+        return "needs_review", candidate_name, "no_identity_evidence"
+    majority = Counter(company_key(org) for org in orgs).most_common(1)[0][0]
+    majority_name = next(org for org in orgs if company_key(org) == majority)
+    if _is_opaque_oracle_name(candidate_name):
+        # The hostname/token proved nothing; the site must speak for itself,
+        # consistently, before we adopt the name it states.
+        if len(orgs) < 2:
+            return "needs_review", candidate_name, "insufficient_identity_samples"
+        if not all(organization_matches(majority_name, org) for org in orgs):
+            return "needs_review", candidate_name, "multiple_organizations"
+        return "resolved", majority_name, "site_identity_adopted"
+    if any(organization_matches(candidate_name, org) for org in orgs):
+        return "resolved", candidate_name, "identity_match"
+    return "rejected", candidate_name, "identity_mismatch"
+
+
+def _oracle_effective_url(host: dict) -> str:
+    """Careers URL for an Oracle host, honoring an api_recipe override."""
+    try:
+        _oracle_locator(str(host.get("careers_url") or ""))
+        return str(host["careers_url"])
+    except ValueError:
+        recipe = host.get("api_recipe") or {}
+        if isinstance(recipe, str):
+            try:
+                recipe = json.loads(recipe)
+            except json.JSONDecodeError:
+                recipe = {}
+        origin = str(recipe.get("origin") or "").rstrip("/")
+        site = str(recipe.get("site") or host.get("tenant_token") or "").strip()
+        if origin and site:
+            return f"{origin}/hcmUI/CandidateExperience/en/sites/{site}"
+        raise
+
+
+def _host_source(host: dict) -> str:
+    """Ingestion source for a host, including api_recipe-dispatched Oracle."""
+    if host.get("extraction_strategy") == "oracle_cloud":
+        return "oracle_cloud"
+    if host.get("extraction_strategy") == "api_recipe":
+        recipe = host.get("api_recipe") or {}
+        if isinstance(recipe, str):
+            try:
+                recipe = json.loads(recipe)
+            except json.JSONDecodeError:
+                recipe = {}
+        if recipe.get("platform") == "oracle_cloud":
+            return "oracle_cloud"
+    return "career_site"
+
+
 def crawl_oracle_host(host: dict, max_pages: int) -> tuple[list[RawJob], CrawlStats, dict]:
     stats = CrawlStats()
     origin, site = _oracle_locator(host["careers_url"])
-    endpoint = f"{origin}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
     session = requests.Session()
     offset = 0
     page_size = min(200, max_pages)
     listings: list[dict] = []
     total = 0
     while len(listings) < max_pages:
-        response = _safe_get(session, endpoint, params={
-            "onlyData": "true",
-            "expand": "requisitionList",
-            "finder": f"findReqs;siteNumber={site},limit={page_size},offset={offset}",
-        })
+        batch, total = _oracle_listings_page(session, origin, site, page_size, offset)
         stats.pages_fetched += 1
-        item = (response.json().get("items") or [{}])[0]
-        batch = item.get("requisitionList") or []
-        total = int(item.get("TotalJobsCount") or len(batch))
         listings.extend(batch)
         if not batch or len(listings) >= total:
             break
@@ -953,7 +1185,7 @@ def _classify_host_run(jobs: list[RawJob], stats: CrawlStats, detail: dict) -> t
 
 
 def _expire_host_jobs(cur, host: dict, run_started: datetime) -> int:
-    source = "oracle_cloud" if host["extraction_strategy"] == "oracle_cloud" else "career_site"
+    source = _host_source(host)
     cur.execute(
         """INSERT INTO job_posting_events (job_id,event_type,observed_at,source,posted_date)
            SELECT job_id,'disappeared',now(),ingestion_source,posted_date
@@ -982,7 +1214,7 @@ def crawl_hosts(
         cur.execute(
             """SELECT * FROM career_hosts
                WHERE status IN ('shadow','active')
-                 AND extraction_strategy IN ('sitemap_jsonld','oracle_cloud')
+                 AND extraction_strategy IN ('sitemap_jsonld','oracle_cloud','api_recipe')
                  AND (next_crawl_at IS NULL OR next_crawl_at <= now())
                ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,
                         last_crawled_at NULLS FIRST,resolver_confidence DESC
@@ -998,8 +1230,10 @@ def crawl_hosts(
                 cur.execute("INSERT INTO career_host_runs(run_id,host_id) VALUES(%s,%s)", (run_id, host["host_id"]))
                 conn.commit()
             try:
-                if host["extraction_strategy"] == "oracle_cloud":
-                    jobs, stats, detail = crawl_oracle_host(host, max_pages)
+                if _host_source(host) == "oracle_cloud":
+                    oracle_host = dict(host)
+                    oracle_host["careers_url"] = _oracle_effective_url(host)
+                    jobs, stats, detail = crawl_oracle_host(oracle_host, max_pages)
                 else:
                     jobs, stats, detail = crawl_jsonld_host(host, max_pages, workers)
                 total_jobs += len(jobs)
@@ -1052,7 +1286,7 @@ def crawl_hosts(
                             (host["host_id"],),
                         )
                         if cur.fetchone():
-                            source = "oracle_cloud" if host["extraction_strategy"] == "oracle_cloud" else "career_site"
+                            source = _host_source(host)
                             cur.execute(
                                 """UPDATE job_postings SET source_quality_status='active'
                                    WHERE ingestion_source=%s AND crawl_tenant=%s AND status='raw'""",
@@ -1129,7 +1363,7 @@ def report() -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("migrate", "seed", "resolve", "route", "crawl", "run", "report"))
+    parser.add_argument("action", choices=("migrate", "seed", "resolve", "review-oracle", "route", "crawl", "run", "report"))
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--max-pages-per-host", type=int, default=2000)
@@ -1144,6 +1378,8 @@ def main() -> None:
         print(seed_database(apply=args.apply, limit=args.limit, include_sec=args.include_sec))
     elif args.action == "resolve":
         print(resolve_candidates(apply=args.apply, limit=args.limit))
+    elif args.action == "review-oracle":
+        print(review_oracle_candidates(apply=args.apply, limit=args.limit))
     elif args.action == "route":
         print(route_supported_ats(apply=args.apply, limit=args.limit))
     elif args.action == "crawl":

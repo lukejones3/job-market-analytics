@@ -683,6 +683,82 @@ def validate_smartrecruiters(row: Dict) -> Tuple[Optional[str], int, int, str]:
 
 
 # ============================================================
+# ORACLE CLOUD VALIDATION
+# ============================================================
+
+_ORACLE_US_COUNTRIES = {"us", "usa", "united states", "united states of america", "u.s.", "u.s.a."}
+
+
+def _oracle_candidate_locator(row: Dict) -> Optional[Tuple[str, str]]:
+    """Resolve (origin, site) for an Oracle candidate.
+
+    Canonical encoding: ``tenant`` is the Candidate Experience site token and
+    ``server`` is the pod hostname, optionally as ``hostname/site`` (the
+    Workday-style locator this module stores after a successful probe). A
+    full CE URL in either field is also accepted.
+    """
+    tenant = str(row.get("tenant") or "").strip()
+    server = str(row.get("server") or "").strip()
+    for value in (tenant, server):
+        if value.startswith("http"):
+            m = re.search(r"(https?://[^/]+)/hcmUI/CandidateExperience/(?:[^/]+/)?sites/([^/?#]+)", value, re.I)
+            if m:
+                return m.group(1), m.group(2)
+    host, _, server_site = server.partition("/")
+    site = server_site or tenant
+    if host and site and "." in host:
+        return f"https://{host}", site
+    if tenant.startswith("http"):
+        return None
+    return None
+
+
+def validate_oracle_cloud(row: Dict) -> Tuple[Optional[str], int, int, str]:
+    """Probe the public Oracle CE requisition collection (first page of 100).
+
+    Mirrors the US gate in career_host_engine.crawl_oracle_host: a posting is
+    US only on explicit PrimaryLocationCountry / United States evidence.
+    ``active`` still means only "one target opening" (see _candidate_status);
+    integration routes Oracle actives to shadow career hosts, never to the
+    nightly ATS harvest, which has no Oracle reader.
+    """
+    locator = _oracle_candidate_locator(row)
+    if not locator:
+        return None, 0, 0, "unreachable"
+    origin, site = locator
+    endpoint = f"{origin}/hcmRestApi/resources/latest/recruitingCEJobRequisitions"
+    try:
+        r = requests.get(
+            endpoint,
+            params={
+                "onlyData": "true",
+                "expand": "requisitionList",
+                "finder": f"findReqs;siteNumber={site},limit=100,offset=0",
+            },
+            timeout=REQUEST_TIMEOUT,
+            headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"},
+        )
+        if r.status_code != 200:
+            return None, 0, 0, "unreachable"
+        item = (r.json().get("items") or [{}])[0]
+        listings = item.get("requisitionList") or []
+    except Exception:
+        return None, 0, 0, "unreachable"
+    us_jobs = 0
+    data_ml_jobs = 0
+    for listing in listings:
+        title = str(listing.get("Title") or "")
+        country = str(listing.get("PrimaryLocationCountry") or "").strip().lower()
+        location = str(listing.get("PrimaryLocation") or "")
+        if country in _ORACLE_US_COUNTRIES or "united states" in location.lower() or _is_us_job(location):
+            us_jobs += 1
+            if _is_target_role(title):
+                data_ml_jobs += 1
+    hostname = origin.split("://", 1)[-1]
+    return f"{hostname}/{site}", us_jobs, data_ml_jobs, _candidate_status(us_jobs, data_ml_jobs)
+
+
+# ============================================================
 # DISPATCH
 # ============================================================
 
@@ -698,6 +774,7 @@ VALIDATORS = {
     "smartrecruiters":validate_smartrecruiters,
     "jobvite":         validate_jobvite,
     "bamboohr":        validate_bamboohr,
+    "oracle_cloud":    validate_oracle_cloud,
 }
 
 DISCOVERABLE_NOT_HARVESTED = {"successfactors"}

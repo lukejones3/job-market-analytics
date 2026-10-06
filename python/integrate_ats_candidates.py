@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 import psycopg2
-from psycopg2.extras import DictCursor
+from psycopg2.extras import DictCursor, Json
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
@@ -68,7 +68,60 @@ def _board_token(ats: str, tenant: str, server: Optional[str]) -> Optional[str]:
         return f"{tenant}/{server_name}/{board or 'External'}"
     if ats == "eightfold":
         return f"{tenant}/{server}" if server else None
+    if ats == "oracle_cloud":
+        # Oracle has no discovered_companies reader: the nightly harvest
+        # cannot parse a board_token for it. Actives are routed to shadow
+        # career hosts by _integrate_oracle_candidate instead.
+        return None
     return tenant
+
+
+def _oracle_careers_url(tenant: str, server: Optional[str]) -> Optional[str]:
+    """CE careers URL from the validator encoding (tenant=site, server=host[/site])."""
+    if not server:
+        return None
+    host, _, server_site = str(server).partition("/")
+    site = server_site or tenant
+    if not host or "." not in host or not site:
+        return None
+    return f"https://{host}/hcmUI/CandidateExperience/en/sites/{site}"
+
+
+def _integrate_oracle_candidate(cur, r, company_name: str) -> bool:
+    """Route an active Oracle candidate to a shadow career host.
+
+    The host starts as shadow with identity pending: its jobs are quarantined
+    until a clean crawl and the existing maturation window activate it. This
+    deliberately writes no discovered_companies row, which the nightly ATS
+    harvest would silently ignore.
+    """
+    from career_host_engine import company_key
+
+    url = _oracle_careers_url(r["tenant"], r["server"])
+    if not url:
+        return False
+    name = company_name or r["tenant"].replace("-", " ").title()
+    key = company_key(name)
+    host_id = "CH" + hashlib.md5(f"{key}|{url}".encode()).hexdigest()[:16]
+    host = url.split("/")[2]
+    cur.execute(
+        """
+        INSERT INTO career_hosts
+            (host_id,company_name,company_key,careers_url,jobs_host,platform,tenant_token,
+             extraction_strategy,discovery_source,resolver_confidence,identity_status,status,evidence)
+        VALUES (%s,%s,%s,%s,%s,'oracle_cloud',%s,'oracle_cloud','ats_validator',0,'pending','shadow',%s)
+        ON CONFLICT (company_key,careers_url) DO UPDATE SET
+            platform=EXCLUDED.platform,tenant_token=EXCLUDED.tenant_token,
+            extraction_strategy=EXCLUDED.extraction_strategy,updated_at=now()
+        """,
+        (host_id, name, key, url, host, r["tenant"].lower(),
+         Json({"integration": "ats_validator"})),
+    )
+    cur.execute(
+        "UPDATE ats_tenants_candidates SET status='integrated' WHERE ats=%s AND tenant=%s",
+        (r["ats"], r["tenant"]),
+    )
+    return True
 
 
 def integrate_active(
@@ -110,6 +163,21 @@ def integrate_active(
         name     = r["company_name"] or tenant.replace("-", " ").title()
         dml      = r["data_ml_jobs_count"]
         us_jobs  = r["us_jobs_count"]
+
+        if ats == "oracle_cloud":
+            log.info(f"  {ats:<15} {tenant:<30} {us_jobs:>5} {dml:>5}  {name}")
+            if not apply:
+                continue
+            try:
+                if _integrate_oracle_candidate(cur, r, name):
+                    integrated += 1
+                else:
+                    log.warning(f"  SKIP {ats}/{tenant}: no server resolved — cannot build Oracle careers URL")
+                conn.commit()
+            except Exception as e:
+                log.warning(f"  Failed to integrate {ats}/{tenant}: {e}")
+                conn.rollback()
+            continue
 
         board_token = _board_token(ats, tenant, server)
         if board_token is None:
