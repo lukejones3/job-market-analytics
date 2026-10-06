@@ -86,6 +86,7 @@ class Fingerprint:
     tenant_token: Optional[str]
     strategy: str
     server: Optional[str] = None
+    recipe: dict = field(default_factory=dict)
 
 
 DEFAULT_MATURATION_DAYS = 7
@@ -245,6 +246,26 @@ ROUTED_PLATFORMS = {
     "eightfold", "jobvite", "bamboohr",
 }
 
+ENTERPRISE_RECIPE_PLATFORMS = {"phenom", "avature", "successfactors"}
+
+
+def _phenom_url_prefix(url: str) -> str:
+    """Locale prefix Phenom detail URLs are built under (e.g. ``us/en``).
+
+    Phenom keys detail pages on jobId alone; the prefix only needs to be the
+    site's own locale segment. Default to ``us/en`` when the careers URL does
+    not carry one.
+    """
+    segments = [part for part in urlparse(url).path.split("/") if part]
+    if len(segments) >= 2 and (
+        re.fullmatch(r"[a-z]{2}", segments[0], re.I)
+        or segments[0].lower() in {"global", "us", "uk", "ca", "au", "de", "fr"}
+    ):
+        return f"{segments[0]}/{segments[1]}"
+    if segments and segments[0].lower() == "global":
+        return "global/en"
+    return "us/en"
+
 
 def fingerprint_url(url: str) -> Optional[Fingerprint]:
     patterns: list[tuple[str, re.Pattern[str], str]] = [
@@ -274,14 +295,35 @@ def fingerprint_url(url: str) -> Optional[Fingerprint]:
         return Fingerprint(platform, match.group(0), token, strategy, server)
     host = _hostname(url)
     lower = url.lower()
-    if "avature" in host or "avature" in lower:
-        return Fingerprint("avature", url, host, "sitemap_jsonld")
-    if "phenom" in host or "phenompeople" in lower:
-        return Fingerprint("phenom", url, host, "sitemap_jsonld")
+    parsed = urlparse(url)
+    origin = f"{parsed.scheme or 'https'}://{parsed.netloc}" if parsed.netloc else ""
+    # Avature portals (branded or *.avature.net) expose a public
+    # SearchJobs list; route to the Avature recipe rather than generic
+    # sitemap guessing. A SearchJobs path on any host is Avature-shaped.
+    if "avature" in host or "/searchjobs" in lower:
+        return Fingerprint("avature", url, host, "api_recipe",
+                           recipe={"platform": "avature", "origin": origin})
+    if "phenompeople.com" in host or "phenompeople" in lower:
+        return Fingerprint("phenom", url, host, "api_recipe",
+                           recipe={"platform": "phenom", "origin": origin,
+                                   "url_prefix": _phenom_url_prefix(url)})
+    if "phenom" in host:
+        return Fingerprint("phenom", url, host, "api_recipe",
+                           recipe={"platform": "phenom", "origin": origin,
+                                   "url_prefix": _phenom_url_prefix(url)})
     if "radancy" in host or "tmpworldwide" in host:
         return Fingerprint("radancy", url, host, "sitemap_jsonld")
-    if "successfactors" in host:
-        return Fingerprint("successfactors", url, host.split(".", 1)[0], "sitemap_jsonld")
+    if "successfactors" in host or "jobs2web.com" in host or "career_ns=job" in lower:
+        company = ""
+        query = parsed.query
+        match = re.search(r"[?&]company=([^&#]+)", f"?{query}" if query else url, re.I)
+        if match:
+            company = match.group(1)
+        token = company or host.split(".", 1)[0]
+        mode = "xml_feed" if "career_ns=job" in lower else "rmk_tiles"
+        return Fingerprint("successfactors", url, token, "api_recipe",
+                           recipe={"platform": "successfactors", "origin": origin,
+                                   "company": company, "mode": mode})
     if "ukg" in host or "ultipro" in host:
         return Fingerprint("ukg", url, host, "sitemap_jsonld")
     if "paylocity" in host:
@@ -295,8 +337,27 @@ def fingerprint_page(page_url: str, html: str) -> Fingerprint:
     candidates = [page_url, *_all_urls(page_url, html)]
     fingerprints = [fingerprint for candidate in candidates if (fingerprint := fingerprint_url(candidate))]
     if fingerprints:
-        fingerprints.sort(key=lambda fp: (fp.strategy != "ats_router", fp.strategy != "oracle_cloud"))
+        fingerprints.sort(key=lambda fp: (
+            fp.strategy != "ats_router", fp.strategy != "oracle_cloud",
+            fp.strategy != "api_recipe",
+        ))
         return fingerprints[0]
+    # Branded enterprise sites carry no platform name in the URL; the page
+    # itself names the platform through its asset hosts / endpoints.
+    lowered = (html or "").lower()
+    origin = f"{urlparse(page_url).scheme or 'https'}://{urlparse(page_url).netloc}"
+    if "phenompeople.com" in lowered or "cdn.phenompeople" in lowered:
+        return Fingerprint("phenom", page_url, _hostname(page_url), "api_recipe",
+                           recipe={"platform": "phenom", "origin": origin,
+                                   "url_prefix": _phenom_url_prefix(page_url)})
+    if "avature" in lowered and ("searchjobs" in lowered or "avature.net" in lowered):
+        return Fingerprint("avature", page_url, _hostname(page_url), "api_recipe",
+                           recipe={"platform": "avature", "origin": origin})
+    if "tile-search-results" in lowered or (
+            "successfactors" in lowered and "job" in lowered):
+        return Fingerprint("successfactors", page_url, _hostname(page_url), "api_recipe",
+                           recipe={"platform": "successfactors", "origin": origin,
+                                   "mode": "rmk_tiles"})
     return Fingerprint("custom", page_url, _hostname(page_url), "sitemap_jsonld")
 
 
@@ -540,18 +601,20 @@ def resolve_candidates(*, apply: bool, limit: int, min_score: float = 0.58) -> d
                 cur.execute(
                     """INSERT INTO career_hosts
                         (host_id,company_id,company_name,company_key,official_domain,careers_url,jobs_host,
-                         platform,tenant_token,extraction_strategy,discovery_source,resolver_confidence,
+                         platform,tenant_token,extraction_strategy,api_recipe,discovery_source,resolver_confidence,
                          identity_status,status,evidence)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT (company_key,careers_url) DO UPDATE SET
                          platform=EXCLUDED.platform,tenant_token=EXCLUDED.tenant_token,
                          extraction_strategy=EXCLUDED.extraction_strategy,
+                         api_recipe=EXCLUDED.api_recipe,
                          resolver_confidence=GREATEST(career_hosts.resolver_confidence,EXCLUDED.resolver_confidence),
                          evidence=career_hosts.evidence || EXCLUDED.evidence,updated_at=now()
                        RETURNING host_id""",
                     (host_id, candidate["company_id"], name, candidate["company_key"], official_domain,
                      jobs_url, _hostname(jobs_url), fingerprint.platform, fingerprint.tenant_token,
-                     fingerprint.strategy, candidate["discovery_source"], confidence, identity_status,
+                     fingerprint.strategy, Json(fingerprint.recipe),
+                     candidate["discovery_source"], confidence, identity_status,
                      host_status, Json(evidence)),
                 )
                 stored_host_id = cur.fetchone()["host_id"]
@@ -1130,12 +1193,7 @@ def _oracle_effective_url(host: dict) -> str:
         _oracle_locator(str(host.get("careers_url") or ""))
         return str(host["careers_url"])
     except ValueError:
-        recipe = host.get("api_recipe") or {}
-        if isinstance(recipe, str):
-            try:
-                recipe = json.loads(recipe)
-            except json.JSONDecodeError:
-                recipe = {}
+        recipe = _parse_recipe(host)
         origin = str(recipe.get("origin") or "").rstrip("/")
         site = str(recipe.get("site") or host.get("tenant_token") or "").strip()
         if origin and site:
@@ -1143,19 +1201,42 @@ def _oracle_effective_url(host: dict) -> str:
         raise
 
 
-def _host_source(host: dict) -> str:
-    """Ingestion source for a host, including api_recipe-dispatched Oracle."""
+def _parse_recipe(host: dict) -> dict:
+    """The host's api_recipe as a dict (stored JSON may arrive as text)."""
+    recipe = host.get("api_recipe") or {}
+    if isinstance(recipe, str):
+        try:
+            recipe = json.loads(recipe)
+        except json.JSONDecodeError:
+            recipe = {}
+    return recipe if isinstance(recipe, dict) else {}
+
+
+def _recipe_platform(host: dict) -> Optional[str]:
+    """Platform an api_recipe host dispatches to, or None for generic hosts.
+
+    A host dispatches to a platform recipe either explicitly (extraction
+    strategy ``api_recipe`` with a matching recipe) or by its platform name
+    on an api_recipe strategy. Oracle hosts keep their dedicated strategy.
+    """
     if host.get("extraction_strategy") == "oracle_cloud":
         return "oracle_cloud"
-    if host.get("extraction_strategy") == "api_recipe":
-        recipe = host.get("api_recipe") or {}
-        if isinstance(recipe, str):
-            try:
-                recipe = json.loads(recipe)
-            except json.JSONDecodeError:
-                recipe = {}
-        if recipe.get("platform") == "oracle_cloud":
-            return "oracle_cloud"
+    if host.get("extraction_strategy") != "api_recipe":
+        return None
+    recipe = _parse_recipe(host)
+    platform = str(recipe.get("platform") or "").lower()
+    if platform:
+        return platform
+    named = str(host.get("platform") or "").lower()
+    if named in ENTERPRISE_RECIPE_PLATFORMS or named == "oracle_cloud":
+        return named
+    return None
+
+
+def _host_source(host: dict) -> str:
+    """Ingestion source for a host, including api_recipe-dispatched Oracle."""
+    if _recipe_platform(host) == "oracle_cloud":
+        return "oracle_cloud"
     return "career_site"
 
 
@@ -1237,6 +1318,266 @@ def crawl_oracle_host(host: dict, max_pages: int) -> tuple[list[RawJob], CrawlSt
             },
         ))
     return jobs, stats, {"oracle_site": site, "reported_total": total}
+
+
+# ---------------------------------------------------------------------------
+# Enterprise platform recipes (Phenom / Avature / SuccessFactors)
+#
+# These platforms fingerprint to generic sitemap_jsonld today, which loses
+# employers whose sites expose structured job data but no usable sitemap.
+# Each recipe follows the Oracle pattern: enumerate postings from the
+# platform's public surface, then run every posting through the *same*
+# posting_to_job gates (target role, explicit US evidence, hiring
+# organization identity via organization_matches / brand attribution,
+# description quality, expiry). Jobs stay quarantined until the host's
+# clean-crawl + maturation activates it, exactly like every other host.
+# ---------------------------------------------------------------------------
+
+def _recipe_origin(host: dict, recipe: dict) -> str:
+    origin = str(recipe.get("origin") or "").rstrip("/")
+    if origin:
+        return origin
+    parsed = urlparse(str(host.get("careers_url") or ""))
+    return f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else ""
+
+
+def _crawl_detail_pages(
+    host: dict, urls: list[str], stats: CrawlStats, workers: int,
+) -> list[RawJob]:
+    """Fetch JobPosting JSON-LD detail pages and apply the shared gates."""
+    jobs: dict[tuple[str, str], RawJob] = {}
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
+        futures = {executor.submit(_fetch_jobposting_page, url): url for url in urls}
+        for future in as_completed(futures):
+            page_url, postings, error = future.result()
+            stats.pages_fetched += 1
+            if error:
+                stats.errors += 1
+                stats.rejection_reasons["fetch_error"] += 1
+                continue
+            if not postings:
+                stats.rejection_reasons["no_jobposting"] += 1
+            for posting in postings:
+                job = posting_to_job(host, posting, page_url, stats)
+                if job:
+                    jobs[(job.source, job.source_id)] = job
+    stats.duplicate_jobs = stats.accepted_jobs - len(jobs)
+    return list(jobs.values())
+
+
+# --- Phenom (CareerConnect) -------------------------------------------------
+
+_PHENOM_PAGE_SIZE = 100
+
+
+def _phenom_listings_page(
+    session: requests.Session, origin: str, selected_fields: dict, size: int, offset: int,
+) -> tuple[list[dict], int]:
+    """One page of Phenom's public refineSearch widget payload."""
+    body: dict[str, Any] = {
+        "ddoKey": "refineSearch",
+        "from": offset,
+        "size": size,
+        "jobs": True,
+        "counts": True,
+    }
+    if selected_fields:
+        body["selected_fields"] = selected_fields
+    response = session.post(
+        f"{origin}/widgets", json=body, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+    response.raise_for_status()
+    if len(response.content or b"") > MAX_RESPONSE_BYTES:
+        raise ValueError("phenom response too large")
+    refine = (response.json() or {}).get("refineSearch") or {}
+    data = refine.get("data") or {}
+    jobs = data.get("jobs") or []
+    total = refine.get("totalHits") or data.get("totalHits") or len(jobs)
+    return jobs, int(total)
+
+
+def _phenom_detail_url(origin: str, url_prefix: str, job_id: str) -> str:
+    prefix = (url_prefix or "us/en").strip("/")
+    return f"{origin}/{prefix}/job/{job_id}"
+
+
+def crawl_phenom_host(host: dict, max_pages: int, workers: int = 8) -> tuple[list[RawJob], CrawlStats, dict]:
+    """Crawl a Phenom CareerConnect site via its public widgets endpoint.
+
+    The listing payload names no employer (identity comes from the host, as
+    with Oracle), so detail pages still decide: their JobPosting JSON-LD
+    must state a hiring organization matching the host.
+    """
+    stats = CrawlStats()
+    recipe = _parse_recipe(host)
+    origin = _recipe_origin(host, recipe)
+    if not origin:
+        raise ValueError("phenom host has no origin")
+    url_prefix = str(recipe.get("url_prefix") or _phenom_url_prefix(str(host.get("careers_url") or origin)))
+    selected_fields = recipe.get("selected_fields") or {}
+    if not isinstance(selected_fields, dict):
+        selected_fields = {}
+    session = requests.Session()
+    detail_urls: list[str] = []
+    seen: set[str] = set()
+    total = 0
+    offset = 0
+    while len(detail_urls) < max_pages:
+        batch, total = _phenom_listings_page(
+            session, origin, selected_fields, _PHENOM_PAGE_SIZE, offset)
+        if not batch:
+            break
+        for listing in batch:
+            job_id = str(listing.get("jobId") or listing.get("job_id") or "").strip()
+            if not job_id or job_id in seen:
+                continue
+            seen.add(job_id)
+            # Cheap pre-filter only; the shared gate re-decides on detail.
+            title = str(listing.get("title") or "")
+            if title and not is_target_role(title):
+                stats.rejection_reasons["non_target_role"] += 1
+                continue
+            detail_urls.append(_phenom_detail_url(origin, url_prefix, job_id))
+            if len(detail_urls) >= max_pages:
+                break
+        offset += len(batch)
+        if offset >= total:
+            break
+    stats.pages_discovered = min(total, max_pages) if total else len(detail_urls)
+    jobs = _crawl_detail_pages(host, detail_urls[:max_pages], stats, workers)
+    return jobs, stats, {"phenom_origin": origin, "reported_total": total,
+                         "recipe": "widgets_refineSearch"}
+
+
+# --- Avature ----------------------------------------------------------------
+
+_AVATURE_PAGE_SIZE = 6
+
+
+def _avature_detail_urls(html: str, base_url: str) -> list[str]:
+    soup = BeautifulSoup(html or "", "html.parser")
+    urls: list[str] = []
+    for node in soup.select("a[href]"):
+        href = node.get("href") or ""
+        if "jobdetail" in href.lower() or "folderdetail" in href.lower():
+            urls.append(urljoin(base_url, href))
+    return list(dict.fromkeys(urls))
+
+
+def crawl_avature_host(host: dict, max_pages: int, workers: int = 8) -> tuple[list[RawJob], CrawlStats, dict]:
+    """Crawl an Avature portal through its public SearchJobs list.
+
+    SearchJobs is server-rendered and hard-caps at 6 postings per page, so
+    this is request-heavy by platform design; max_pages bounds the pull.
+    Detail pages carry the JobPosting JSON-LD the shared gates consume.
+    """
+    stats = CrawlStats()
+    recipe = _parse_recipe(host)
+    origin = _recipe_origin(host, recipe)
+    if not origin:
+        raise ValueError("avature host has no origin")
+    search_url = str(recipe.get("search_url") or "").strip()
+    if not search_url:
+        search_path = str(recipe.get("search_path") or "/careers/SearchJobs")
+        search_url = f"{origin}{search_path if search_path.startswith('/') else '/' + search_path}"
+    session = requests.Session()
+    detail_urls: list[str] = []
+    seen: set[str] = set()
+    offset = 0
+    while len(detail_urls) < max_pages:
+        page_url = f"{search_url}{'&' if '?' in search_url else '?'}jobOffset={offset}"
+        try:
+            response = _safe_get(session, page_url)
+        except Exception:
+            stats.errors += 1
+            stats.rejection_reasons["fetch_error"] += 1
+            break
+        stats.pages_fetched += 1
+        fresh = [url for url in _avature_detail_urls(response.text, page_url) if url not in seen]
+        if not fresh:
+            break
+        for url in fresh:
+            seen.add(url)
+            detail_urls.append(url)
+        offset += _AVATURE_PAGE_SIZE
+    stats.pages_discovered = len(detail_urls)
+    jobs = _crawl_detail_pages(host, detail_urls[:max_pages], stats, workers)
+    return jobs, stats, {"avature_search_url": search_url, "recipe": "searchjobs"}
+
+
+# --- SAP SuccessFactors -----------------------------------------------------
+
+def _sf_tile_urls(html: str, base_url: str) -> list[str]:
+    """Job detail URLs from an RMK tile-search-results fragment."""
+    soup = BeautifulSoup(html or "", "html.parser")
+    urls: list[str] = []
+    for tile in soup.select("li.job-tile, li[class*='job-tile']"):
+        node = tile.select_one("a[href]")
+        if node and node.get("href"):
+            urls.append(urljoin(base_url, node.get("href")))
+    if not urls:
+        for node in soup.select("a[href]"):
+            href = node.get("href") or ""
+            if "/job/" in href.lower() or "jobreqid" in href.lower():
+                urls.append(urljoin(base_url, href))
+    return list(dict.fromkeys(urls))
+
+
+def _sf_xml_urls(content: bytes) -> list[str]:
+    """Job detail URLs from the legacy SuccessFactors XML listing feed."""
+    root = ET.fromstring(content)
+    urls: list[str] = []
+    for node in root.iter():
+        tag = node.tag.rsplit("}", 1)[-1].lower()
+        if tag in {"url", "joburl", "link", "detailurl"} and node.text:
+            text = node.text.strip()
+            if text.startswith("http"):
+                urls.append(text)
+    return list(dict.fromkeys(urls))
+
+
+def crawl_successfactors_host(host: dict, max_pages: int, workers: int = 8) -> tuple[list[RawJob], CrawlStats, dict]:
+    """Crawl a SuccessFactors (RMK / Recruiting) career site.
+
+    Two public surfaces, both no-auth: RMK's tile-search-results fragment
+    (branded RMK boards) and the legacy ``career_ns=job_listing`` XML feed
+    (*.successfactors.com tenants). Detail pages carry JobPosting JSON-LD
+    for the shared gates. Deliberately *not* the authenticated OData API.
+    """
+    stats = CrawlStats()
+    recipe = _parse_recipe(host)
+    origin = _recipe_origin(host, recipe)
+    if not origin:
+        raise ValueError("successfactors host has no origin")
+    mode = str(recipe.get("mode") or "rmk_tiles")
+    session = requests.Session()
+    detail_urls: list[str] = []
+    if mode == "xml_feed":
+        feed_url = str(recipe.get("feed_url") or host.get("careers_url") or "")
+        response = _safe_get(session, feed_url)
+        stats.pages_fetched += 1
+        detail_urls = _sf_xml_urls(response.content)[:max_pages]
+    else:
+        seen: set[str] = set()
+        startrow = 0
+        while len(detail_urls) < max_pages:
+            page_url = f"{origin}/tile-search-results/?startrow={startrow}"
+            try:
+                response = _safe_get(session, page_url)
+            except Exception:
+                stats.errors += 1
+                stats.rejection_reasons["fetch_error"] += 1
+                break
+            stats.pages_fetched += 1
+            fresh = [url for url in _sf_tile_urls(response.text, page_url) if url not in seen]
+            if not fresh:
+                break
+            for url in fresh:
+                seen.add(url)
+                detail_urls.append(url)
+            startrow += len(fresh)
+    stats.pages_discovered = len(detail_urls)
+    jobs = _crawl_detail_pages(host, detail_urls[:max_pages], stats, workers)
+    return jobs, stats, {"successfactors_mode": mode, "recipe": mode}
 
 
 def _write_host_jobs(cur, jobs: Iterable[RawJob], stats: CrawlStats) -> None:
@@ -1328,10 +1669,17 @@ def crawl_hosts(
                 cur.execute("INSERT INTO career_host_runs(run_id,host_id) VALUES(%s,%s)", (run_id, host["host_id"]))
                 conn.commit()
             try:
-                if _host_source(host) == "oracle_cloud":
+                recipe_platform = _recipe_platform(host)
+                if recipe_platform == "oracle_cloud":
                     oracle_host = dict(host)
                     oracle_host["careers_url"] = _oracle_effective_url(host)
                     jobs, stats, detail = crawl_oracle_host(oracle_host, max_pages)
+                elif recipe_platform == "phenom":
+                    jobs, stats, detail = crawl_phenom_host(host, max_pages, workers)
+                elif recipe_platform == "avature":
+                    jobs, stats, detail = crawl_avature_host(host, max_pages, workers)
+                elif recipe_platform == "successfactors":
+                    jobs, stats, detail = crawl_successfactors_host(host, max_pages, workers)
                 else:
                     jobs, stats, detail = crawl_jsonld_host(host, max_pages, workers)
                 total_jobs += len(jobs)
