@@ -1506,6 +1506,24 @@ def ingest_job(cur, job: RawJob) -> bool:
     if is_company_blocked(job.company):
         return False
 
+    # An empty description carries no scope evidence and must never replace a
+    # stored one. Evaluating scope on "" wrongly rejects evidence-based
+    # titles, and upserting "" would overwrite description_text, trip the
+    # description_changed invalidation below (domain/role/embedding/
+    # experience/skills all nulled), and strand the row: enrichment refuses
+    # length(description_text) = 0 rows. Preserve the existing row and only
+    # refresh freshness. Applies to every source (generalizes the Workday
+    # stub guard that used to sit below).
+    if not _strip_html(job.description or ""):
+        _existing_id = _md5_id("J", f"{job.source}|{job.source_id}")
+        cur.execute("SELECT job_id FROM job_postings WHERE job_id=%s", (_existing_id,))
+        if cur.fetchone():
+            cur.execute(
+                "UPDATE job_postings SET last_seen_at = now() WHERE job_id = %s",
+                (_existing_id,),
+            )
+        return False
+
     scope_decision = evaluate_role(job.title, _strip_html(job.description or ""))
     _record_scope_decision(cur, job, scope_decision)
     if not scope_decision.admitted:
@@ -1523,16 +1541,8 @@ def ingest_job(cur, job: RawJob) -> bool:
     clean_description = _strip_html(job.description or "")
     desc_hash = hashlib.md5(clean_description.encode("utf-8")).hexdigest()
 
-    # Workday stub rows emitted when detail fetch fails have no description.
-    # Never insert a new empty-description Workday row. For existing rows not
-    # caught by cross-source dedup, touch last_seen_at so expire_jobs.py
-    # doesn't expire a healthy job due to a transient fetch failure.
-    if not clean_description and job.source == "workday":
-        cur.execute(
-            "UPDATE job_postings SET last_seen_at = now() WHERE job_id = %s",
-            (job_id,)
-        )
-        return False
+    # Empty descriptions never reach here (see guard at the top of this
+    # function); stub rows from failed detail fetches preserve the stored row.
 
     # data_tier: 1=full signal (GH/Lever/manual), 2=market coverage (Adzuna)
     data_tier = 2 if job.source == "adzuna" else 1
@@ -3129,9 +3139,11 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
     No auth required for public boards. Returns paginated JSON.
 
     NOTE: SR's list endpoint does NOT include jobAd in responses. We must hit
-    the per-posting detail endpoint to get descriptions. To avoid wasted API
-    calls, we pre-fetch the set of SR job_ids we already have with
-    descriptions and skip detail fetches for those.
+    the per-posting detail endpoint to get descriptions — for every target
+    posting, every crawl. The description is load-bearing: scope admission
+    evaluates it for evidence, and ingest treats an empty description as
+    "preserve the stored row", so skipping the detail fetch for postings we
+    already hold strands those rows instead of refreshing them.
 
     Docs: https://developers.smartrecruiters.com/reference/postingapi
     """
@@ -3141,25 +3153,6 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
     limit = 100
     board_total = 0
     crawl_failed = False
-
-    # Pre-fetch existing SR job_ids that already have descriptions (skip set)
-    # Saves us re-hitting the detail endpoint for jobs we've already enriched.
-    have_desc: set = set()
-    try:
-        _conn = get_conn()
-        try:
-            with _conn.cursor() as _cur:
-                _cur.execute("""
-                    SELECT job_id FROM job_postings
-                    WHERE source = 'smartrecruiters'
-                      AND length(COALESCE(description_text, '')) >= 200
-                """)
-                have_desc = {row[0] for row in _cur.fetchall()}
-        finally:
-            _conn.close()
-    except Exception as _e:
-        log.warning(f"SmartRecruiters skip-set prefetch failed: {_e}")
-        # Fall through — we'll just fetch all details (slower but correct)
 
     while True:
         data = _get(base_url, params={"limit": limit, "offset": offset})
@@ -3200,32 +3193,25 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
             if normalize_location(location, workplace_type).should_drop:
                 continue
 
-            # Compute would-be job_id ahead of detail-fetch decision
             posting_id = j.get("id") or j.get("uuid") or ""
-            _candidate_job_id = _md5_id("J", f"smartrecruiters|{posting_id}")
 
-            # SR_PATCH_v1: list endpoint does not include jobAd. Fetch detail
-            # endpoint per posting unless we already have this job's description.
-            description = ""
-            if _candidate_job_id in have_desc:
-                # Already have it with a real description — skip detail fetch entirely.
-                # We still emit a RawJob so last_seen_at gets touched on the existing row.
-                description = ""  # no need; ON CONFLICT will not overwrite description
-            else:
-                detail_url = j.get("ref") or f"{base_url}/{posting_id}"
-                detail = _get(detail_url)
-                _throttle()
+            # SR_PATCH_v1: list endpoint does not include jobAd. Always fetch
+            # the detail endpoint: an empty description cannot be scope-checked
+            # and must never stand in for the stored one (see ingest_job).
+            detail_url = j.get("ref") or f"{base_url}/{posting_id}"
+            detail = _get(detail_url)
+            _throttle()
 
-                desc_parts = []
-                if detail and isinstance(detail, dict):
-                    ja = detail.get("jobAd", {}) or {}
-                    sections = ja.get("sections", {}) or {}
-                    for key in ("companyDescription", "jobDescription", "qualifications", "additionalInformation"):
-                        blk = sections.get(key, {}) or {}
-                        txt = blk.get("text", "")
-                        if txt:
-                            desc_parts.append(_strip_html(txt) if "<" in txt else _clean(txt))
-                description = "\n\n".join(p for p in desc_parts if p).strip()
+            desc_parts = []
+            if detail and isinstance(detail, dict):
+                ja = detail.get("jobAd", {}) or {}
+                sections = ja.get("sections", {}) or {}
+                for key in ("companyDescription", "jobDescription", "qualifications", "additionalInformation"):
+                    blk = sections.get(key, {}) or {}
+                    txt = blk.get("text", "")
+                    if txt:
+                        desc_parts.append(_strip_html(txt) if "<" in txt else _clean(txt))
+            description = "\n\n".join(p for p in desc_parts if p).strip()
 
             # Industry / type hints
             type_obj = j.get("typeOfEmployment", {}) or {}
