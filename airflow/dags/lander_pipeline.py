@@ -92,13 +92,30 @@ with DAG(dag_id="lander_nightly",
         AND salary_max <= 1000000;" """)
     extract_salaries = command("extract_salaries",
         f"{PYTHON} python/extract_salaries.py --apply --since-hours 72")
+    # Enrichment ceiling: the old --limit 5000 silently capped nightly
+    # throughput below daily intake at scale. At a ~200k corpus with 10-15%
+    # daily turnover (new + description-changed rows), intake is 20-30k/night;
+    # a 5k cap strands 15-25k rows/night and the unenriched (hence
+    # unpublished, since publication requires domain/experience/embedding)
+    # backlog grows forever. 40000 covers worst-case turnover plus ~10k of
+    # backlog drain; the selector is oldest-first (ORDER BY ingested_at ASC)
+    # so the extra headroom drains the backlog instead of starving it.
+    # --no-llm keeps this regex/heuristics-only; 6h timeout bounds the task
+    # well inside the 18h dagrun window.
     enrich = command("enrich_jobs",
-        f"{PYTHON} python/enrich_job_postings.py --apply --only-missing --no-llm --limit 5000")
+        f"{PYTHON} python/enrich_job_postings.py --apply --only-missing --no-llm --limit 40000",
+        execution_timeout=timedelta(hours=6))
     # A 72-hour overlap catches retries without rescanning the same 15k
     # legitimately skill-less descriptions every night.
     skills = command("extract_skills",
         f"{PYTHON} python/extract_skills_sql.py --apply --since-hours 72")
-    embeddings = command("embed_jobs", f"{PYTHON} python/embed_jobs.py")
+    # Embeddings now stream company-by-company (bounded memory) and encode in
+    # 128-wide micro-batches; 8h timeout covers a full-corpus backfill leg
+    # inside the 18h dagrun window. Normal nights only touch rows with
+    # embedding IS NULL, so this is incremental, not a full re-encode.
+    embeddings = command("embed_jobs",
+        f"{PYTHON} python/embed_jobs.py --batch-size 128",
+        execution_timeout=timedelta(hours=8))
     experience = command("classify_experience",
         f"{PYTHON} python/classify_exp_level_v2.py --apply")
     honesty = command("refresh_honesty",

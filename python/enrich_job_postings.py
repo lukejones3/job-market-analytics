@@ -2477,9 +2477,15 @@ def enrich_jobs(limit: int, apply: bool, only_missing: bool, rescan_skills: bool
             WHERE jp.description_text IS NOT NULL AND length(jp.description_text) > 0
               AND jp.status = 'raw'
               AND (
-                -- Tier 1: full NLP enrichment needed (including unclassified)
+                -- Tier 1: full NLP enrichment needed (including unclassified).
+                -- jp.domain IS NULL must be a selector condition on its own:
+                -- embed_jobs and publication both require a non-NULL domain,
+                -- so a fully-filled row with no domain would otherwise never
+                -- be re-selected, never classified by the pre-pass below, and
+                -- stranded unpublished forever (the enrich/embed deadlock).
                 (COALESCE(jp.data_tier,1) = 1 AND (
-                   jp.company_id IS NULL OR jp.role_id IS NULL OR jp.location_id IS NULL
+                   jp.domain IS NULL
+                OR jp.company_id IS NULL OR jp.role_id IS NULL OR jp.location_id IS NULL
                 OR jp.workplace_type IS NULL OR jp.employment_type IS NULL OR jp.experience_level IS NULL
                 OR jp.salary_min IS NULL OR jp.salary_max IS NULL OR jp.salary_period IS NULL
                 OR jp.role_category IS NULL
