@@ -41,7 +41,7 @@ def test_nightly_is_bounded_and_parallelizes_ingest_writers():
         assert task.upstream_task_ids == {"ensure_observability_schema"}
         assert "ingest_quality_gate" in task.downstream_task_ids
     workday = nightly.get_task("ingest_workday")
-    assert workday.execution_timeout.total_seconds() == 8 * 60 * 60
+    assert workday.execution_timeout.total_seconds() == 10 * 60 * 60
     assert "ingest_workday_resumable.py" in workday.bash_command
 
 def test_nightly_has_complete_safe_publish_path():
@@ -67,6 +67,36 @@ def test_discovery_pipeline_is_ordered():
              "ats_discovery_health")
     for task, successor in zip(chain, chain[1:]):
         assert successor in discovery.get_task(task).downstream_task_ids
+
+
+def test_weekly_discovery_boards_flow_through_validation():
+    # Greenhouse/Lever/Ashby discovery (plus career-page fingerprinting and
+    # the YC harvest) stage 'pending' candidates; validation must sit
+    # between every discoverer and integration so nothing enters
+    # discovered_companies unvalidated.
+    discovery = dag("lander_ats_discovery")
+    for task_id in ("discover_greenhouse_boards", "discover_lever_boards",
+                    "discover_ashby_boards", "discover_company_career_pages",
+                    "discover_yc_boards"):
+        task = discovery.get_task(task_id)
+        assert "validate_ats_tenants" in task.downstream_task_ids
+        assert "integrate_ats_tenants" not in task.downstream_task_ids
+
+
+def test_usajobs_coverage_is_env_gated_and_outside_gated_sources():
+    nightly = dag("lander_nightly")
+    usajobs = nightly.get_task("ingest_usajobs")
+    command = usajobs.bash_command
+    assert "USAJOBS_API_KEY" in command and "USAJOBS_EMAIL" in command
+    assert "coverage_ingest.py usajobs --apply" in command
+    # Coverage must run after the schema exists and must not hold up the
+    # ingest gate; the gate itself stays scoped to the 12 ATS sources.
+    assert usajobs.upstream_task_ids == {"ensure_observability_schema"}
+    assert "ingest_quality_gate" in usajobs.downstream_task_ids
+    gate_sources = ("greenhouse", "lever", "ashby", "workday", "eightfold",
+                    "amazon", "smartrecruiters", "workable", "icims", "taleo",
+                    "jobvite", "bamboohr")
+    assert "ingest_usajobs" not in {f"ingest_{s}" for s in gate_sources}
 
 def test_career_host_engine_integrates_fast_path_before_direct_crawl():
     coverage = dag("lander_career_host_engine")

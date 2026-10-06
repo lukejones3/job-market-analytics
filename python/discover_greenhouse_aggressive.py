@@ -4,7 +4,9 @@ discover_greenhouse_aggressive.py
 
 Multi-source aggressive discovery of new Greenhouse job board tenants.
 Validates each candidate (1+ US jobs) before writing to DB.
-Writes confirmed tenants to ats_tenants_candidates with status='active'.
+Stages tenants to ats_tenants_candidates with status='pending'. Discovery
+confirms a board exists; validate_ats_candidates decides activation, so
+discovery never writes pre-validated tenants.
 
 Sources:
   serper    — 102 query terms × 2 domains (boards + job-boards), 100 results each
@@ -350,7 +352,7 @@ def _save_sync(candidates: List[Dict]) -> int:
                 """
                 INSERT INTO ats_tenants_candidates
                     (ats, tenant, server, source, us_jobs_count, status, last_validated_at)
-                VALUES ('greenhouse', %s, NULL, %s, %s, 'active', now())
+                VALUES ('greenhouse', %s, NULL, %s, %s, 'pending', NULL)
                 ON CONFLICT (ats, tenant) DO NOTHING
                 """,
                 (c["tenant"], c["source"], c["us_jobs_count"]),

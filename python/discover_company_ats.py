@@ -5,8 +5,9 @@ discover_company_ats.py
 Probes companies from the DB to detect which ATS they use.
 Checks for Greenhouse, Lever, Ashby, Workable, iCIMS, Taleo, Workday.
 
-Writes detected ATS and board_token to discovered_companies table.
-Run BEFORE ingest_jobs.py so new companies are picked up the same night.
+Stages detected ATS tenants in ats_tenants_candidates ('pending') for
+validate_ats_candidates; validated tenants are integrated into
+discovered_companies by the discovery DAGs and picked up by ingestion.
 
 Usage:
     python python/discover_company_ats.py --dry-run           # show detections, no DB writes
@@ -210,36 +211,47 @@ def detect_ats(company_name: str, domain: str) -> Optional[Dict]:
     return None
 
 
+def _split_board_locator(ats_source: str, board_token: str) -> tuple[str, Optional[str]]:
+    """Map a discovered board locator to (tenant, server) candidate keys."""
+    parts = [p for p in (board_token or "").split("/") if p]
+    if ats_source == "workday" and len(parts) >= 2:
+        return parts[0], parts[1]
+    return board_token, None
+
+
 def save_detection(cur, company_name: str, detection: Dict, apply: bool) -> bool:
     """
-    Write a detected ATS to discovered_companies.
-    Returns True if new record inserted.
+    Stage a detected ATS in ats_tenants_candidates for validation.
+    Returns True if a new candidate was staged.
+
+    Career-page fingerprinting proves an ATS link exists, not that the
+    board is live or useful; validate_ats_candidates decides activation
+    and integrate_ats_candidates owns discovered_companies writes.
     """
     ats_source  = detection["ats_source"]
     board_token = detection["board_token"]
 
     if not apply:
-        log.info(f"  [DRY RUN] Would add: {company_name} → {ats_source} / {board_token}")
+        log.info(f"  [DRY RUN] Would stage: {company_name} → {ats_source} / {board_token}")
         return False
 
-    company_id = "DC" + hashlib.md5(f"{ats_source}|{board_token}".encode()).hexdigest()[:10]
+    tenant, server = _split_board_locator(ats_source, board_token)
     try:
         cur.execute(
             """
-            INSERT INTO discovered_companies
-                (company_id, company_name, ats_source, board_token,
-                 discovery_source, active_roles, total_seen, enabled)
-            VALUES (%s, %s, %s, %s, 'ats_detect', 0, 0, true)
-            ON CONFLICT (ats_source, board_token) DO NOTHING
+            INSERT INTO ats_tenants_candidates
+                (ats, tenant, server, source, company_name, status)
+            VALUES (%s, %s, %s, 'ats_detect', %s, 'pending')
+            ON CONFLICT (ats, tenant) DO NOTHING
             """,
-            (company_id, company_name, ats_source, board_token)
+            (ats_source, tenant, server, company_name)
         )
         inserted = cur.rowcount > 0
         if inserted:
-            log.info(f"  Detected: {company_name} → {ats_source} / {board_token}")
+            log.info(f"  Staged: {company_name} → {ats_source} / {board_token}")
         return inserted
     except Exception as e:
-        log.warning(f"  Could not save detection for {company_name}: {e}")
+        log.warning(f"  Could not stage detection for {company_name}: {e}")
         return False
 
 # ============================================================

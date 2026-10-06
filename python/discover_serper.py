@@ -4,8 +4,9 @@ discover_serper.py
 
 Uses Serper.dev API to Google-dork ATS platforms for new companies
 posting data/analytics/ML roles. Extracts company board tokens from
-URLs and probes each new company's full board before inserting into
-discovered_companies.
+URLs and probes each new company, then stages it in
+ats_tenants_candidates ('pending') for validate_ats_candidates —
+discovery never inserts into discovered_companies directly.
 
 Usage:
     python python/discover_serper.py --apply --limit 100
@@ -22,7 +23,6 @@ import re
 import time
 import logging
 import argparse
-import hashlib
 from pathlib import Path
 from typing import Optional
 from datetime import datetime, timezone
@@ -492,22 +492,25 @@ def insert_company(cur, source: str, token: str, name: str,
             real_source = "workday"
             real_token = f"{company}/{instance}/{tenant}"
 
-    company_id = "C" + hashlib.md5(f"{real_source}:{real_token}".encode()).hexdigest()[:9]
     if apply:
+        # Stage for validation instead of writing discovered_companies
+        # directly. Serper dorks prove a board exists, not that it is live
+        # or has US target roles; validate_ats_candidates decides, and
+        # integrate_ats_candidates is the only path into the registry.
+        tenant_key = real_token
+        server_key = None
+        if real_source == "workday":
+            parts = [p for p in real_token.split("/") if p]
+            if len(parts) >= 2:
+                tenant_key, server_key = parts[0], parts[1]
         cur.execute("""
-            INSERT INTO discovered_companies
-                (company_id, company_name, ats_source, board_token,
-                 active_roles, total_seen, discovery_source, enabled)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (ats_source, board_token) DO UPDATE SET
-                last_seen_at = now(),
-                active_roles = EXCLUDED.active_roles,
-                last_had_roles = CASE
-                    WHEN EXCLUDED.active_roles > 0 THEN now()
-                    ELSE discovered_companies.last_had_roles
-                END
-        """, (company_id, name or token, real_source, real_token,
-              active_roles, active_roles, "serper_dork", True))
+            INSERT INTO ats_tenants_candidates
+                (ats, tenant, server, source, company_name, us_jobs_count, status)
+            VALUES (%s, %s, %s, 'serper_dork', %s, %s, 'pending')
+            ON CONFLICT (ats, tenant) DO UPDATE SET
+                company_name = COALESCE(EXCLUDED.company_name, ats_tenants_candidates.company_name),
+                us_jobs_count = GREATEST(ats_tenants_candidates.us_jobs_count, EXCLUDED.us_jobs_count)
+        """, (real_source, tenant_key, server_key, name or token, active_roles))
     return True
 
 # ── Main ────────────────────────────────────────────────────────────────────

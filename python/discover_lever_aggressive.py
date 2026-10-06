@@ -385,7 +385,7 @@ def _save_sync(candidates: List[Dict]) -> int:
                     """
                     INSERT INTO ats_tenants_candidates
                         (ats, tenant, server, source, us_jobs_count, status, last_validated_at)
-                    VALUES ('lever', %s, NULL, %s, %s, 'active', now())
+                    VALUES ('lever', %s, NULL, %s, %s, 'pending', NULL)
                     ON CONFLICT (ats, tenant) DO NOTHING
                     """,
                     (c["tenant"], c["source"], c["us_jobs"]),

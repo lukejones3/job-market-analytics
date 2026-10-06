@@ -15,7 +15,6 @@ Usage:
 import os
 import re
 import time
-import hashlib
 import logging
 import argparse
 from pathlib import Path
@@ -171,15 +170,18 @@ def load_existing(cur, source: str) -> set[str]:
     return {r["board_token"] for r in cur.fetchall()}
 
 def insert(cur, conn, source: str, token: str, name: str, roles: int, apply: bool):
-    company_id = "C" + hashlib.md5(f"{source}:{token}".encode()).hexdigest()[:9]
     if apply:
+        # Stage for validation; never write discovered_companies directly.
+        # YC probing shows target roles exist today, but the board still
+        # goes through validate_ats_candidates before integration.
         cur.execute("""
-            INSERT INTO discovered_companies
-                (company_id, company_name, ats_source, board_token,
-                 active_roles, total_seen, discovery_source, enabled)
-            VALUES (%s, %s, %s, %s, %s, %s, 'yc_harvest', true)
-            ON CONFLICT (ats_source, board_token) DO NOTHING
-        """, (company_id, name, source, token, roles, roles))
+            INSERT INTO ats_tenants_candidates
+                (ats, tenant, server, source, company_name, us_jobs_count, status)
+            VALUES (%s, %s, NULL, 'yc_harvest', %s, %s, 'pending')
+            ON CONFLICT (ats, tenant) DO UPDATE SET
+                company_name = COALESCE(EXCLUDED.company_name, ats_tenants_candidates.company_name),
+                us_jobs_count = GREATEST(ats_tenants_candidates.us_jobs_count, EXCLUDED.us_jobs_count)
+        """, (source, token, name, roles))
         conn.commit()
 
 def main():

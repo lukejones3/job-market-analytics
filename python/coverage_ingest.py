@@ -91,13 +91,23 @@ def sitemap_pages(urls: Iterable[str]) -> list[str]:
     return pages
 
 
-def usajobs() -> list[RawJob]:
+def usajobs(term_delay_seconds: float | None = None) -> list[RawJob]:
+    # Polite sweep: SEARCH_TERMS holds ~65 terms and each can page several
+    # times. Sleep between terms (and lightly between pages) so a full sweep
+    # never bursts the official API. Override with USAJOBS_TERM_DELAY_SECONDS
+    # or --term-delay-seconds; 0 disables.
+    import time
+
+    if term_delay_seconds is None:
+        term_delay_seconds = float(os.getenv("USAJOBS_TERM_DELAY_SECONDS", "1.0"))
     key, email = os.getenv("USAJOBS_API_KEY"), os.getenv("USAJOBS_EMAIL")
     if not key or not email:
         raise RuntimeError("USAJOBS_API_KEY and USAJOBS_EMAIL are required")
     headers = {**HEADERS, "Authorization-Key": key, "User-Agent": email}
     jobs, seen = [], set()
     for term in SEARCH_TERMS:
+        if term_delay_seconds > 0:
+            time.sleep(term_delay_seconds)
         page = 1
         while True:
             response = requests.get("https://data.usajobs.gov/api/search",
@@ -125,6 +135,8 @@ def usajobs() -> list[RawJob]:
             if page >= total_pages:
                 break
             page += 1
+            if term_delay_seconds > 0:
+                time.sleep(min(term_delay_seconds, 0.5))
     return jobs
 
 
@@ -209,9 +221,11 @@ def main():
     parser.add_argument("--url", action="append", default=[])
     parser.add_argument("--sitemap", action="append", default=[])
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--term-delay-seconds", type=float, default=None,
+                        help="Polite delay between USAJobs search terms (default: env USAJOBS_TERM_DELAY_SECONDS or 1.0)")
     args = parser.parse_args()
     if args.source == "usajobs":
-        jobs = usajobs()
+        jobs = usajobs(term_delay_seconds=args.term_delay_seconds)
     elif args.source == "adzuna":
         jobs = adzuna()
     elif args.source == "feed":

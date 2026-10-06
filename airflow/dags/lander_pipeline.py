@@ -76,9 +76,20 @@ with DAG(dag_id="lander_nightly",
             **task_overrides)
         observability_schema >> ingest
         ingests.append(ingest)
+    # Opt-in coverage: USAJobs official API. Not one of the 12 gated ATS
+    # sources, so it stays out of the ingest quality gate's source list; it
+    # writes through coverage_ingest like other direct coverage. Gated on
+    # credentials so an unconfigured deployment skips in seconds at no cost.
+    usajobs_coverage = command("ingest_usajobs",
+        'if [ -n "${USAJOBS_API_KEY:-}" ] && [ -n "${USAJOBS_EMAIL:-}" ]; then '
+        f"{PYTHON} python/coverage_ingest.py usajobs --apply; "
+        'else echo "USAJobs coverage skipped: USAJOBS_API_KEY/USAJOBS_EMAIL not set"; fi',
+        execution_timeout=timedelta(hours=1))
+    observability_schema >> usajobs_coverage
     ingest_gate = command("ingest_quality_gate",
         f"{PYTHON} python/airflow_quality_gate.py ingest --since '{{{{ dag_run.run_id }}}}'",
         trigger_rule="all_done")
+    usajobs_coverage >> ingest_gate
     scope_report = command("role_scope_report",
         f"{PYTHON} python/role_scope_report.py", trigger_rule="all_done")
     scope_backfill = command("backfill_missing_role_scope",
@@ -178,6 +189,22 @@ with DAG(dag_id="lander_ats_discovery",
     dagrun_timeout=timedelta(hours=12), tags=["lander", "discovery"]) as ats_discovery:
     discover_tenants = command("discover_ats_tenants",
         f"{PYTHON} python/discover_ats_aggressive.py --source all --apply")
+    # Per-board discoverers (Greenhouse/Lever/Ashby). These previously ran
+    # only by hand; wiring them here means Ashby recall — which is DB-only
+    # at harvest time — stops depending on someone remembering to run them.
+    # They stage status='pending' candidates; validation decides activation.
+    discover_greenhouse_boards = command("discover_greenhouse_boards",
+        f"{PYTHON} python/discover_greenhouse_aggressive.py --apply")
+    discover_lever_boards = command("discover_lever_boards",
+        f"{PYTHON} python/discover_lever_aggressive.py --apply")
+    discover_ashby_boards = command("discover_ashby_boards",
+        f"{PYTHON} python/discover_ashby_aggressive.py --apply")
+    # Career-page fingerprinting and YC harvest previously wrote straight
+    # into discovered_companies; they now stage 'pending' candidates.
+    discover_company_pages = command("discover_company_career_pages",
+        f"{PYTHON} python/discover_company_ats.py --apply")
+    discover_yc_boards = command("discover_yc_boards",
+        f"{PYTHON} python/discover_yc.py --apply")
     validate_tenants = command("validate_ats_tenants",
         f"{PYTHON} python/validate_ats_candidates.py --apply")
     integrate_tenants = command("integrate_ats_tenants",
@@ -192,7 +219,9 @@ with DAG(dag_id="lander_ats_discovery",
         f"{PYTHON} python/validate_workday_tenants.py --apply")
     integrate_workday_crawl = command("integrate_workday_commoncrawl",
         f"{PYTHON} python/validate_workday_tenants.py --integrate")
-    discover_tenants >> validate_tenants >> integrate_tenants
+    [discover_tenants, discover_greenhouse_boards, discover_lever_boards,
+     discover_ashby_boards, discover_company_pages,
+     discover_yc_boards] >> validate_tenants >> integrate_tenants
     discover_workday_crawl >> validate_workday_crawl >> integrate_workday_crawl
     [integrate_tenants, integrate_workday_crawl, discover_career_crawl] >> health_report
 

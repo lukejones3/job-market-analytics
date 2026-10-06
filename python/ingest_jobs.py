@@ -1021,7 +1021,8 @@ def _get(url: str, params: dict = None, timeout: int = 12) -> Optional[dict]:
 def discover_from_redirect_url(redirect_url: str) -> None:
     """
     Follow an Adzuna redirect_url to find the real ATS destination.
-    If it points to Greenhouse or Lever, add to discovered_companies.
+    If it points to Greenhouse or Lever, stage an ats_tenants_candidates
+    row for validation (never a direct discovered_companies write).
     Called during Adzuna ingestion — runs in background, never blocks.
     """
     if not redirect_url:
@@ -1058,31 +1059,35 @@ def discover_from_redirect_url(redirect_url: str) -> None:
 
 def _stage_discovered_company(ats_source: str, token: str) -> None:
     """
-    Insert a new company into discovered_companies if not already known.
-    Uses active_roles=0 — discover_companies.py refresh will probe it.
+    Stage a newly seen ATS tenant for validation.
+
+    Previously this inserted straight into discovered_companies with
+    enabled=true, so an unvalidated tenant from an Adzuna redirect entered
+    the nightly harvest the same night. It now lands in
+    ats_tenants_candidates as 'pending' instead; validate_ats_candidates
+    (weekly/daily discovery DAGs) probes the live board and
+    integrate_ats_candidates is the only path into discovered_companies.
+    Never blocks ingestion on failure.
     """
-    import hashlib
     try:
         conn = get_conn()
         cur = conn.cursor()
-        cid = "DC" + hashlib.md5(f"{ats_source}|{token}".encode()).hexdigest()[:10]
         name = token.replace("-", " ").replace("_", " ").title()
         cur.execute(
             """
-            INSERT INTO discovered_companies
-                (company_id, company_name, ats_source, board_token,
-                 discovery_source, active_roles, total_seen, enabled)
-            VALUES (%s,%s,%s,%s,'adzuna_redirect',0,0,true)
-            ON CONFLICT (ats_source, board_token) DO NOTHING
+            INSERT INTO ats_tenants_candidates
+                (ats, tenant, server, source, company_name, status)
+            VALUES (%s, %s, NULL, 'adzuna_redirect', %s, 'pending')
+            ON CONFLICT (ats, tenant) DO NOTHING
             """,
-            (cid, name, ats_source, token)
+            (ats_source, token, name)
         )
         if cur.rowcount > 0:
-            log.info(f"  🔍 Discovered new company via Adzuna: [{ats_source}] {name}")
+            log.info(f"  🔍 Staged new tenant candidate via Adzuna: [{ats_source}] {name}")
         conn.commit()
         cur.close()
         conn.close()
-    except Exception as e:
+    except Exception:
         pass  # never block ingestion
 
 
