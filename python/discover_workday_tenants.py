@@ -35,6 +35,8 @@ import psycopg2
 import requests
 from dotenv import load_dotenv
 
+from workday_boards import board_key, merge_board_observations, primary_candidates
+
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
 logging.basicConfig(
@@ -133,17 +135,59 @@ def load_known_tenants() -> Set[str]:
     return known
 
 
+def load_known_boards() -> Set[Tuple[str, str, str]]:
+    """
+    Return (tenant, server, board) keys already tracked, so discovery keeps
+    genuinely new sibling boards instead of skipping a known tenant whole.
+    Sources: discovered_companies board_tokens and workday_tenant_boards
+    (the latter may not exist until its migration runs — that is fine).
+    """
+    known: Set[Tuple[str, str, str]] = set()
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT board_token FROM discovered_companies
+            WHERE ats_source = 'workday' AND board_token LIKE '%/%/%'
+        """)
+        for (token,) in cur.fetchall():
+            parts = (token or "").split("/")
+            if len(parts) == 3:
+                known.add(board_key(parts[0], parts[1], parts[2]))
+        cur.close()
+        conn.close()
+    except Exception as e:
+        log.warning(f"Could not load known boards from discovered_companies: {e}")
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT tenant, server, board FROM workday_tenant_boards")
+        for tenant, server, board in cur.fetchall():
+            known.add(board_key(tenant, server, board))
+        cur.close()
+        conn.close()
+    except Exception:
+        log.info("workday_tenant_boards not present yet; board-level dedup uses discovered_companies only")
+    log.info(f"Known/existing boards: {len(known)}")
+    return known
+
+
 def save_candidates(
     candidates: List[Dict],
     apply: bool,
 ) -> int:
     """
-    Upsert candidates into workday_tenants_candidates.
-    Only inserts new rows (ON CONFLICT DO NOTHING).
-    Returns count of rows inserted.
+    Upsert candidates into workday_tenants_candidates (one row per tenant,
+    for the validation queue) and every distinct board sighting into
+    workday_tenant_boards, so sibling boards survive discovery instead of
+    collapsing into whichever board happened to be crawled first.
+    Returns count of tenant rows inserted.
     """
     if not candidates:
         return 0
+
+    primaries = primary_candidates(candidates)
+    board_rows = [c for c in candidates if c.get("board") and c.get("server")]
 
     if not apply:
         for c in candidates:
@@ -156,7 +200,7 @@ def save_candidates(
     conn = get_conn()
     cur = conn.cursor()
     inserted = 0
-    for c in candidates:
+    for c in primaries:
         try:
             cur.execute(
                 """
@@ -180,6 +224,34 @@ def save_candidates(
             conn.rollback()
             continue
     conn.commit()
+
+    boards_inserted = 0
+    boards_table_missing = False
+    for c in board_rows:
+        try:
+            cur.execute(
+                """
+                INSERT INTO workday_tenant_boards
+                    (tenant, server, board, discovery_source)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (tenant, server, board) DO NOTHING
+                """,
+                (c["tenant"], c["server"], c["board"], c["discovery_source"]),
+            )
+            if cur.rowcount > 0:
+                boards_inserted += 1
+        except Exception as e:
+            conn.rollback()
+            if not boards_table_missing:
+                boards_table_missing = True
+                log.warning(
+                    "  workday_tenant_boards insert failed (run migrate_workday_candidates.py?): %s",
+                    e,
+                )
+            continue
+    conn.commit()
+    if board_rows:
+        log.info(f"  Board sightings recorded: {boards_inserted} new of {len(board_rows)}")
     cur.close()
     conn.close()
     return inserted
@@ -233,15 +305,21 @@ def _parse_board_from_path(first_segment: str, url: str) -> Optional[str]:
     return seg
 
 
-def fetch_commoncrawl_tenants(known: Set[str]) -> List[Dict]:
+def fetch_commoncrawl_tenants(
+    known: Set[str],
+    known_boards: Optional[Set[Tuple[str, str, str]]] = None,
+) -> List[Dict]:
     """
     Query Common Crawl CDX indexes for *.myworkdayjobs.com URLs.
-    Returns list of candidate dicts with tenant, server, board (where extractable).
+    Returns one candidate dict per distinct board sighted (a tenant with
+    three boards in the crawl yields three candidates, not one), with
+    tenant, server, board (where extractable).
     """
     crawl_ids = _get_latest_crawls(n=3)
     log.info(f"Common Crawl: using indexes {crawl_ids}")
 
-    found: Dict[str, Dict] = {}  # tenant -> candidate dict
+    known_boards = known_boards or set()
+    sightings: List[Dict] = []
 
     for crawl_id in crawl_ids:
         base_url = COMMONCRAWL_CDX_BASE.format(crawl=crawl_id)
@@ -293,22 +371,27 @@ def fetch_commoncrawl_tenants(known: Set[str]) -> List[Dict]:
                 # Skip bad slugs
                 if len(tenant) < 2 or tenant in {"www", "app", "api", "jobs", "careers"}:
                     continue
-                # Skip tenants already tracked
-                if tenant in known or tenant in found:
-                    continue
 
                 board = _parse_board_from_path(first_seg, url)
-                found[tenant] = {
+                # Skip only what is already tracked at the same granularity:
+                # a known tenant with an unseen board is exactly the growth
+                # this miner exists to find.
+                if board and board_key(tenant, server, board) in known_boards:
+                    continue
+                if not board and tenant in known:
+                    continue
+
+                sightings.append({
                     "tenant": tenant,
                     "server": server,
                     "board": board,
                     "company_name": None,
                     "discovery_source": "commoncrawl",
-                }
+                })
                 new_this_page += 1
 
             log.info(
-                f"    offset={offset}: {len(lines)} records, {new_this_page} new tenants"
+                f"    offset={offset}: {len(lines)} records, {new_this_page} new board sightings"
             )
 
             if len(lines) < CDX_PAGE_SIZE:
@@ -318,8 +401,13 @@ def fetch_commoncrawl_tenants(known: Set[str]) -> List[Dict]:
             pages_fetched += 1
             time.sleep(0.5)  # be polite to Common Crawl
 
-    candidates = list(found.values())
-    log.info(f"Common Crawl: {len(candidates)} new tenant candidates")
+    candidates = merge_board_observations(sightings)
+    boarded = sum(1 for c in candidates if c.get("board"))
+    log.info(
+        f"Common Crawl: {len(candidates)} new candidates "
+        f"({boarded} with boards, {len(candidates) - boarded} tenant-only) "
+        f"across {len({c['tenant'] for c in candidates})} tenants"
+    )
     return candidates
 
 
@@ -489,6 +577,7 @@ def main():
         log.info("DRY RUN — use --apply to write to DB")
 
     known = load_known_tenants()
+    known_boards = load_known_boards()
     all_candidates: List[Dict] = []
 
     # Source 1: Common Crawl
@@ -496,7 +585,7 @@ def main():
         log.info("=" * 60)
         log.info("SOURCE 1: Common Crawl CDX")
         log.info("=" * 60)
-        cc_candidates = fetch_commoncrawl_tenants(known)
+        cc_candidates = fetch_commoncrawl_tenants(known, known_boards)
         all_candidates.extend(cc_candidates)
         # Add newly found tenants to known set so EDGAR doesn't re-add them
         for c in cc_candidates:
@@ -510,14 +599,8 @@ def main():
         edgar_candidates = fetch_edgar_tenants(known, limit=args.edgar_limit)
         all_candidates.extend(edgar_candidates)
 
-    # Dedup by tenant within this run
-    by_tenant: Dict[str, Dict] = {}
-    for c in all_candidates:
-        t = c["tenant"]
-        if t not in by_tenant:
-            by_tenant[t] = c
-
-    final_candidates = list(by_tenant.values())
+    # Dedup by board within this run (sibling boards all survive)
+    final_candidates = merge_board_observations(all_candidates)
 
     # Save to DB
     if args.apply:

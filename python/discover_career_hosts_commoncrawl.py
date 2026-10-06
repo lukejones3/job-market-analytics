@@ -29,6 +29,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 COLLINFO_URL = "https://index.commoncrawl.org/collinfo.json"
 PATTERNS = {
+    "workday": "*.myworkdayjobs.com/*",
     "bamboohr": "*.bamboohr.com/careers/*",
     "icims": "*.icims.com/jobs/*",
     "oracle_cloud": "*.oraclecloud.com/hcmUI/CandidateExperience/*/sites/*",

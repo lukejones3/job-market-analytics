@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 import ingest_jobs
+from workday_boards import order_tenants_by_server
 
 
 def unique_tenants(rows: Iterable[Sequence[str]]) -> list[str]:
@@ -106,7 +107,10 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    inventory = unique_tenants(ingest_jobs._load_workday_list())
+    # Spread wd servers across the sequential batches: tenants sharing a
+    # host share its rate limits, so a batch drawn from one server spends
+    # its whole window fighting that host's throttles.
+    inventory = order_tenants_by_server(ingest_jobs._load_workday_list())
     completed = completed_tenants(args.orchestration_run_id) if args.apply else set()
     pending = [tenant for tenant in inventory if tenant not in completed]
     print(

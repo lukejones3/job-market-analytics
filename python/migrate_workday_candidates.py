@@ -57,6 +57,32 @@ CREATE INDEX IF NOT EXISTS idx_wtc_target_jobs
 
 CREATE INDEX IF NOT EXISTS idx_wtc_discovery_source
     ON workday_tenants_candidates(discovery_source);
+
+-- One row per (tenant, server, board): sibling boards for the same tenant are
+-- distinct crawl targets. workday_tenants_candidates stays tenant-keyed for
+-- the validation queue; every board sighting and its validation outcome
+-- lives here, and validate_workday_tenants.py --integrate publishes each
+-- active board as its own discovered_companies board_token.
+CREATE TABLE IF NOT EXISTS workday_tenant_boards (
+    tenant               TEXT NOT NULL,
+    server               TEXT NOT NULL,
+    board                TEXT NOT NULL,
+    company_name         TEXT,
+    us_jobs_count        INTEGER DEFAULT 0,
+    target_jobs_count    INTEGER DEFAULT 0,
+    domain_counts        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    discovery_source     TEXT,
+    discovered_at        TIMESTAMPTZ DEFAULT now() NOT NULL,
+    last_validated_at    TIMESTAMPTZ,
+    status               TEXT DEFAULT 'pending' NOT NULL,
+    PRIMARY KEY (tenant, server, board)
+);
+
+CREATE INDEX IF NOT EXISTS idx_wtb_status
+    ON workday_tenant_boards(status);
+
+CREATE INDEX IF NOT EXISTS idx_wtb_target_jobs
+    ON workday_tenant_boards(target_jobs_count DESC);
 """
 
 COMMENT = """

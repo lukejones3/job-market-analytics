@@ -70,6 +70,7 @@ except ImportError:
 
 from psycopg2.extras import DictCursor, Json
 from role_scope import ScopeDecision, discovery_terms, evaluate_role
+from workday_boards import extract_location_facets, facet_subpartitions
 
 try:
     from classify_domain import build_alias_map as _build_alias_map, classify_domain as _classify_domain
@@ -2608,6 +2609,48 @@ async def _wd_cooldown(url: str, seconds: float) -> None:
         )
 
 
+async def _wd_fetch_page_ex(
+    session: aiohttp.ClientSession,
+    list_url: str,
+    headers: dict,
+    offset: int,
+    limit: int,
+    search_text: str = "",
+    applied_facets: Optional[dict] = None,
+) -> Tuple[List[dict], int, int, dict]:
+    """Fetch one list page. Returns (postings, total, http_status, raw_payload)."""
+    for attempt in range(3):
+        try:
+            await _wd_check_pause()
+            await _wd_pace(list_url, _WD_LIST_MIN_INTERVAL)
+            async with session.post(
+                list_url,
+                json={"appliedFacets": applied_facets or {}, "limit": limit, "offset": offset, "searchText": search_text},
+                headers=headers,
+            ) as r:
+                if r.status == 200:
+                    data = await r.json(content_type=None)
+                    return data.get("jobPostings", []), data.get("total", 0), 200, data
+                if r.status == 429 or r.status >= 500:
+                    retry_after = min(float(r.headers.get("Retry-After", 0) or 0), 120)
+                    delay = max(retry_after, 2 ** (attempt + 1))
+                    await _wd_cooldown(list_url, delay)
+                    await asyncio.sleep(delay)
+                    continue
+                return [], 0, r.status, {}
+        except asyncio.TimeoutError:
+            if attempt < 2:
+                await asyncio.sleep(2 ** (attempt + 1))
+                continue
+            return [], 0, 408, {}
+        except Exception:
+            if attempt < 2:
+                await asyncio.sleep(2 ** (attempt + 1))
+                continue
+            return [], 0, 0, {}
+    return [], 0, 429, {}
+
+
 async def _wd_fetch_page(
     session: aiohttp.ClientSession,
     list_url: str,
@@ -2615,38 +2658,52 @@ async def _wd_fetch_page(
     offset: int,
     limit: int,
     search_text: str = "",
+    applied_facets: Optional[dict] = None,
 ) -> Tuple[List[dict], int, int]:
     """Fetch one list page. Returns (postings, total, http_status)."""
-    for attempt in range(3):
-        try:
-            await _wd_check_pause()
-            await _wd_pace(list_url, _WD_LIST_MIN_INTERVAL)
-            async with session.post(
-                list_url,
-                json={"appliedFacets": {}, "limit": limit, "offset": offset, "searchText": search_text},
-                headers=headers,
-            ) as r:
-                if r.status == 200:
-                    data = await r.json(content_type=None)
-                    return data.get("jobPostings", []), data.get("total", 0), 200
-                if r.status == 429 or r.status >= 500:
-                    retry_after = min(float(r.headers.get("Retry-After", 0) or 0), 120)
-                    delay = max(retry_after, 2 ** (attempt + 1))
-                    await _wd_cooldown(list_url, delay)
-                    await asyncio.sleep(delay)
-                    continue
-                return [], 0, r.status
-        except asyncio.TimeoutError:
-            if attempt < 2:
-                await asyncio.sleep(2 ** (attempt + 1))
-                continue
-            return [], 0, 408
-        except Exception:
-            if attempt < 2:
-                await asyncio.sleep(2 ** (attempt + 1))
-                continue
-            return [], 0, 0
-    return [], 0, 429
+    postings, total, status, _payload = await _wd_fetch_page_ex(
+        session, list_url, headers, offset, limit, search_text, applied_facets
+    )
+    return postings, total, status
+
+
+async def _wd_call_page(
+    session: aiohttp.ClientSession,
+    list_url: str,
+    headers: dict,
+    offset: int,
+    limit: int,
+    search_text: str,
+    applied_facets: Optional[dict],
+) -> Tuple[List[dict], int, int]:
+    """Call _wd_fetch_page, passing facets only when a partition needs them.
+
+    Keeping the facet-free call shape identical to the historical one means
+    facet partitioning cannot change behaviour (or request volume) on boards
+    where no location facets are available.
+    """
+    if applied_facets:
+        return await _wd_fetch_page(
+            session, list_url, headers, offset, limit, search_text, applied_facets
+        )
+    return await _wd_fetch_page(session, list_url, headers, offset, limit, search_text)
+
+
+async def _wd_location_facets(
+    session: aiohttp.ClientSession,
+    list_url: str,
+    headers: dict,
+) -> List[Tuple[str, str, int]]:
+    """Best-effort location facets for one board; [] when CXS offers none."""
+    try:
+        _postings, _total, status, payload = await _wd_fetch_page_ex(
+            session, list_url, headers, 0, 1, ""
+        )
+    except Exception:
+        return []
+    if status != 200:
+        return []
+    return extract_location_facets(payload)
 
 
 # Workday boards can expose totals larger than the reliable CXS result window.
@@ -2656,25 +2713,32 @@ async def _wd_fetch_page(
 _WD_SAFE_RESULT_WINDOW = 1900
 
 
-async def _wd_fetch_query_pages(
+async def _wd_fetch_query_pages_detailed(
     session: aiohttp.ClientSession,
     list_url: str,
     headers: dict,
     search_text: str,
     limit: int = 20,
-) -> Tuple[List[dict], int]:
-    first, total, status = await _wd_fetch_page(
-        session, list_url, headers, 0, limit, search_text
+    applied_facets: Optional[dict] = None,
+) -> Tuple[List[dict], int, int]:
+    """Fetch one search partition. Returns (postings, partition_total, status).
+
+    The partition total is the server-reported total for this exact
+    search/facet combination, which is what decides whether a second
+    partitioning axis (location facets) is needed at all.
+    """
+    first, total, status = await _wd_call_page(
+        session, list_url, headers, 0, limit, search_text, applied_facets
     )
     if status != 200 or not first:
-        return [], status
+        return [], total, status
     postings = list(first)
     # A partition can itself be broad. Bound it to the reliable window; the
     # overlapping query vocabulary supplies alternate paths to relevant roles.
     upper = min(total, _WD_SAFE_RESULT_WINDOW)
     if upper > limit:
         results = await asyncio.gather(*[
-            _wd_fetch_page(session, list_url, headers, offset, limit, search_text)
+            _wd_call_page(session, list_url, headers, offset, limit, search_text, applied_facets)
             for offset in range(limit, upper, limit)
         ], return_exceptions=True)
         for result in results:
@@ -2684,6 +2748,19 @@ async def _wd_fetch_query_pages(
             if page_status == 429:
                 _wd_note_global_429()
             postings.extend(page)
+    return postings, total, status
+
+
+async def _wd_fetch_query_pages(
+    session: aiohttp.ClientSession,
+    list_url: str,
+    headers: dict,
+    search_text: str,
+    limit: int = 20,
+) -> Tuple[List[dict], int]:
+    postings, _total, status = await _wd_fetch_query_pages_detailed(
+        session, list_url, headers, search_text, limit
+    )
     return postings, status
 
 
@@ -2796,23 +2873,48 @@ async def _fetch_workday_tenant_async(
             "partitioning by role search"
         )
         by_path = {p.get("externalPath") or json.dumps(p, sort_keys=True): p for p in all_postings}
+        # Second partitioning axis: CXS location facets. A term partition
+        # that still exceeds the reliable window hides every posting past it
+        # (the Walmart problem); re-partitioning just that term by the
+        # board's own location facet values reaches them without new queries
+        # against boards that fit. No facets -> term-only, as before.
+        location_facets = await _wd_location_facets(session, list_url, headers)
+        if location_facets:
+            log.info(
+                f"  [{name}] {len(location_facets)} location facets available "
+                "for oversized term partitions"
+            )
         # Run partitions sequentially per tenant. Page fetches within a
         # partition remain concurrent, while this avoids materializing
         # thousands of simultaneous tasks for a single huge employer.
         for term in discovery_terms():
             try:
-                result = await _wd_fetch_query_pages(
+                postings, term_total, query_status = await _wd_fetch_query_pages_detailed(
                     session, list_url, headers, term, limit
                 )
             except Exception:
                 tenant_partial = True
                 continue
-            postings, query_status = result
             if query_status == 429:
                 _wd_note_global_429()
                 tenant_partial = True
             for posting in postings:
                 by_path[posting.get("externalPath") or json.dumps(posting, sort_keys=True)] = posting
+            for sub_text, sub_facets in facet_subpartitions(
+                term, term_total, _WD_SAFE_RESULT_WINDOW, location_facets
+            ):
+                try:
+                    sub_postings, _sub_total, sub_status = await _wd_fetch_query_pages_detailed(
+                        session, list_url, headers, sub_text, limit, sub_facets
+                    )
+                except Exception:
+                    tenant_partial = True
+                    continue
+                if sub_status == 429:
+                    _wd_note_global_429()
+                    tenant_partial = True
+                for posting in sub_postings:
+                    by_path[posting.get("externalPath") or json.dumps(posting, sort_keys=True)] = posting
         all_postings = list(by_path.values())
         log.info(f"  [{name}] partitioned Workday crawl recovered {len(all_postings)} unique candidates")
     elif total > limit:
