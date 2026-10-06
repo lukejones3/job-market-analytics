@@ -36,6 +36,7 @@ with DAG(dag_id="lander_nightly",
         "-f sql/ingestion_publication_funnel.sql "
         "-f sql/publication_boundary.sql "
         "-f sql/career_host_engine.sql "
+        "-f sql/employer_feeds.sql "
         "-f sql/company_history_intelligence.sql "
         "-f sql/company_radar.sql "
         "-f sql/feed_performance_indexes.sql "
@@ -86,10 +87,20 @@ with DAG(dag_id="lander_nightly",
         'else echo "USAJobs coverage skipped: USAJOBS_API_KEY/USAJOBS_EMAIL not set"; fi',
         execution_timeout=timedelta(hours=1))
     observability_schema >> usajobs_coverage
+    # Registered employer-direct feeds. The registry is the gate: only
+    # enabled partners run, an empty registry is a verified complete-zero,
+    # and partner-level failures are preserved in employer_feed_runs and
+    # ingestion_tenant_runs. This is direct coverage, not a 13th gated ATS.
+    employer_feeds = command("ingest_employer_feeds",
+        f"{PYTHON} python/employer_feeds.py run --apply "
+        f"--orchestration-run-id '{{{{ dag_run.run_id }}}}'",
+        execution_timeout=timedelta(hours=2))
+    observability_schema >> employer_feeds
     ingest_gate = command("ingest_quality_gate",
         f"{PYTHON} python/airflow_quality_gate.py ingest --since '{{{{ dag_run.run_id }}}}'",
         trigger_rule="all_done")
     usajobs_coverage >> ingest_gate
+    employer_feeds >> ingest_gate
     scope_report = command("role_scope_report",
         f"{PYTHON} python/role_scope_report.py", trigger_rule="all_done")
     scope_backfill = command("backfill_missing_role_scope",

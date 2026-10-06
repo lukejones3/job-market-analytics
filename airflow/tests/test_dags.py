@@ -100,6 +100,25 @@ def test_usajobs_coverage_is_env_gated_and_outside_gated_sources():
                     "jobvite", "bamboohr")
     assert "ingest_usajobs" not in {f"ingest_{s}" for s in gate_sources}
 
+def test_employer_feeds_are_registry_driven_and_outside_gated_sources():
+    nightly = dag("lander_nightly")
+    feeds = nightly.get_task("ingest_employer_feeds")
+    command = feeds.bash_command
+    assert "employer_feeds.py run --apply" in command
+    assert "dag_run.run_id" in command
+    # Registry enablement is the operator gate. The task runs after all SQL
+    # (including sql/employer_feeds.sql) and feeds the all_done ingest gate
+    # without becoming one of the 12 ATS sources checked by that gate.
+    assert feeds.upstream_task_ids == {"ensure_observability_schema"}
+    assert "ingest_quality_gate" in feeds.downstream_task_ids
+    schema_command = nightly.get_task("ensure_observability_schema").bash_command
+    assert "sql/employer_feeds.sql" in schema_command
+    gate_sources = ("greenhouse", "lever", "ashby", "workday", "eightfold",
+                    "amazon", "smartrecruiters", "workable", "icims", "taleo",
+                    "jobvite", "bamboohr")
+    assert "ingest_employer_feeds" not in {f"ingest_{s}" for s in gate_sources}
+
+
 def test_career_host_engine_integrates_fast_path_before_direct_crawl():
     coverage = dag("lander_career_host_engine")
     assert coverage.max_active_runs == 1

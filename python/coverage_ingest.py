@@ -7,9 +7,11 @@ import csv
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
@@ -17,12 +19,13 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
-from ingest_jobs import RawJob, get_conn, ingest_job, ensure_schema_columns
+from ingest_jobs import RawJob, _parse_source_posted_date, get_conn, ingest_job, ensure_schema_columns
 from location_normalizer import normalize_location
 from role_taxonomy import SEARCH_TERMS, is_target_role
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 HEADERS = {"User-Agent": "LanderJobBot/1.0 contact: jones31luke@gmail.com"}
+log = logging.getLogger(__name__)
 
 
 def _text(value) -> str:
@@ -175,44 +178,162 @@ def adzuna() -> list[RawJob]:
     return jobs
 
 
-def employer_feed(url: str) -> list[RawJob]:
+@dataclass(frozen=True)
+class EmployerFeedRowError:
+    """One malformed feed row, retained for operator reporting."""
+
+    row_number: int
+    reason: str
+    source_id: str | None = None
+
+
+@dataclass
+class EmployerFeedParseResult:
+    """Employer-feed jobs plus row accounting.
+
+    ``rows_ok`` counts rows converted to RawJobs before cross-row duplicate
+    removal. ``rows_bad`` is deliberately separate from ``rows_non_target``:
+    a non-target role is expected product filtering, not partner data damage.
+    """
+
+    jobs: list[RawJob] = field(default_factory=list)
+    rows_seen: int = 0
+    rows_ok: int = 0
+    rows_bad: int = 0
+    rows_non_target: int = 0
+    errors: list[EmployerFeedRowError] = field(default_factory=list)
+
+
+def _feed_rows(response, url: str, feed_format: str) -> list:
+    requested = (feed_format or "auto").strip().lower()
+    if requested not in {"auto", "json", "csv"}:
+        raise ValueError(f"Unsupported employer-feed format: {feed_format}")
+    content_type = response.headers.get("content-type", "").lower()
+    url_path = url.split("?", 1)[0].lower()
+    is_csv = requested == "csv" or (
+        requested == "auto" and ("csv" in content_type or url_path.endswith(".csv"))
+    )
+    if is_csv:
+        return list(csv.DictReader(io.StringIO(response.text)))
+    payload = response.json()
+    rows = payload.get("jobs", payload) if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        raise ValueError("Employer-feed JSON must be a list or an object with a jobs list")
+    return rows
+
+
+def _parse_employer_feed_rows(
+    rows: list,
+    *,
+    employer_name: str | None = None,
+    tenant: str | None = None,
+) -> EmployerFeedParseResult:
+    result = EmployerFeedParseResult(rows_seen=len(rows))
+    for row_number, row in enumerate(rows, start=1):
+        source_id = ""
+        try:
+            if not isinstance(row, dict):
+                raise ValueError("row is not a JSON/CSV object")
+            title = _text(row.get("title")).strip()
+            if not title:
+                raise ValueError("missing title")
+            if not is_target_role(title):
+                result.rows_non_target += 1
+                continue
+
+            raw_source_id = row.get("id") or row.get("requisition_id")
+            if isinstance(raw_source_id, (dict, list)):
+                raise ValueError("id/requisition_id must be a scalar")
+            source_id = str(raw_source_id or "").strip()
+            if not source_id:
+                raise ValueError("missing id/requisition_id")
+
+            row_company = _text(row.get("company")).strip()
+            company = (employer_name or row_company or "Unknown").strip()
+            posted_raw = _text(row.get("posted_date") or row.get("date_posted")).strip()
+            posted_date = _parse_source_posted_date(posted_raw) if posted_raw else None
+            if posted_raw and not posted_date:
+                raise ValueError(f"unparseable posted_date: {posted_raw[:40]!r}")
+
+            metadata = {}
+            if tenant:
+                metadata["tenant"] = tenant
+            if employer_name:
+                metadata["hiring_organization"] = employer_name
+                metadata["employer_feed_employer"] = employer_name
+            # Manual feeds retain the historical company|requisition identity.
+            # Registered feeds also namespace by tenant/partner because two
+            # systems owned by one employer can reuse requisition numbers.
+            identity_prefix = f"{company}|{tenant}" if tenant else company
+            result.jobs.append(RawJob(
+                source="employer_feed",
+                source_id=f"{identity_prefix}|{source_id}",
+                title=title,
+                company=company,
+                location=_text(row.get("location")) or None,
+                description=_text(row.get("description")) or None,
+                job_url=_text(row.get("url") or row.get("job_url") or row.get("apply_url")) or None,
+                posted_date=posted_date,
+                workplace_type=_text(row.get("workplace_type")) or None,
+                employment_type=_text(row.get("employment_type")) or None,
+                metadata=metadata,
+            ))
+            result.rows_ok += 1
+        except Exception as exc:  # one partner row must never kill the feed
+            result.rows_bad += 1
+            error = EmployerFeedRowError(
+                row_number=row_number,
+                reason=str(exc)[:300],
+                source_id=source_id or None,
+            )
+            result.errors.append(error)
+            log.warning(
+                "Skipping malformed employer-feed row %s (%s): %s",
+                row_number,
+                source_id or "no source id",
+                error.reason,
+            )
+    return result
+
+
+def employer_feed_with_report(
+    url: str,
+    *,
+    employer_name: str | None = None,
+    tenant: str | None = None,
+    feed_format: str = "auto",
+    auth_env_var: str = "EMPLOYER_FEED_TOKEN",
+) -> EmployerFeedParseResult:
+    """Fetch one feed, skipping malformed rows instead of failing the run."""
     headers = dict(HEADERS)
-    if os.getenv("EMPLOYER_FEED_TOKEN"):
-        headers["Authorization"] = f"Bearer {os.environ['EMPLOYER_FEED_TOKEN']}"
+    if auth_env_var and os.getenv(auth_env_var):
+        headers["Authorization"] = f"Bearer {os.environ[auth_env_var]}"
     response = requests.get(url, headers=headers, timeout=30)
     response.raise_for_status()
-    if "csv" in response.headers.get("content-type", "") or url.lower().endswith(".csv"):
-        rows = list(csv.DictReader(io.StringIO(response.text)))
-    else:
-        payload = response.json()
-        rows = payload.get("jobs", payload) if isinstance(payload, dict) else payload
-    jobs = []
-    for row in rows:
-        title = row.get("title", "")
-        if not is_target_role(title):
-            continue
-        source_id = str(row.get("id") or row.get("requisition_id") or "")
-        if not source_id:
-            raise ValueError("Every employer-feed row needs id or requisition_id")
-        company = row.get("company") or "Unknown"
-        jobs.append(RawJob(source="employer_feed", source_id=f"{company}|{source_id}", title=title,
-            company=company, location=row.get("location"),
-            description=row.get("description"), job_url=row.get("url"),
-            posted_date=(row.get("posted_date") or "")[:10] or None,
-            workplace_type=row.get("workplace_type"), employment_type=row.get("employment_type")))
-    return jobs
+    rows = _feed_rows(response, url, feed_format)
+    return _parse_employer_feed_rows(
+        rows,
+        employer_name=employer_name,
+        tenant=tenant,
+    )
 
 
-def write(jobs: list[RawJob], apply: bool):
+def employer_feed(url: str, **kwargs) -> list[RawJob]:
+    """Backward-compatible list-only employer-feed fetch."""
+    return employer_feed_with_report(url, **kwargs).jobs
+
+
+def write(jobs: list[RawJob], apply: bool) -> dict[str, int]:
     unique = {(job.source, job.source_id): job for job in jobs
               if not normalize_location(job.location, job.workplace_type).should_drop}
     if not apply:
         print(f"Would ingest {len(unique)} unique target postings")
-        return
+        return {"unique": len(unique), "written": 0}
     with get_conn() as conn, conn.cursor() as cur:
         ensure_schema_columns(cur)
         inserted = sum(bool(ingest_job(cur, job)) for job in unique.values())
     print(f"Processed {len(unique)} postings; inserted {inserted}")
+    return {"unique": len(unique), "written": inserted}
 
 
 def main():
@@ -229,7 +350,15 @@ def main():
     elif args.source == "adzuna":
         jobs = adzuna()
     elif args.source == "feed":
-        jobs = [job for url in args.url for job in employer_feed(url)]
+        jobs = []
+        for url in args.url:
+            report = employer_feed_with_report(url)
+            jobs.extend(report.jobs)
+            print(
+                f"Employer feed {url}: rows_seen={report.rows_seen} "
+                f"rows_ok={report.rows_ok} rows_bad={report.rows_bad} "
+                f"rows_non_target={report.rows_non_target}"
+            )
     else:
         jobs = jsonld_jobs([*args.url, *sitemap_pages(args.sitemap)])
     write(jobs, args.apply)
