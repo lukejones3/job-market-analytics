@@ -205,6 +205,12 @@ with DAG(dag_id="lander_ats_discovery",
         f"{PYTHON} python/discover_company_ats.py --apply")
     discover_yc_boards = command("discover_yc_boards",
         f"{PYTHON} python/discover_yc.py --apply")
+    # iCIMS tenants mined from Common Crawl CDX (the aggressive discoverers
+    # cover iCIMS only via CT logs/Serper dorks). Staged 'pending'; the
+    # validator and integrator below decide activation, as with every
+    # other board source. --limit keeps a first run cheap to eyeball.
+    discover_icims_crawl = command("discover_icims_commoncrawl",
+        f"{PYTHON} python/discover_icims_commoncrawl.py --apply --limit 200")
     validate_tenants = command("validate_ats_tenants",
         f"{PYTHON} python/validate_ats_candidates.py --apply")
     integrate_tenants = command("integrate_ats_tenants",
@@ -221,7 +227,7 @@ with DAG(dag_id="lander_ats_discovery",
         f"{PYTHON} python/validate_workday_tenants.py --integrate")
     [discover_tenants, discover_greenhouse_boards, discover_lever_boards,
      discover_ashby_boards, discover_company_pages,
-     discover_yc_boards] >> validate_tenants >> integrate_tenants
+     discover_yc_boards, discover_icims_crawl] >> validate_tenants >> integrate_tenants
     discover_workday_crawl >> validate_workday_crawl >> integrate_workday_crawl
     [integrate_tenants, integrate_workday_crawl, discover_career_crawl] >> health_report
 

@@ -507,9 +507,47 @@ _ICIMS_JOB_COUNT_RE = re.compile(r'(\d+)\s+(?:open\s+)?(?:position|job|opening)'
 
 def validate_icims(row: Dict) -> Tuple[Optional[str], int, int, str]:
     tenant = row["tenant"]
-    # iCIMS uses HTML portal pages — check if the tenant's portal is alive
+    # Primary path: fetch the first search page exactly as the harvester
+    # does and parse it with the harvester's own parser, so validation
+    # counts what harvest would admit (non-foreign location + target role)
+    # instead of guessing from generic HTML selectors.
+    try:
+        from icims_harvest import _parse_icims_job_ids
+        from location_normalizer import normalize_location
+    except Exception:
+        _parse_icims_job_ids = None
+        normalize_location = None
+
+    search_url = f"https://{tenant}.icims.com/jobs/search"
+    if _parse_icims_job_ids is not None:
+        try:
+            r = requests.get(
+                search_url,
+                params={"in_iframe": "1", "pr": "0", "searchRelation": "keyword_all"},
+                timeout=REQUEST_TIMEOUT,
+                headers={"User-Agent": "Mozilla/5.0"},
+                allow_redirects=True,
+            )
+            if r.status_code == 200:
+                listings = _parse_icims_job_ids(r.text, tenant)
+                if listings:
+                    us_jobs = 0
+                    target_jobs = 0
+                    for _job_id, title, location in listings:
+                        if normalize_location(location, None).should_drop:
+                            continue
+                        us_jobs += 1
+                        if _is_target_role(title):
+                            target_jobs += 1
+                    return None, us_jobs, target_jobs, _candidate_status(us_jobs, target_jobs)
+        except Exception:
+            pass
+
+    # Fallback liveness path: JS-rendered portals can return a live search
+    # page with no server-side job cards. A reachable portal stays
+    # measurable as no_data_jobs rather than being written off as dead.
     urls_to_try = [
-        f"https://{tenant}.icims.com/jobs/search",
+        search_url,
         f"https://{tenant}.icims.com/jobs/intro",
         f"https://{tenant}.icims.com/",
     ]

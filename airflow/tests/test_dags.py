@@ -70,17 +70,19 @@ def test_discovery_pipeline_is_ordered():
 
 
 def test_weekly_discovery_boards_flow_through_validation():
-    # Greenhouse/Lever/Ashby discovery (plus career-page fingerprinting and
-    # the YC harvest) stage 'pending' candidates; validation must sit
-    # between every discoverer and integration so nothing enters
-    # discovered_companies unvalidated.
+    # Greenhouse/Lever/Ashby discovery (plus career-page fingerprinting, the
+    # YC harvest, and the iCIMS Common Crawl miner) stage 'pending'
+    # candidates; validation must sit between every discoverer and
+    # integration so nothing enters discovered_companies unvalidated.
     discovery = dag("lander_ats_discovery")
     for task_id in ("discover_greenhouse_boards", "discover_lever_boards",
                     "discover_ashby_boards", "discover_company_career_pages",
-                    "discover_yc_boards"):
+                    "discover_yc_boards", "discover_icims_commoncrawl"):
         task = discovery.get_task(task_id)
         assert "validate_ats_tenants" in task.downstream_task_ids
         assert "integrate_ats_tenants" not in task.downstream_task_ids
+    icims = discovery.get_task("discover_icims_commoncrawl")
+    assert "discover_icims_commoncrawl.py --apply" in icims.bash_command
 
 
 def test_usajobs_coverage_is_env_gated_and_outside_gated_sources():
