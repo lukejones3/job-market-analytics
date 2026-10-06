@@ -40,6 +40,7 @@ import requests
 from dotenv import load_dotenv
 
 from role_scope import evaluate_role
+from workday_boards import board_company_id, board_token, candidate_boards
 
 load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")
 
@@ -301,6 +302,75 @@ def _find_board(tenant: str, server: str, known_board: Optional[str]) -> Optiona
     return None
 
 
+def _find_all_boards(
+    tenant: str,
+    server: str,
+    known_board: Optional[str],
+    observed_boards: Optional[List[str]] = None,
+) -> List[Tuple[str, int]]:
+    """
+    Probe every plausible board for (tenant, server) and return all boards
+    with jobs, as (board, total) pairs in probe order.
+
+    _find_board stops at the first working board, which silently abandons
+    sibling boards (a second career site, a campus board, ...). This keeps
+    probing so integration can write every board to discovered_companies;
+    the ingestor already crawls each board_token independently.
+    """
+    results: List[Tuple[str, int]] = []
+    for board in candidate_boards(tenant, known_board, observed_boards or [], COMMON_BOARDS):
+        total = _try_board(tenant, server, board)
+        if total is not None and total > 0:
+            results.append((board, total))
+        time.sleep(0.25)
+    return results
+
+
+def load_discovered_boards(tenant: str) -> List[str]:
+    """Board names discovery recorded for this tenant ([] if unavailable)."""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT board FROM workday_tenant_boards WHERE tenant = %s ORDER BY board",
+            (tenant,),
+        )
+        boards = [row[0] for row in cur.fetchall()]
+        cur.close()
+        conn.close()
+        return boards
+    except Exception:
+        return []
+
+
+def upsert_board_result(
+    cur,
+    tenant: str,
+    server: str,
+    board: str,
+    us_jobs: int,
+    target_jobs: int,
+    domain_counts: Dict[str, int],
+    status: str,
+) -> None:
+    cur.execute(
+        """
+        INSERT INTO workday_tenant_boards
+            (tenant, server, board, us_jobs_count, target_jobs_count,
+             domain_counts, status, last_validated_at)
+        VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, now())
+        ON CONFLICT (tenant, server, board) DO UPDATE SET
+            us_jobs_count     = EXCLUDED.us_jobs_count,
+            target_jobs_count = EXCLUDED.target_jobs_count,
+            domain_counts     = EXCLUDED.domain_counts,
+            status            = EXCLUDED.status,
+            last_validated_at = now()
+        """,
+        (tenant, server, board, us_jobs, target_jobs,
+         json.dumps(domain_counts, sort_keys=True), status),
+    )
+
+
 def _count_jobs(tenant: str, server: str, board: str, total_jobs: int) -> Tuple[int, int, Dict[str, int]]:
     """
     Sample up to 500 listings across the complete board and count:
@@ -444,8 +514,8 @@ def integrate_active() -> None:
         target = r["target_jobs_count"]
         observed = max(target, r.get("us_jobs_count", 0) or 0)
 
-        board_token = f"{tenant}/{server}/{board}"
-        company_id  = "WD" + hashlib.md5(f"workday|{board_token}".encode()).hexdigest()[:10]
+        token = board_token(tenant, server, board)
+        company_id = board_company_id(token)
 
         try:
             cur.execute(
@@ -461,7 +531,7 @@ def integrate_active() -> None:
                     enabled = true,
                     last_seen_at = now()
                 """,
-                (company_id, name, board_token, observed, observed),
+                (company_id, name, token, observed, observed),
             )
             cur.execute(
                 "UPDATE workday_tenants_candidates SET status='integrated' WHERE tenant=%s",
@@ -474,10 +544,63 @@ def integrate_active() -> None:
             conn.rollback()
             continue
 
+    # Sibling boards: every board enumeration found for a tenant is its own
+    # board_token in discovered_companies, so a second career site is not
+    # lost just because the tenant row already integrated its first board.
+    boards_integrated = 0
+    try:
+        cur.execute("""
+            SELECT b.tenant, b.server, b.board, b.us_jobs_count,
+                   b.target_jobs_count, c.company_name
+            FROM workday_tenant_boards b
+            LEFT JOIN workday_tenants_candidates c ON c.tenant = b.tenant
+            WHERE b.status IN ('active', 'no_target_jobs', 'no_data_jobs')
+              AND b.us_jobs_count > 0
+            ORDER BY b.target_jobs_count DESC
+        """)
+        board_rows = cur.fetchall()
+    except Exception as e:
+        log.info(f"No sibling-board integration (workday_tenant_boards unavailable): {e}")
+        conn.rollback()
+        board_rows = []
+
+    for r in board_rows:
+        token = board_token(r["tenant"], r["server"], r["board"])
+        name = r["company_name"] or r["tenant"].title()
+        observed = max(r["target_jobs_count"], r["us_jobs_count"] or 0)
+        try:
+            cur.execute(
+                """
+                INSERT INTO discovered_companies
+                    (company_id, company_name, ats_source, board_token,
+                     discovery_source, active_roles, total_seen, enabled)
+                VALUES (%s, %s, 'workday', %s, 'workday_probe', %s, %s, true)
+                ON CONFLICT (ats_source, board_token) DO UPDATE SET
+                    company_name = COALESCE(NULLIF(EXCLUDED.company_name, ''), discovered_companies.company_name),
+                    active_roles = GREATEST(discovered_companies.active_roles, EXCLUDED.active_roles),
+                    total_seen = GREATEST(discovered_companies.total_seen, EXCLUDED.total_seen),
+                    enabled = true,
+                    last_seen_at = now()
+                """,
+                (board_company_id(token), name, token, observed, observed),
+            )
+            cur.execute(
+                "UPDATE workday_tenant_boards SET status='integrated' "
+                "WHERE tenant=%s AND server=%s AND board=%s",
+                (r["tenant"], r["server"], r["board"]),
+            )
+            boards_integrated += 1
+        except Exception as e:
+            log.warning(f"  Failed to integrate board {token}: {e}")
+            conn.rollback()
+            continue
+
     conn.commit()
     cur.close()
     conn.close()
     log.info(f"Integration complete: {integrated} new tenants added to discovered_companies")
+    if boards_integrated:
+        log.info(f"Sibling boards integrated: {boards_integrated}")
     log.info("The nightly workday harvest will pick them up automatically.")
 
 
@@ -485,7 +608,12 @@ def integrate_active() -> None:
 # MAIN VALIDATION LOOP
 # ============================================================
 
-def run_validation(apply: bool, limit: Optional[int], revalidate: bool) -> None:
+def run_validation(
+    apply: bool,
+    limit: Optional[int],
+    revalidate: bool,
+    enumerate_boards: bool = True,
+) -> None:
     pending = load_pending(revalidate=revalidate, limit=limit)
     log.info(f"Loaded {len(pending)} candidates to validate")
 
@@ -493,7 +621,7 @@ def run_validation(apply: bool, limit: Optional[int], revalidate: bool) -> None:
         log.info("Nothing to validate. Run discover_workday_tenants.py first.")
         return
 
-    results = {"active": 0, "no_target_jobs": 0, "unreachable": 0, "errors": 0}
+    results = {"active": 0, "no_target_jobs": 0, "unreachable": 0, "errors": 0, "sibling_boards": 0}
 
     conn = None
     cur  = None
@@ -552,6 +680,49 @@ def run_validation(apply: bool, limit: Optional[int], revalidate: bool) -> None:
                 update_candidate(cur, tenant, server, board, us_jobs, target_jobs, domain_counts, status)
                 conn.commit()
 
+            # Sibling boards: probe the tenant's other boards and record each
+            # one, so integration can publish them all instead of only the
+            # first board that answered.
+            if enumerate_boards:
+                if apply:
+                    try:
+                        upsert_board_result(
+                            cur, tenant, server, board, us_jobs, target_jobs,
+                            domain_counts, status,
+                        )
+                        conn.commit()
+                    except Exception as e:
+                        conn.rollback()
+                        log.warning(f"  Board record failed for {tenant}/{board}: {e}")
+                observed_boards = load_discovered_boards(tenant)
+                siblings = [
+                    (b, t)
+                    for b, t in _find_all_boards(tenant, server, board, observed_boards)
+                    if b != board
+                ]
+                for sib_board, sib_total in siblings:
+                    s_us, s_target, s_domains = _count_jobs(tenant, server, sib_board, sib_total)
+                    s_status = (
+                        "active" if s_target > 0
+                        else "no_target_jobs" if s_us > 0
+                        else "unreachable"
+                    )
+                    results["sibling_boards"] += 1
+                    log.info(
+                        f"  ↳ sibling {tenant}.{server}/{sib_board} — "
+                        f"{s_us} US jobs, {s_target} target [{s_status}]"
+                    )
+                    if apply:
+                        try:
+                            upsert_board_result(
+                                cur, tenant, server, sib_board, s_us, s_target,
+                                s_domains, s_status,
+                            )
+                            conn.commit()
+                        except Exception as e:
+                            conn.rollback()
+                            log.warning(f"  Board record failed for {tenant}/{sib_board}: {e}")
+
         except Exception as e:
             log.warning(f"  Error validating {tenant}: {e}")
             results["errors"] += 1
@@ -590,6 +761,8 @@ def main():
     ap.add_argument("--integrate",  action="store_true", help="Write active tenants to discovered_companies")
     ap.add_argument("--revalidate", action="store_true", help="Re-run all rows, not just pending")
     ap.add_argument("--limit",      type=int, default=None, metavar="N", help="Max tenants to process")
+    ap.add_argument("--enumerate-boards", action=argparse.BooleanOptionalAction, default=True,
+                    help="Also probe and record sibling boards per tenant (default: on)")
     args = ap.parse_args()
 
     if args.report:
@@ -604,7 +777,12 @@ def main():
     if not apply:
         log.info("DRY RUN — use --apply to write to DB")
 
-    run_validation(apply=apply, limit=args.limit, revalidate=args.revalidate)
+    run_validation(
+        apply=apply,
+        limit=args.limit,
+        revalidate=args.revalidate,
+        enumerate_boards=args.enumerate_boards,
+    )
 
 
 if __name__ == "__main__":
