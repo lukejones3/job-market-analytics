@@ -40,7 +40,8 @@ def download(host, remote_path, archive, key_file):
         with temporary.open('xb') as target:
             os.chmod(temporary, 0o600)
             target.write(HEADER + nonce)
-            process = subprocess.Popen(['ssh', host, 'cat', remote_path], stdout=subprocess.PIPE)
+            process = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=15',
+                '-o', 'ServerAliveInterval=30', '-o', 'ServerAliveCountMax=2', host, 'cat', remote_path], stdout=subprocess.PIPE)
             with process.stdout as source:
                 while chunk := source.read(CHUNK):
                     digest.update(chunk)
