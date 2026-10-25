@@ -21,6 +21,7 @@ import asyncio
 import functools
 import threading
 import json
+import subprocess
 from urllib.parse import quote, urlsplit
 from datetime import datetime, timezone, date
 from typing import Optional, List
@@ -543,7 +544,17 @@ async def log_requests(request: Request, call_next):
 # ── Health ────────────────────────────────────────────────────────────────────
 @app.get("/health", tags=["System"])
 def health():
-    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat(), "release": _release_revision()}
+
+
+@functools.lru_cache(maxsize=1)
+def _release_revision() -> str:
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"],
+            cwd=Path(__file__).resolve().parents[1], text=True, timeout=1,
+            stderr=subprocess.DEVNULL).strip()
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
 
 
 @app.head("/health", include_in_schema=False)
@@ -2317,7 +2328,7 @@ async def upload_resume_v1(
 
     warm_task = getattr(app.state, "resume_model_task", None)
     if warm_task is not None and not warm_task.done():
-        await warm_task
+        await asyncio.shield(warm_task)
     # Keep parsing, inference and synchronous SQL off the API event loop. Two
     # matches can run concurrently; health/auth traffic remains responsive.
     slots = getattr(app.state, "resume_match_slots", None)

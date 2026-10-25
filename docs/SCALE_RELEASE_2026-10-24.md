@@ -89,3 +89,11 @@ Git. The daily task keeps the latest verified copy and clears expired copies.
 A successful decryption/checksum check matched the server's SHA-256. This is a
 database recovery drill; complete host/credential disaster recovery still needs
 its own rehearsal.
+
+The live API and Airflow services were switched to separately built, tested
+runtimes with the previous environments retained for rollback. Airflow is
+3.3.2 with explicit PostgreSQL drivers; its metadata database was backed up
+before migration. `requirements-airflow.lock` describes that isolated runtime.
+Both runtime dependency checks and the installed API-package advisory scan
+passed. API health includes its source revision; the web release exposes
+`X-Lander-Release`.
