@@ -26,6 +26,8 @@ def inspect(conn) -> dict:
             'publication': "SELECT max(published_at)::text AS latest,EXTRACT(EPOCH FROM now()-max(published_at))/3600 AS age_hours FROM publication_runs",
             'hosts': """SELECT count(*)::int AS attempts,count(*) FILTER(WHERE status='failed')::int AS failures
                 FROM career_host_runs WHERE started_at>now()-interval '14 days'""",
+            'hosts_24h': """SELECT count(*)::int AS attempts,count(*) FILTER(WHERE status='failed')::int AS failures
+                FROM career_host_runs WHERE started_at>now()-interval '24 hours'""",
             'indexing': """SELECT notification_type,count(*) FILTER(WHERE sent_at IS NULL)::int AS pending,min(queued_at) FILTER(WHERE sent_at IS NULL)::text AS oldest,
                 max(sent_at)::text AS last_success FROM seo_indexing_queue
                 GROUP BY notification_type""",
@@ -46,6 +48,9 @@ def inspect(conn) -> dict:
     hosts = result['hosts'][0]
     if hosts['attempts'] and hosts['failures'] == hosts['attempts']:
         alerts.append('All direct-host attempts failed in the last 14 days')
+    recent = result['hosts_24h'][0]
+    if recent['attempts'] >= 5 and recent['failures'] / recent['attempts'] >= .5:
+        alerts.append('Direct-host failure rate is at least 50% in the last 24 hours')
     if result['retention'][0]['expired_resumes']:
         alerts.append('Resume retention overdue')
     connections = result['connections'][0]
