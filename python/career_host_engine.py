@@ -1645,6 +1645,7 @@ def _expire_host_jobs(cur, host: dict, run_started: datetime) -> int:
 
 def crawl_hosts(
     *, apply: bool, limit: int, max_pages: int, workers: int, activate_mature: bool,
+    host_ids: list[str] | None = None,
 ) -> dict[str, int]:
     with connection() as conn, conn.cursor(cursor_factory=RealDictCursor) as cur:
         blocked_hosts = quarantine_blocked_hosts(cur, apply=apply)
@@ -1655,10 +1656,11 @@ def crawl_hosts(
                WHERE status IN ('shadow','active')
                  AND extraction_strategy IN ('sitemap_jsonld','oracle_cloud','api_recipe')
                  AND (next_crawl_at IS NULL OR next_crawl_at <= now())
+                 AND (%s::text[] IS NULL OR host_id=ANY(%s::text[]))
                ORDER BY CASE status WHEN 'active' THEN 0 ELSE 1 END,
                         last_crawled_at NULLS FIRST,resolver_confidence DESC
                LIMIT %s""",
-            (limit,),
+            (host_ids, host_ids, limit),
         )
         hosts = [dict(row) for row in cur.fetchall()]
         successful = failed = activated = total_jobs = 0
@@ -1969,6 +1971,7 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--max-pages-per-host", type=int, default=2000)
     parser.add_argument("--workers", type=int, default=8)
+    parser.add_argument("--host-id", action="append", help="Restrict crawl to an existing host; repeat for a bounded pilot")
     parser.add_argument("--include-sec", action="store_true")
     parser.add_argument("--activate-mature", action="store_true")
     parser.add_argument("--entity", choices=("all", "candidates", "hosts"), default="all",
@@ -1996,7 +1999,7 @@ def main() -> None:
         print(route_supported_ats(apply=args.apply, limit=args.limit))
     elif args.action == "crawl":
         print(crawl_hosts(apply=args.apply, limit=args.limit, max_pages=args.max_pages_per_host,
-                          workers=args.workers, activate_mature=args.activate_mature))
+                          workers=args.workers, activate_mature=args.activate_mature, host_ids=args.host_id))
     elif args.action == "run":
         print({
             "seed": seed_database(apply=args.apply, limit=args.limit, include_sec=args.include_sec),

@@ -1,6 +1,7 @@
 -- Apply before deploying the corresponding web release. No historical content
 -- modification dates are invented: existing rows keep NULL until a real change.
-SET lock_timeout = '5s';
+BEGIN;
+SET LOCAL lock_timeout = '5s';
 ALTER TABLE public.job_postings ADD COLUMN IF NOT EXISTS content_updated_at timestamptz;
 
 CREATE OR REPLACE FUNCTION public.track_job_content_update() RETURNS trigger
@@ -26,4 +27,4 @@ DROP TRIGGER IF EXISTS trg_job_content_update ON public.job_postings;
 CREATE TRIGGER trg_job_content_update BEFORE INSERT OR UPDATE ON public.job_postings
 FOR EACH ROW EXECUTE FUNCTION public.track_job_content_update();
 CREATE INDEX IF NOT EXISTS seo_indexing_queue_url_latest ON public.seo_indexing_queue(url,queued_at DESC);
-RESET lock_timeout;
+COMMIT;

@@ -12,5 +12,5 @@ pg_restore --list "$temporary" >/dev/null
 pg_restore --file=/dev/null "$temporary"
 chmod 0660 "$temporary"
 mv -f "$temporary" "$final"
-find "$backup_dir" -type f -name 'job_analytics_*.dump' -mtime +7 -delete
+find "$backup_dir" -type f -name 'job_analytics_*.dump' -mmin +10080 -delete
 echo "Verified backup: $final"

@@ -4,6 +4,7 @@ Each account receives at most one reminder in seven days. Historical application
 older than 21 days are excluded; this never bulk-mails the old backlog.
 """
 from __future__ import annotations
+from contextlib import closing
 import argparse
 import hashlib
 import json
@@ -59,6 +60,6 @@ if __name__ == '__main__':
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
     load_dotenv()
-    with psycopg2.connect(host=os.getenv('PGHOST'), port=os.getenv('PGPORT', '5432'),
-        dbname=os.getenv('PGDATABASE'), user=os.getenv('PGUSER'), password=os.getenv('PGPASSWORD')) as conn:
+    with closing(psycopg2.connect(host=os.getenv('PGHOST'), port=os.getenv('PGPORT', '5432'),
+        dbname=os.getenv('PGDATABASE'), user=os.getenv('PGUSER'), password=os.getenv('PGPASSWORD'))) as conn:
         print(json.dumps(run(conn, args.apply), sort_keys=True))

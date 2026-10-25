@@ -1,5 +1,6 @@
 """Read-only operational readiness checks. Exit nonzero when checks fail."""
 from __future__ import annotations
+from contextlib import closing
 import json
 import os
 import shutil
@@ -60,8 +61,8 @@ def inspect(conn) -> dict:
 
 if __name__ == '__main__':
     load_dotenv()
-    with psycopg2.connect(host=os.getenv('PGHOST'), port=os.getenv('PGPORT', '5432'),
-        dbname=os.getenv('PGDATABASE'), user=os.getenv('PGUSER'), password=os.getenv('PGPASSWORD')) as conn:
+    with closing(psycopg2.connect(host=os.getenv('PGHOST'), port=os.getenv('PGPORT', '5432'),
+        dbname=os.getenv('PGDATABASE'), user=os.getenv('PGUSER'), password=os.getenv('PGPASSWORD'))) as conn:
         report = inspect(conn)
     print(json.dumps(report, sort_keys=True, default=str))
     raise SystemExit(bool(report['alerts']))
