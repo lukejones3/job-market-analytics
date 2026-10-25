@@ -550,8 +550,9 @@ def health():
 @functools.lru_cache(maxsize=1)
 def _release_revision() -> str:
     try:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"],
-            cwd=Path(__file__).resolve().parents[1], text=True, timeout=1,
+        root = Path(__file__).resolve().parents[1]
+        return subprocess.check_output(["git", "-c", f"safe.directory={root}", "rev-parse", "HEAD"],
+            cwd=root, text=True, timeout=1,
             stderr=subprocess.DEVNULL).strip()
     except (OSError, subprocess.SubprocessError):
         return "unknown"
