@@ -47,7 +47,9 @@ certifi==2026.10.19
 cffi==2.1.1
     # via cryptography
 charset-normalizer==3.4.9
-    # via requests
+    # via
+    #   pdfminer-six
+    #   requests
 click==8.4.2
     # via
     #   dbt-core
@@ -57,7 +59,9 @@ click==8.4.2
 colorama==0.4.6
     # via dbt-common
 cryptography==50.0.0
-    # via google-auth
+    # via
+    #   google-auth
+    #   pdfminer-six
 daff==1.4.2
     # via dbt-core
 dbt-adapters==1.24.5
@@ -232,8 +236,14 @@ pathspec==1.0.4
     # via
     #   dbt-common
     #   dbt-core
+pdfminer-six==20260107
+    # via pdfplumber
+pdfplumber==0.11.10
+    # via -r requirements.txt
 pillow==13.0.0
-    # via streamlit
+    # via
+    #   pdfplumber
+    #   streamlit
 plotly==6.9.0
     # via -r requirements.txt
 propcache==0.5.2
@@ -274,6 +284,8 @@ pyjwt==2.15.1
     # via -r requirements.txt
 pypdf==6.21.2
     # via -r requirements.txt
+pypdfium2==5.14.0
+    # via pdfplumber
 python-dateutil==2.9.0.post0
     # via
     #   dbt-common

@@ -19,6 +19,7 @@ numpy>=1.26.0
 scikit-learn>=1.5.0
 openpyxl>=3.1.0
 pypdf>=6.21.2
+pdfplumber>=0.11.8,<1
 python-docx>=1.1.0
 dbt-core>=1.12.4,<2
 dbt-postgres>=1.8.0,<2

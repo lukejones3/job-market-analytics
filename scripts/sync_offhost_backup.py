@@ -21,6 +21,13 @@ def main():
     ARCHIVES.mkdir(mode=0o700, parents=True, exist_ok=True)
     lock = (ARCHIVES / '.sync.lock').open('w')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    for partial in ARCHIVES.glob('job_analytics_*.dump.aes.partial'):
+        stem = partial.name.removesuffix('.aes.partial')
+        age = datetime.now(timezone.utc).timestamp() - partial.stat().st_mtime
+        if re.fullmatch(PATTERN, stem) and age > 6*3600:
+            partial.unlink()
+            if not (ARCHIVES / (stem+'.aes')).exists():
+                (KEYS / (stem.removesuffix('.dump')+'.key')).unlink(missing_ok=True)
     for old in ARCHIVES.glob('job_analytics_*.dump.aes'):
         match = re.fullmatch(PATTERN, old.name.removesuffix('.aes'))
         if match and datetime.now(timezone.utc)-datetime.strptime(match[1], '%Y-%m-%d').replace(tzinfo=timezone.utc) > timedelta(days=7):

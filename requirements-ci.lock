@@ -113,7 +113,9 @@ certifi==2026.10.19
 cffi==2.1.1
     # via cryptography
 charset-normalizer==3.4.9
-    # via requests
+    # via
+    #   pdfminer-six
+    #   requests
 click==8.4.2
     # via
     #   dbt-core
@@ -135,6 +137,7 @@ cryptography==50.0.0
     # via
     #   apache-airflow-core
     #   google-auth
+    #   pdfminer-six
 cyclonedx-python-lib==11.11.0
     # via pip-audit
 daff==1.4.2
@@ -442,12 +445,18 @@ pathspec==1.0.4
     #   apache-airflow-task-sdk
     #   dbt-common
     #   dbt-core
+pdfminer-six==20260107
+    # via pdfplumber
+pdfplumber==0.11.10
+    # via -r requirements.txt
 pendulum==3.2.0
     # via
     #   apache-airflow-core
     #   apache-airflow-task-sdk
 pillow==13.0.0
-    # via streamlit
+    # via
+    #   pdfplumber
+    #   streamlit
 pip-api==0.0.34
     # via pip-audit
 pip-audit==2.10.1
@@ -529,6 +538,8 @@ pyparsing==3.3.2
     # via pip-requirements-parser
 pypdf==6.21.2
     # via -r requirements.txt
+pypdfium2==5.14.0
+    # via pdfplumber
 pytest==9.1.1
     # via -r requirements-ci.in
 python-daemon==3.1.2
