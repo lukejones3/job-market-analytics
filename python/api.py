@@ -420,7 +420,7 @@ async def verify_resume_client(request: Request, conn=Depends(get_conn)) -> dict
         requested_tier = request.headers.get("X-Lander-User-Tier", "free").lower()
         tier = requested_tier if requested_tier in {"free", "pro"} else "free"
         return {"key_id": "lander-web", "tier": tier, "client_name": "lander-web", "active": True}
-    return await verify_api_key(request=request, conn=conn)
+    return await asyncio.to_thread(verify_api_key, request=request, conn=conn)
 
 def hash_key(raw_key: str) -> str:
     return hashlib.sha256(raw_key.encode()).hexdigest()
@@ -484,7 +484,7 @@ def _cursor_value(row: Any, key: str) -> Any | None:
     return row[0] if row else None
 
 
-async def verify_api_key(request: Request, conn=Depends(get_conn)) -> dict:
+def verify_api_key(request: Request, conn=Depends(get_conn)) -> dict:
     # Credentials in URLs leak into browser history, proxy logs, referrers and
     # analytics. Authenticated clients must use the request header.
     raw_key = request.headers.get("X-API-Key")
@@ -492,48 +492,29 @@ async def verify_api_key(request: Request, conn=Depends(get_conn)) -> dict:
         raise HTTPException(status_code=401, detail="API key required. Pass it in the X-API-Key header.")
 
     key_hash = hash_key(raw_key)
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-
-    cur.execute("""
-        SELECT key_id, client_name, tier, rate_limit_day,
-               requests_today, total_requests, last_reset_date, active
-        FROM api_keys
-        WHERE api_key_hash = %s
-    """, (key_hash,))
-    key = cur.fetchone()
-
-    if not key:
-        raise HTTPException(status_code=401, detail="Invalid API key.")
-    if not key["active"]:
-        raise HTTPException(status_code=403, detail="API key has been deactivated.")
-
-    # Reset daily counter if new day
-    today = date.today()
-    if key["last_reset_date"] != today:
-        cur.execute("""
-            UPDATE api_keys SET requests_today = 0, last_reset_date = %s WHERE key_id = %s
-        """, (today, key["key_id"]))
-        conn.commit()
-        key["requests_today"] = 0
-
-    # Rate limit check
-    if key["requests_today"] >= key["rate_limit_day"]:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Daily rate limit of {key['rate_limit_day']} requests reached. Resets at midnight UTC."
-        )
-
-    # Increment counters
-    cur.execute("""
-        UPDATE api_keys
-        SET requests_today = requests_today + 1,
-            total_requests  = total_requests + 1,
-            last_used_at    = now()
-        WHERE key_id = %s
-    """, (key["key_id"],))
-    conn.commit()
-
-    return dict(key)
+    # Authorize and consume the allowance in one atomic statement, so parallel
+    # requests cannot overshoot a daily limit or revive expired credentials.
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("""UPDATE api_keys SET
+            requests_today=CASE WHEN last_reset_date=CURRENT_DATE THEN requests_today+1 ELSE 1 END,
+            last_reset_date=CURRENT_DATE,total_requests=total_requests+1,last_used_at=now()
+            WHERE api_key_hash=%s AND active=true
+              AND (expires_at IS NULL OR expires_at>now())
+              AND CASE WHEN last_reset_date=CURRENT_DATE THEN requests_today ELSE 0 END < rate_limit_day
+            RETURNING key_id,client_name,tier,rate_limit_day,requests_today,total_requests,last_reset_date,active""", (key_hash,))
+        key = cur.fetchone()
+        if key:
+            conn.commit()
+            return dict(key)
+        cur.execute("SELECT active,expires_at,rate_limit_day FROM api_keys WHERE api_key_hash=%s", (key_hash,))
+        rejected = cur.fetchone()
+        if not rejected:
+            raise HTTPException(status_code=401, detail="Invalid API key.")
+        if not rejected['active']:
+            raise HTTPException(status_code=403, detail="API key has been deactivated.")
+        if rejected['expires_at'] and rejected['expires_at'] <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=401, detail="API key expired. Sign in again to renew access.")
+        raise HTTPException(status_code=429, detail="Daily request limit reached. Resets at midnight UTC.")
 
 # ── Usage logging middleware ──────────────────────────────────────────────────
 @app.middleware("http")
@@ -1123,6 +1104,8 @@ def list_companies(
     total = cur.fetchone()["total"]
 
     return {
+        "population": "published_jobs",
+        "benchmark_population": "historical_model_inputs",
         "total":        total,
         "limit":        limit,
         "offset":       offset,
@@ -1166,6 +1149,8 @@ def company_detail(
         flags.append({"type": "rare_skills", "message": "Niche skill requirements"})
 
     company["action_flags"] = flags
+    company["population"] = "published_jobs"
+    company["benchmark_population"] = "historical_model_inputs"
     company["generated_at"] = datetime.now(timezone.utc).isoformat()
 
     return company
@@ -1597,129 +1582,15 @@ async def stripe_webhook(request: Request):
         log.warning(f"Stripe webhook error: {e}")
         raise HTTPException(status_code=400, detail="Invalid Stripe webhook payload.")
 
-    # WEBHOOK_ATTR_ACCESS_v1
-    if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-
-        # Stripe objects support attribute access via __getattr__ (not .get()).
-        # Use getattr with safe defaults for everything.
-        def _safe_get(obj, key, default=None):
-            try:
-                v = getattr(obj, key, default)
-                return v if v is not None else default
-            except Exception:
-                return default
-
-        # Try customer_details.email first
-        customer_email = ""
-        customer_name = "unknown"
-        cd = _safe_get(session, "customer_details", None)
-        if cd is not None:
-            customer_email = (_safe_get(cd, "email", "") or "").strip()
-            customer_name = (_safe_get(cd, "name", "") or "").strip() or "unknown"
-
-        # Fallback: top-level customer_email
-        if not customer_email:
-            customer_email = (_safe_get(session, "customer_email", "") or "").strip()
-
-        # Last resort: fetch from customer object
-        if not customer_email:
-            customer_id = _safe_get(session, "customer", "")
-            if customer_id:
-                try:
-                    cust = stripe.Customer.retrieve(customer_id)
-                    customer_email = (_safe_get(cust, "email", "") or "").strip()
-                    if customer_name == "unknown":
-                        customer_name = (_safe_get(cust, "name", "") or "").strip() or "unknown"
-                    log.info("webhook: fetched customer email ref=%s", _log_ref(customer_email))
-                except Exception as _e:
-                    log.warning(f"webhook: stripe.Customer.retrieve({customer_id}) failed: {_e}")
-
-        log.info("webhook: extracted customer ref=%s name_ref=%s", _log_ref(customer_email), _log_ref(customer_name))
-
-        if customer_email:
-            # WEBHOOK_KEYID_FIX_v1: generate key_id (was missing — schema requires NOT NULL)
-            placeholder = secrets.token_urlsafe(32)
-            key_hash   = hash_key(placeholder)
-            key_prefix = get_key_prefix(placeholder)
-            key_id     = "K" + secrets.token_hex(8)
-
-            conn = _get_healthy_pool_connection()
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        INSERT INTO api_keys
-                            (key_id, client_name, client_email, api_key_hash, api_key_prefix,
-                             tier, active, created_at, expires_at)
-                        VALUES (%s, %s, %s, %s, %s, 'pro', true, NOW(), NOW() + INTERVAL '30 days')
-                    """, (key_id, customer_name, customer_email, key_hash, key_prefix))
-                    raw_key = _issue_magic_token(cur, key_id)
-                    # FREEMIUM_BACKEND_v1: mark free_signups as upgraded and point
-                    # api_key_id at the new Pro key so future free-signup magic
-                    # links refresh the Pro key, not a stale free key.
-                    cur.execute("""
-                        UPDATE free_signups
-                        SET upgraded_to_paid_at = NOW(), api_key_id = %s
-                        WHERE email = %s
-                    """, (key_id, customer_email,))
-                    conn.commit()
-                log.info("New subscriber ref=%s token_prefix=%s", _log_ref(customer_email), key_prefix)
-
-                # WEBHOOK_EMAIL_LINESWAP_v1: send Pro welcome email via Resend
-                lander_base = os.environ.get("LANDER_BASE_URL", "https://www.landerjob.com")
-                access_url = f"{lander_base}/auth/verify?token={raw_key}"
-                try:
-                    import requests as _rq
-                    _resend_key = os.getenv("RESEND_API_KEY", "")
-                    _from = os.getenv("RESEND_FROM", "Lander <onboarding@resend.dev>")
-                    _r = _rq.post(
-                        "https://api.resend.com/emails",
-                        headers={"Authorization": f"Bearer {_resend_key}", "Content-Type": "application/json"},
-                        json={
-                            "from": _from,
-                            "to": [customer_email],
-                            "subject": PRO_WELCOME_SUBJECT,
-                            "html": pro_welcome_html(access_url),
-                            "text": pro_welcome_plain(access_url),
-                        },
-                        timeout=10,
-                    )
-                    if _r.status_code in (200, 201):
-                        log.info("webhook: Pro welcome email sent ref=%s", _log_ref(customer_email))
-                    else:
-                        log.warning("webhook: Resend error %s for ref=%s", _r.status_code, _log_ref(customer_email))
-                except Exception as _e:
-                    log.warning("webhook: failed Pro welcome email ref=%s: %s", _log_ref(customer_email), _e)
-
-            except Exception as e:
-                conn.rollback()
-                log.error(f"Error provisioning access: {e}")
-            finally:
-                _return_pool_connection(conn)
-
-    elif event["type"] == "customer.subscription.deleted":
-        # Deactivate key when subscription cancelled
-        session = event["data"]["object"]
-        customer_id = session.get("customer")
-        try:
-            customer = stripe.Customer.retrieve(customer_id)
-            email = customer.get("email", "")
-            if email:
-                conn = _get_healthy_pool_connection()
-                try:
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            "UPDATE api_keys SET active=false WHERE client_email=%s",
-                            (email,)
-                        )
-                        conn.commit()
-                    log.info("Deactivated access ref=%s", _log_ref(email))
-                finally:
-                    _return_pool_connection(conn)
-        except Exception as e:
-            log.error(f"Error deactivating: {e}")
-
-    return {"status": "ok"}
+    from python.billing import process_event
+    try:
+        return await asyncio.to_thread(
+            process_event, json.loads(payload), _get_healthy_pool_connection,
+            _return_pool_connection, STRIPE_PRICE_ID,
+        )
+    except Exception:
+        log.exception("Stripe event processing failed; delivery must retry")
+        raise HTTPException(status_code=503, detail="Subscription update is pending. Please retry.")
 
 
 # ── Free Signup (email gate) ──────────────────────────────────────────────────
@@ -2169,38 +2040,71 @@ async def social_auth(request: Request):
         _return_pool_connection(conn)
 
 
+async def verify_billing_client(request: Request, conn=Depends(get_conn)) -> dict:
+    """Accept either a user's legacy API key or Lander's authenticated server."""
+    supplied = request.headers.get("X-Lander-Internal-Key", "")
+    if LANDER_INTERNAL_API_KEY and supplied and hmac.compare_digest(supplied, LANDER_INTERNAL_API_KEY):
+        email = request.headers.get("X-Lander-User-Email", "").strip().lower()
+        account_id = request.headers.get("X-Lander-User-Id")
+        if not email:
+            raise HTTPException(status_code=400, detail="Authenticated billing email is required.")
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("""SELECT key_id FROM api_keys WHERE active=true AND lower(client_email)=%s
+                AND (%s::text IS NULL OR key_id=%s) ORDER BY created_at DESC LIMIT 1""",
+                (email, account_id, account_id))
+            account = cur.fetchone()
+        if not account:
+            raise HTTPException(status_code=403, detail="Billing account is not active.")
+        return {"key_id": account["key_id"], "billing_email": email}
+    return await asyncio.to_thread(verify_api_key, request=request, conn=conn)
+
+
 # ── Stripe Checkout Session ───────────────────────────────────────────────────
 @app.post("/stripe/create-checkout")
-async def create_checkout(
-    request: Request,
-    key: dict = Depends(verify_api_key),
-    conn=Depends(get_conn),
-):
+async def create_checkout(request: Request, key: dict = Depends(verify_billing_client), conn=Depends(get_conn)):
     if not STRIPE_PRICE_ID:
-        log.error("Stripe checkout requested without STRIPE_PRICE_ID configured")
         raise HTTPException(status_code=503, detail="Billing is temporarily unavailable.")
-
-    # Price, account, and redirect destinations are server-owned. Accepting any of
-    # these from the browser would let a caller create checkout sessions for an
-    # arbitrary price/customer or redirect Stripe through an untrusted URL.
-    email = _client_email_for_key(conn, key)
-    lander_base = os.environ.get("LANDER_BASE_URL", "https://www.landerjob.com")
-    success_url = f"{lander_base}/upgrade-success?session_id={{CHECKOUT_SESSION_ID}}"
-    cancel_url = f"{lander_base}/pricing"
+    email = key.get("billing_email") or _client_email_for_key(conn, key)
+    lander_base = os.environ.get("LANDER_BASE_URL", "https://www.landerjob.com").rstrip("/")
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT customer_id FROM billing_customers WHERE key_id=%s ORDER BY created_at LIMIT 1", (key['key_id'],))
+        customer = cur.fetchone()
+    customer_args = {'customer': customer['customer_id']} if customer else {'customer_email': email}
+    if customer and await asyncio.to_thread(_first_cancellable_subscription, customer['customer_id']):
+        raise HTTPException(status_code=409, detail="A subscription already exists. Manage it from Settings.")
     try:
-        session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            mode="subscription",
+        session = await asyncio.to_thread(
+            stripe.checkout.Session.create,
+            payment_method_types=["card"], mode="subscription",
             line_items=[{"price": STRIPE_PRICE_ID, "quantity": 1}],
-            customer_email=email,
-            success_url=success_url,
-            cancel_url=cancel_url,
-            client_reference_id=key["key_id"],
+            success_url=f"{lander_base}/upgrade-success?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{lander_base}/pricing", client_reference_id=key["key_id"],
+            subscription_data={'metadata': {'lander_account_id': key['key_id']}},
+            idempotency_key=f"lander-checkout:{key['key_id']}:{int(time.time()) // 1800}",
+            **customer_args,
         )
         return {"checkout_url": session.url}
-    except Exception as e:
-        log.warning(f"Stripe checkout failed for key={key['key_id']}: {e}")
-        raise HTTPException(status_code=400, detail="Unable to start checkout. Please try again.")
+    except Exception:
+        log.exception("Stripe checkout failed for account %s", key['key_id'])
+        raise HTTPException(status_code=503, detail="Unable to start checkout. Please try again.")
+
+
+@app.post("/stripe/checkout-status")
+async def checkout_status(request: Request, key: dict = Depends(verify_billing_client)):
+    body = await request.json()
+    session_id = str(body.get('session_id') or '')
+    if not session_id.startswith('cs_') or len(session_id) > 200:
+        raise HTTPException(status_code=400, detail="Invalid checkout session.")
+    checkout = await asyncio.to_thread(stripe.checkout.Session.retrieve, session_id)
+    if checkout.get('client_reference_id') != key['key_id']:
+        raise HTTPException(status_code=403, detail="Checkout belongs to a different account.")
+    if checkout.get('status') != 'complete' or checkout.get('payment_status') not in ('paid', 'no_payment_required'):
+        return {'status': 'pending'}
+    from python.billing import process_event
+    event = {'id': 'checkout-reconcile:' + session_id, 'type': 'checkout.session.completed',
+             'created': int(checkout['created']), 'data': {'object': dict(checkout)}}
+    result = await asyncio.to_thread(process_event, event, _get_healthy_pool_connection, _return_pool_connection, STRIPE_PRICE_ID)
+    return {'status': 'active' if result.get('tier') == 'pro' else 'processed'}
 
 
 # ── Stripe billing helpers (resolve customer via api_keys.client_email only) ──
@@ -2260,15 +2164,6 @@ def _first_cancellable_subscription(customer_id: str):
     return None
 
 
-async def verify_billing_client(request: Request, conn=Depends(get_conn)) -> dict:
-    """Accept either a user's legacy API key or Lander's authenticated server."""
-    supplied = request.headers.get("X-Lander-Internal-Key", "")
-    if LANDER_INTERNAL_API_KEY and supplied and hmac.compare_digest(supplied, LANDER_INTERNAL_API_KEY):
-        email = request.headers.get("X-Lander-User-Email", "").strip().lower()
-        if not email:
-            raise HTTPException(status_code=400, detail="Authenticated billing email is required.")
-        return {"key_id": "lander-web", "billing_email": email}
-    return await verify_api_key(request=request, conn=conn)
 
 
 def _billing_portal_return_url() -> str:
@@ -2283,9 +2178,12 @@ async def create_portal(
     conn=Depends(get_conn),
 ):
     email = key.get("billing_email") or _client_email_for_key(conn, key)
-    customer_id = _stripe_customer_id_for_email(email)
+    with conn.cursor(cursor_factory=RealDictCursor) as cur:
+        cur.execute("SELECT customer_id FROM billing_customers WHERE key_id=%s ORDER BY created_at LIMIT 1", (key['key_id'],))
+        linked = cur.fetchone()
+    customer_id = linked['customer_id'] if linked else await asyncio.to_thread(_stripe_customer_id_for_email, email)
     try:
-        session = stripe.billing_portal.Session.create(
+        session = await asyncio.to_thread(stripe.billing_portal.Session.create,
             customer=customer_id,
             return_url=_billing_portal_return_url(),
         )
@@ -2296,41 +2194,43 @@ async def create_portal(
 
 
 @app.post("/stripe/cancel-subscription")
-async def cancel_subscription(
-    request: Request,
-    key: dict = Depends(verify_api_key),
-    conn=Depends(get_conn),
-):
+async def cancel_subscription(request: Request, key: dict = Depends(verify_billing_client), conn=Depends(get_conn)):
     body = await request.json()
     immediate = bool(body.get("immediate", True))
-    email = _client_email_for_key(conn, key)
+    email = key.get('billing_email') or _client_email_for_key(conn, key)
     try:
-        customer_id = _stripe_customer_id_for_email(email)
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute('SELECT customer_id FROM billing_customers WHERE key_id=%s ORDER BY created_at', (key['key_id'],))
+            linked = cur.fetchall()
+        customer_ids = [row['customer_id'] for row in linked] if linked else [await asyncio.to_thread(_stripe_customer_id_for_email, email)]
     except HTTPException as exc:
-        # No Stripe customer: nothing to cancel (idempotent for delete-account).
         if exc.status_code == 404:
             return {"ok": True, "cancelled": False}
-        # Ambiguous multiple customers: must not cancel the wrong subscription.
         raise
-    sub = _first_cancellable_subscription(customer_id)
-    if not sub:
-        return {"ok": True, "cancelled": False}
+    def cancel_all():
+        count = 0
+        for customer_id in customer_ids:
+            for sub in stripe.Subscription.list(customer=customer_id, status='all', limit=100).auto_paging_iter():
+                if sub['status'] in ('canceled', 'incomplete_expired'):
+                    continue
+                if immediate:
+                    stripe.Subscription.cancel(sub.id)
+                else:
+                    stripe.Subscription.modify(sub.id, cancel_at_period_end=True)
+                count += 1
+        return count
     try:
-        if immediate:
-            stripe.Subscription.cancel(sub.id)
-        else:
-            stripe.Subscription.modify(sub.id, cancel_at_period_end=True)
-    except Exception as e:
-        log.warning("Stripe subscription cancel failed for ref=%s (%s): %s", _log_ref(email), sub.id, e)
-        raise HTTPException(status_code=400, detail="Unable to cancel the subscription.")
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE api_keys SET active = false WHERE key_id = %s",
-            (key["key_id"],),
-        )
-        conn.commit()
-    log.info("Cancelled subscription %s for ref=%s (immediate=%s)", sub.id, _log_ref(email), immediate)
-    return {"ok": True, "cancelled": True}
+        cancelled = await asyncio.to_thread(cancel_all)
+    except Exception:
+        log.exception('Subscription cancellation failed for account %s', key['key_id'])
+        raise HTTPException(status_code=503, detail="Unable to cancel the subscription. Please retry.")
+    if immediate:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE api_keys SET tier='free' WHERE key_id=%s", (key['key_id'],))
+            cur.execute('UPDATE free_signups SET upgraded_to_paid_at=NULL WHERE api_key_id=%s', (key['key_id'],))
+            cur.execute("UPDATE billing_subscriptions SET qualifies=false,status='canceled',updated_at=now() WHERE key_id=%s", (key['key_id'],))
+            conn.commit()
+    return {"ok": True, "cancelled": bool(cancelled)}
 
 
 if __name__ == "__main__":
@@ -2393,7 +2293,7 @@ async def upload_resume_v1(
             detail="Only PDF, DOCX, and TXT files are supported",
         )
 
-    file_bytes = await file.read()
+    file_bytes = await file.read(MAX_RESUME_BYTES + 1)
     if len(file_bytes) > MAX_RESUME_BYTES:
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -2401,7 +2301,7 @@ async def upload_resume_v1(
         )
 
     try:
-        text = parse_resume(file_bytes, filename)
+        text = await asyncio.to_thread(parse_resume, file_bytes, filename)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -2414,6 +2314,19 @@ async def upload_resume_v1(
             detail="Resume parsing returned empty text",
         )
 
+    warm_task = getattr(app.state, "resume_model_task", None)
+    if warm_task is not None and not warm_task.done():
+        await warm_task
+    # Keep parsing, inference and synchronous SQL off the API event loop. Two
+    # matches can run concurrently; health/auth traffic remains responsive.
+    slots = getattr(app.state, "resume_match_slots", None)
+    if slots is None:
+        slots = app.state.resume_match_slots = asyncio.Semaphore(2)
+    async with slots:
+        return await asyncio.to_thread(_match_resume_sync, text, key, conn)
+
+
+def _match_resume_sync(text: str, key: dict, conn):
     cur = None
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -2422,7 +2335,7 @@ async def upload_resume_v1(
         cur.execute("SET LOCAL lock_timeout = '8s'")
         cur.execute("SET LOCAL statement_timeout = '45s'")
         # Never emit resume contents into application logs.
-        log.info("resume_upload: parsed filename=%r text_len=%d", filename, len(text))
+        log.info("resume_upload: text_len=%d", len(text))
         try:
             skills = extract_skills(text, cur) or {}
         except Exception:
@@ -2435,10 +2348,6 @@ async def upload_resume_v1(
         # unrelated domains. Supply the semantic vector so the first response is useful.
         try:
             model = getattr(app.state, "resume_embedding_model", None)
-            warm_task = getattr(app.state, "resume_model_task", None)
-            if model is None and warm_task is not None and not warm_task.done():
-                await warm_task
-                model = getattr(app.state, "resume_embedding_model", None)
             if model is None:
                 from sentence_transformers import SentenceTransformer
                 model = SentenceTransformer("all-MiniLM-L6-v2")

@@ -44,3 +44,23 @@ def test_missing_column_bootstraps_only_missing_ddl():
     ddl = next(statement for statement in cursor.statements if "ALTER TABLE" in statement)
     assert "ADD COLUMN source_checked_at timestamptz" in ddl
     assert "ADD COLUMN ingestion_source" not in ddl
+
+
+def test_dictionary_cursor_is_supported_without_runtime_ddl():
+    from ingest_jobs import _INGESTION_COLUMN_DEFINITIONS
+
+    cursor = Cursor([
+        [{"column_name": name} for name in _INGESTION_COLUMN_DEFINITIONS],
+        {"index_name": "idx_jp_source"},
+        {"crawl": "ingestion_crawl_runs", "tenant": "ingestion_tenant_runs",
+         "scope": "role_scope_decisions", "events": "job_posting_events"},
+    ])
+    ensure_schema_columns(cursor)
+    ensure_observability_schema(cursor)
+    assert not any("ALTER TABLE" in sql or "CREATE INDEX" in sql for sql in cursor.statements)
+
+
+def test_dictionary_cursor_detects_missing_observability_table():
+    cursor = Cursor([{"crawl": "ingestion_crawl_runs", "tenant": None}])
+    ensure_observability_schema(cursor)
+    assert len(cursor.statements) == 2

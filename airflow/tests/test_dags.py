@@ -47,12 +47,12 @@ def test_nightly_is_bounded_and_parallelizes_ingest_writers():
 def test_nightly_has_complete_safe_publish_path():
     nightly = dag("lander_nightly")
     assert nightly.dagrun_timeout.total_seconds() == 18 * 60 * 60
-    assert nightly.get_task("deduplicate_sources").downstream_task_ids == {"repair_missing_crawl_tenants"}
-    assert nightly.get_task("repair_missing_crawl_tenants").downstream_task_ids == {"repair_publication_quality"}
-    assert nightly.get_task("repair_publication_quality").downstream_task_ids == {"canonicalize_opportunities"}
-    assert nightly.get_task("canonicalize_opportunities").downstream_task_ids == {"expire_jobs"}
-    assert nightly.get_task("expire_jobs").downstream_task_ids == {"validate_public_source_urls"}
-    assert nightly.get_task("validate_public_source_urls").downstream_task_ids == {"refresh_repost_signals"}
+    assert {"repair_missing_crawl_tenants"} <= nightly.get_task("deduplicate_sources").downstream_task_ids
+    assert {"repair_publication_quality"} <= nightly.get_task("repair_missing_crawl_tenants").downstream_task_ids
+    assert {"canonicalize_opportunities"} <= nightly.get_task("repair_publication_quality").downstream_task_ids
+    assert {"expire_jobs"} <= nightly.get_task("canonicalize_opportunities").downstream_task_ids
+    assert {"validate_public_source_urls"} <= nightly.get_task("expire_jobs").downstream_task_ids
+    assert {"refresh_repost_signals"} <= nightly.get_task("validate_public_source_urls").downstream_task_ids
     assert "dbt_build" in nightly.get_task("refresh_repost_signals").downstream_task_ids
     assert "canonicalize_opportunities" in nightly.task_ids
     assert "dag_run.run_id" in nightly.get_task("expire_jobs").bash_command
@@ -144,3 +144,13 @@ def test_radar_notifications_survive_optional_research_failure():
 def test_workday_expansion_ingest_has_priority_over_broad_sources():
     nightly = dag("lander_nightly")
     assert nightly.get_task("ingest_workday").priority_weight > nightly.get_task("ingest_amazon").priority_weight
+
+
+def test_terminal_tasks_preserve_upstream_failures():
+    for dag_id, terminal in (("lander_nightly", "nightly_complete"),
+                              ("lander_ats_discovery", "discovery_complete")):
+        pipeline = dag(dag_id)
+        end = pipeline.get_task(terminal)
+        assert str(end.trigger_rule).lower().endswith("all_success")
+        assert end.upstream_task_ids == set(pipeline.task_ids) - {terminal}
+        assert {task.task_id for task in pipeline.leaves} == {terminal}

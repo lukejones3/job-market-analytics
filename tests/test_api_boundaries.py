@@ -1,10 +1,13 @@
 import asyncio
+import io
+import time
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, Mock, patch
 
 import psycopg2
 import pytest
 from fastapi import HTTPException
+from starlette.datastructures import UploadFile
 
 from python.api import (
     MOBILE_AUTH_CALLBACK,
@@ -19,7 +22,32 @@ from python.api import (
     outreach_fresh_matches,
     social_auth,
     ttl_payload_cache,
+    upload_resume_v1,
 )
+
+
+def test_resume_inference_keeps_the_event_loop_responsive():
+    def slow_match(*_):
+        time.sleep(.08)
+        return {'ok': True}
+
+    async def exercise():
+        ticks = []
+
+        async def heartbeat():
+            await asyncio.sleep(.01)
+            ticks.append(time.monotonic())
+
+        started = time.monotonic()
+        with patch('python.api.parse_resume', return_value='resume text'), patch('python.api._match_resume_sync', side_effect=slow_match):
+            result, _ = await asyncio.gather(
+                upload_resume_v1(UploadFile(filename='resume.txt', file=io.BytesIO(b'text')), key={'tier': 'free'}, conn=MagicMock()),
+                heartbeat(),
+            )
+        assert result['ok']
+        assert ticks[0] - started < .06
+
+    asyncio.run(exercise())
 
 
 def test_resume_match_delivery_keeps_only_five_free_matches_open() -> None:

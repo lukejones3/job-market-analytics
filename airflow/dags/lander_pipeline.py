@@ -4,6 +4,7 @@ from datetime import timedelta
 import pendulum
 from airflow.sdk import DAG
 from airflow.providers.standard.operators.bash import BashOperator
+from airflow.providers.standard.operators.empty import EmptyOperator
 
 ROOT = "/opt/job-market-analytics"
 PYTHON = f"{ROOT}/.venv/bin/python"
@@ -40,7 +41,14 @@ with DAG(dag_id="lander_nightly",
         "-f sql/company_history_intelligence.sql "
         "-f sql/company_radar.sql "
         "-f sql/feed_performance_indexes.sql "
-        "-f sql/seo_collection_index.sql")
+        "-f sql/seo_collection_index.sql "
+        "-f sql/scale_readiness.sql "
+        "-f sql/billing_lifecycle.sql "
+        "-f sql/product_lifecycle.sql")
+    retention = command("enforce_data_retention", f"{PYTHON} python/enforce_data_retention.py --apply")
+    observability_schema >> retention
+    outcome_reminders = command("outcome_reminder_eligibility", f"{PYTHON} python/outcome_reminders.py")
+    observability_schema >> outcome_reminders
     backup >> observability_schema
     ingests = []
     for source in ("greenhouse", "lever", "ashby", "workday", "eightfold", "amazon",
@@ -174,7 +182,7 @@ with DAG(dag_id="lander_nightly",
     refresh_seo_index = command("refresh_seo_collection_index",
         f"{PYTHON} python/refresh_seo_collection_index.py")
     notify_google_indexing = command("notify_google_indexing",
-        f"{PYTHON} python/notify_google_indexing.py --limit 10000 --min-interval-seconds 0.20")
+        f"{PYTHON} python/notify_google_indexing.py --min-interval-seconds 0.20")
     notify_indexnow = command("notify_indexnow",
         f"{PYTHON} python/notify_indexnow.py --limit 10000")
     report = command("morning_report", f"{PYTHON} python/morning_report.py")
@@ -192,6 +200,12 @@ with DAG(dag_id="lander_nightly",
     refresh_seo_index >> [notify_google_indexing, notify_indexnow]
     notify_google_indexing >> [report, funnel_report]
     notify_indexnow >> [report, funnel_report]
+    # A safe partial publication must not turn upstream failures into a green
+    # DAG solely because its final reporting tasks completed successfully.
+    nightly_complete = EmptyOperator(task_id="nightly_complete")
+    for stage in list(nightly.tasks):
+        if stage is not nightly_complete:
+            stage >> nightly_complete
 
 with DAG(dag_id="lander_ats_discovery",
     description="Discover, validate, and activate new ATS tenants",
@@ -227,7 +241,7 @@ with DAG(dag_id="lander_ats_discovery",
     integrate_tenants = command("integrate_ats_tenants",
         f"{PYTHON} python/integrate_ats_candidates.py --apply")
     health_report = command("ats_discovery_health",
-        f"{PYTHON} python/ats_discovery_health.py --report")
+        f"{PYTHON} python/ats_discovery_health.py --report", trigger_rule="all_done")
     discover_workday_crawl = command("discover_workday_commoncrawl",
         f"{PYTHON} python/discover_workday_tenants.py --source commoncrawl --apply")
     discover_career_crawl = command("discover_career_hosts_commoncrawl",
@@ -241,6 +255,10 @@ with DAG(dag_id="lander_ats_discovery",
      discover_yc_boards, discover_icims_crawl] >> validate_tenants >> integrate_tenants
     discover_workday_crawl >> validate_workday_crawl >> integrate_workday_crawl
     [integrate_tenants, integrate_workday_crawl, discover_career_crawl] >> health_report
+    discovery_complete = EmptyOperator(task_id="discovery_complete")
+    for stage in list(ats_discovery.tasks):
+        if stage is not discovery_complete:
+            stage >> discovery_complete
 
 with DAG(dag_id="lander_company_radar_research",
     description="Refresh sourced external evidence for followed and high-momentum companies",

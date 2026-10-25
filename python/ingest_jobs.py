@@ -1453,7 +1453,7 @@ def ensure_schema_columns(cur):
     """Apply bootstrap DDL only when a required ingestion column is absent."""
     cur.execute("""SELECT column_name FROM information_schema.columns
                    WHERE table_schema='public' AND table_name='job_postings'""")
-    existing = {row[0] for row in cur.fetchall()}
+    existing = {row['column_name'] if isinstance(row, dict) else row[0] for row in cur.fetchall()}
     missing = [
         f"ADD COLUMN {name} {definition}"
         for name, definition in _INGESTION_COLUMN_DEFINITIONS.items()
@@ -1462,8 +1462,9 @@ def ensure_schema_columns(cur):
     if missing:
         # Identifiers and definitions come only from the static mapping above.
         cur.execute("ALTER TABLE job_postings " + ", ".join(missing))
-    cur.execute("SELECT to_regclass('public.idx_jp_source')")
-    if cur.fetchone()[0] is None:
+    cur.execute("SELECT to_regclass('public.idx_jp_source') AS index_name")
+    index_row = cur.fetchone()
+    if (index_row['index_name'] if isinstance(index_row, dict) else index_row[0]) is None:
         cur.execute("""CREATE INDEX idx_jp_source
                        ON job_postings(ingestion_source, source_id)
                        WHERE ingestion_source IS NOT NULL""")
@@ -1475,7 +1476,8 @@ def ensure_observability_schema(cur) -> None:
                           to_regclass('public.ingestion_tenant_runs'),
                           to_regclass('public.role_scope_decisions'),
                           to_regclass('public.job_posting_events')""")
-    if any(value is None for value in cur.fetchone()):
+    row = cur.fetchone()
+    if any(value is None for value in (row.values() if isinstance(row, dict) else row)):
         cur.execute(Path("sql/ingestion_observability.sql").read_text(encoding="utf-8"))
 
 # ============================================================

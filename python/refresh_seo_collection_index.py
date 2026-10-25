@@ -60,7 +60,9 @@ def refresh() -> int:
             cur.execute("INSERT INTO public.seo_role_location_index SELECT * FROM seo_role_location_next")
             scope = "EXISTS (SELECT 1 FROM public.vw_lander_visible_opportunities visible WHERE visible.job_id=jp.job_id)"
             midpoint = "CASE WHEN jp.salary_min_annual IS NOT NULL AND jp.salary_max_annual IS NOT NULL THEN (jp.salary_min_annual::double precision+jp.salary_max_annual::double precision)/2 WHEN jp.salary_min_annual IS NOT NULL THEN jp.salary_min_annual::double precision WHEN jp.salary_max_annual IS NOT NULL THEN jp.salary_max_annual::double precision END"
-            ghost = "CASE WHEN mgi.ghost_probability IS NULL THEN 0.5 WHEN mgi.ghost_probability>1 THEN mgi.ghost_probability::double precision/100.0 ELSE mgi.ghost_probability::double precision END"
+            # The model always stores percent units, including values below 1%.
+            # NULL remains unscored and is excluded from aggregate estimates.
+            ghost = "(mgi.ghost_probability::double precision/100.0)"
             cur.execute("CREATE TEMP TABLE seo_company_next (LIKE public.seo_company_index INCLUDING DEFAULTS) ON COMMIT DROP")
             cur.execute(f"""INSERT INTO seo_company_next(company_id,company_slug,company_name,sector,job_count,median_salary,p25_salary,p75_salary,avg_comp_annual,avg_ghost,median_ghost,salary_disclosure_rate)
               SELECT c.company_id::text,c.company_slug,c.company_name,c.sector,COUNT(*)::int,

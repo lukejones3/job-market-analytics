@@ -26,7 +26,7 @@ class SeoPublicationTest(unittest.TestCase):
             notify_main()
         self.assertIn("skipped", output.getvalue())
 
-    def test_indexing_queue_compacts_and_prioritizes_deletions(self):
+    def test_indexing_queue_compacts_and_services_both_classes(self):
         cursor = MagicMock()
         cursor.rowcount = 12
         rows = [{"job_id": "1", "notification_type": "URL_DELETED"}]
@@ -39,7 +39,7 @@ class SeoPublicationTest(unittest.TestCase):
         delete_sql = cursor.execute.call_args_list[0].args[0]
         select_sql = cursor.execute.call_args_list[1].args[0]
         self.assertIn("stale.url = newer.url", delete_sql)
-        self.assertIn("notification_type='URL_DELETED'", select_sql)
+        self.assertIn("PARTITION BY notification_type ORDER BY queued_at ASC", select_sql)
         self.assertEqual(cursor.execute.call_args_list[1].args[1], (200,))
 
     def test_indexing_notifier_source_stops_after_quota_exhaustion(self):
@@ -61,7 +61,8 @@ class SeoPublicationTest(unittest.TestCase):
     def test_requested_daily_quota_is_supported(self):
         self.assertEqual(MAX_DAILY_LIMIT, 10_000)
         dag = (Path(__file__).parents[1] / "airflow" / "dags" / "lander_pipeline.py").read_text()
-        self.assertIn("notify_google_indexing.py --limit 10000", dag)
+        self.assertNotIn("notify_google_indexing.py --limit 10000", dag)
+        self.assertIn("notify_google_indexing.py --min-interval-seconds", dag)
 
 
 if __name__ == "__main__":

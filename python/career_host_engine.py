@@ -1790,6 +1790,11 @@ def crawl_hosts(
                     conn.commit()
         if not apply:
             conn.rollback()
+        if apply and hosts and successful == 0:
+            raise RuntimeError(
+                f"Career host batch failed: all {len(hosts)} attempted hosts failed; "
+                "per-host outcomes were committed for diagnosis and safe retries"
+            )
         return {"hosts": len(hosts), "successful": successful, "failed": failed,
                 "accepted_jobs": total_jobs, "activated": activated,
                 "blocked_hosts": blocked_hosts}

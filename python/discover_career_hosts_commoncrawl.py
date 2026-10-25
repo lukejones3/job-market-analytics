@@ -13,6 +13,7 @@ import logging
 from pathlib import Path
 import hashlib
 import re
+import time
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -58,11 +59,21 @@ def _latest_indexes(count: int) -> list[str]:
 
 
 def _query_index(index: str, pattern: str, limit: int) -> list[str]:
-    response = requests.get(
-        f"https://index.commoncrawl.org/{index}-index",
-        params={"url": pattern, "output": "json", "fl": "url,status", "filter": "status:200", "limit": limit},
-        timeout=60,
-    )
+    for attempt in range(3):
+        try:
+            response = requests.get(
+                f"https://index.commoncrawl.org/{index}-index",
+                params={"url": pattern, "output": "json", "fl": "url,status", "filter": "status:200", "limit": limit},
+                timeout=60,
+            )
+            if response.status_code == 404:
+                return []
+            response.raise_for_status()
+            break
+        except requests.RequestException:
+            if attempt == 2:
+                raise
+            time.sleep(2 ** attempt)
     if response.status_code == 404:
         return []
     response.raise_for_status()
@@ -81,9 +92,15 @@ def discover(*, apply: bool, platforms: list[str], crawls: int, limit_per_query:
     indexes = _latest_indexes(crawls)
     seeds: dict[tuple[str, str], dict] = {}
     query_counts = defaultdict(int)
+    failures = {}
     for index in indexes:
         for platform in platforms:
-            urls = _query_index(index, PATTERNS[platform], limit_per_query)
+            try:
+                urls = _query_index(index, PATTERNS[platform], limit_per_query)
+            except requests.RequestException as exc:
+                failures[f"{index}:{platform}"] = str(exc)[:300]
+                log.warning("Common Crawl query failed for %s:%s: %s", index, platform, exc)
+                continue
             query_counts[f"{index}:{platform}"] = len(urls)
             for url in urls:
                 fingerprint = fingerprint_url(url)
@@ -99,6 +116,8 @@ def discover(*, apply: bool, platforms: list[str], crawls: int, limit_per_query:
                     "indexes": [],
                 })["indexes"].append(index)
 
+    if failures and not query_counts:
+        raise RuntimeError(f"All {len(failures)} Common Crawl queries failed")
     inserted = 0
     if apply:
         with connection() as conn, conn.cursor() as cur:
@@ -127,7 +146,8 @@ def discover(*, apply: bool, platforms: list[str], crawls: int, limit_per_query:
                     })),
                 )
                 inserted += int(cur.rowcount > 0)
-    return {"indexes": indexes, "query_counts": dict(query_counts), "unique_seeds": len(seeds), "upserted": inserted}
+    return {"indexes": indexes, "query_counts": dict(query_counts), "query_failures": failures,
+            "status": "degraded" if failures else "complete", "unique_seeds": len(seeds), "upserted": inserted}
 
 
 def main() -> None:

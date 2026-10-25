@@ -1,4 +1,6 @@
 -- mart_company_scorecard.sql
+-- Current role, salary, ghost and skill counts use published jobs.
+-- Difficulty/intensity benchmarks retain their separately labelled model populations.
 -- One row per company. Powers recruiter outreach scorecards.
 -- Combines hiring activity, difficulty, honesty, salary, ghost rate, top skills.
 
@@ -17,7 +19,7 @@ with active_jobs as (
     left join {{ source('job_analytics','job_honesty_latest') }} jh
         on jh.job_id = jp.job_id
     where jp.data_tier = 1
-      and jp.status = 'raw'
+      and jp.is_public = true
     group by jp.company_id
 ),
 
@@ -31,7 +33,7 @@ ghost_summary as (
     join {{ source('job_analytics','vw_ghost_job_index') }} g
         on g.job_id = jp.job_id
     where jp.data_tier = 1
-      and jp.status = 'raw'
+      and jp.is_public = true
     group by jp.company_id
 ),
 
@@ -44,7 +46,7 @@ skill_counts as (
     join {{ source('job_analytics','job_skills') }} js on js.job_id = jp.job_id
     join {{ source('job_analytics','skills') }} s on s.skill_id = js.skill_id
     where jp.data_tier = 1
-      and jp.status = 'raw'
+      and jp.is_public = true
       and js.skill_priority = 'required'
       and s.difficulty_relevant = true
     group by jp.company_id, s.skill_name
