@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Lander inventory and operations every six hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:15:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

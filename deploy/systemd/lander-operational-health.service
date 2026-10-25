@@ -1,0 +1,17 @@
+[Unit]
+Description=Lander operational readiness checks
+After=postgresql.service network-online.target
+
+[Service]
+Type=oneshot
+User=airflow
+Group=airflow
+SupplementaryGroups=lander-pipeline
+WorkingDirectory=/opt/job-market-analytics
+EnvironmentFile=/opt/job-market-analytics/.env
+ExecStart=/opt/job-market-analytics/.venv/bin/python python/operational_health.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+TimeoutStartSec=120

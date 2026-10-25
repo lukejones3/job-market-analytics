@@ -20,7 +20,7 @@ removes resumes older than 30 days with their cascading derived records. The
 existing backup rotation retains daily dumps for at most eight days. Resume
 metadata with no content also follows the same deletion rule.
 
-`python/platform_health.py` reports aggregate inventory, classification gaps,
+`python/operational_health.py` reports aggregate inventory, classification gaps,
 direct-host failures, notification backlog, retention, database connections and
 disk usage. A nonzero exit means an operational check needs attention.
 `python/outcome_reminders.py` reports eligible accounts by default. Delivery

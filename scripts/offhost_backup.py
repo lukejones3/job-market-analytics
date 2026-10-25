@@ -20,6 +20,8 @@ CHUNK = 1024 * 1024
 
 
 def download(host, remote_path, archive, key_file):
+    if archive.exists():
+        raise FileExistsError('Archive already exists; verify it or choose a new destination')
     if not re.fullmatch(r'[\w.@-]+', host) or host.startswith('-'):
         raise ValueError('Invalid SSH host')
     if not re.fullmatch(r'/opt/job-market-analytics/backups/airflow/job_analytics_\d{4}-\d{2}-\d{2}\.dump', remote_path):
@@ -98,6 +100,8 @@ if __name__ == '__main__':
     if args.action == 'download':
         print(json.dumps(download(args.host, args.remote_path or '', args.archive, args.key_file)))
     else:
+        if args.action == 'decrypt':
+            verify(args.archive, args.key_file)
         result = verify(args.archive, args.key_file, output=args.action == 'decrypt')
         if args.action == 'verify':
             print(json.dumps(result))
