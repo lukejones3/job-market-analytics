@@ -89,3 +89,16 @@ def test_retention_apply_cascades_private_derived_data_in_restore_only(conn):
         for table in ['resume_entities', 'resume_skills', 'resume_runs', 'resume_job_matches', 'resume_scores']:
             cur.execute(f'SELECT count(*) FROM {table} d LEFT JOIN resumes r USING(resume_id) WHERE r.resume_id IS NULL')
             assert cur.fetchone()[0] == 0
+
+
+def test_web_role_can_record_milestones_and_remove_account_activity(conn):
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM pg_roles WHERE rolname='lander_web'")
+        if not cur.fetchone():
+            pytest.skip('No separate web role in this fixture database')
+        for table, privileges in [('product_lifecycle_events', ['INSERT', 'SELECT', 'DELETE']),
+                                  ('auth_magic_tokens', ['DELETE']), ('api_usage', ['DELETE']),
+                                  ('company_radar_alert_deliveries', ['DELETE']), ('outreach_recipients', ['DELETE'])]:
+            for privilege in privileges:
+                cur.execute('SELECT has_table_privilege(%s,%s,%s)', ('lander_web', table, privilege))
+                assert cur.fetchone()[0], (table, privilege)

@@ -2200,7 +2200,8 @@ async def cancel_subscription(request: Request, key: dict = Depends(verify_billi
     email = key.get('billing_email') or _client_email_for_key(conn, key)
     try:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute('SELECT customer_id FROM billing_customers WHERE key_id=%s ORDER BY created_at', (key['key_id'],))
+            cur.execute('''SELECT bc.customer_id FROM billing_customers bc JOIN api_keys ak ON ak.key_id=bc.key_id
+                WHERE ak.key_id=%s OR lower(ak.client_email)=%s ORDER BY bc.created_at''', (key['key_id'], email))
             linked = cur.fetchall()
         customer_ids = [row['customer_id'] for row in linked] if linked else [await asyncio.to_thread(_stripe_customer_id_for_email, email)]
     except HTTPException as exc:
