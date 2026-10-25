@@ -1,0 +1,6 @@
+# PostgreSQL-backed scheduler runtime, isolated from application/model packages.
+-c requirements-ci.lock
+apache-airflow==3.3.2
+apache-airflow-providers-standard==1.17.0
+psycopg2-binary>=2.9.12
+asyncpg>=0.30.0,<1

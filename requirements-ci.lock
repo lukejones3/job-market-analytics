@@ -80,6 +80,8 @@ asgiref==3.12.1
     #   apache-airflow-core
     #   apache-airflow-providers-common-compat
     #   apache-airflow-task-sdk
+asyncpg==0.32.0
+    # via -r requirements-ci.in
 attrs==26.1.0
     # via
     #   aiohttp

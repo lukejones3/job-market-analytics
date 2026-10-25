@@ -4,3 +4,4 @@ apache-airflow-providers-standard==1.17.0
 pytest
 pip-audit
 ruff
+asyncpg>=0.30.0,<1
