@@ -1,0 +1,18 @@
+[Unit]
+Description=Flush Lander lifecycle notifications within the Pacific-day Google quota
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=airflow
+Group=airflow
+SupplementaryGroups=lander-pipeline
+WorkingDirectory=/opt/job-market-analytics
+EnvironmentFile=/etc/airflow/airflow.env
+EnvironmentFile=/opt/job-market-analytics/.env
+ExecStart=/opt/job-market-analytics/.venv/bin/python python/notify_google_indexing.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+TimeoutStartSec=900

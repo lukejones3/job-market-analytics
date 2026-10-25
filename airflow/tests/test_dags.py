@@ -63,6 +63,8 @@ def test_nightly_has_complete_safe_publish_path():
 
 def test_discovery_pipeline_is_ordered():
     discovery = dag("lander_ats_discovery")
+    assert str(discovery.get_task("validate_ats_tenants").trigger_rule).lower().endswith("all_done")
+    assert str(discovery.get_task("integrate_ats_tenants").trigger_rule).lower().endswith("all_success")
     chain = ("discover_ats_tenants", "validate_ats_tenants", "integrate_ats_tenants",
              "ats_discovery_health")
     for task, successor in zip(chain, chain[1:]):

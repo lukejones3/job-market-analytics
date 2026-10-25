@@ -237,7 +237,7 @@ with DAG(dag_id="lander_ats_discovery",
     discover_icims_crawl = command("discover_icims_commoncrawl",
         f"{PYTHON} python/discover_icims_commoncrawl.py --apply --limit 200")
     validate_tenants = command("validate_ats_tenants",
-        f"{PYTHON} python/validate_ats_candidates.py --apply")
+        f"{PYTHON} python/validate_ats_candidates.py --apply", trigger_rule="all_done")
     integrate_tenants = command("integrate_ats_tenants",
         f"{PYTHON} python/integrate_ats_candidates.py --apply")
     health_report = command("ats_discovery_health",
