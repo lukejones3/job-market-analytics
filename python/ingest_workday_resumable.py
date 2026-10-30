@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from psycopg2.extras import Json
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -101,6 +102,8 @@ class TenantBatchFailures(RuntimeError):
 
 
 def run_checkpoints(pending, orchestration_run_id, *, apply, source, batch_size, delay):
+    if source == 'smartrecruiters':
+        return run_company_checkpoints(pending, orchestration_run_id, apply=apply)
     failed = []
     pending_batches = list(batches(pending, batch_size))
     for position, tenant_batch in enumerate(pending_batches, start=1):
@@ -116,6 +119,32 @@ def run_checkpoints(pending, orchestration_run_id, *, apply, source, batch_size,
             time.sleep(delay)
     if failed:
         raise TenantBatchFailures(f"{source}: sweep finished with {len(failed)} tenants in failed batches; clean checkpoints preserved")
+
+
+def run_company_checkpoints(pending, orchestration_run_id, *, apply):
+    """Commit each company separately while keeping provider request fan-out bounded."""
+    failed = []
+    workers = max(1, min(8, int(os.getenv('SMARTRECRUITERS_CONCURRENCY', '4'))))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(run_batch, [tenant], orchestration_run_id,
+                                  apply=apply, source='smartrecruiters'): tenant for tenant in pending}
+        try:
+            for position, future in enumerate(as_completed(futures), 1):
+                tenant = futures[future]
+                try:
+                    future.result()
+                except subprocess.CalledProcessError as exc:
+                    if exc.returncode != 3:
+                        raise
+                    failed.append(tenant)
+                    print(f'SmartRecruiters tenant unavailable: {tenant}; continuing inventory', flush=True)
+                print(f'SmartRecruiters company checkpoints: {position}/{len(pending)} finished ({tenant})', flush=True)
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            raise
+    if failed:
+        raise TenantBatchFailures(f'smartrecruiters: sweep finished with {len(failed)} failed companies; clean checkpoints preserved')
 
 
 def sweep_record(run_id, source, orchestration_run_id, inventory, *, finished=False, fatal=False, degraded=False):

@@ -5,6 +5,7 @@ import subprocess
 import pytest
 from contextlib import nullcontext
 from types import SimpleNamespace
+from threading import Barrier
 
 
 def test_unique_tenants_preserves_order_and_collapses_multiple_boards():
@@ -92,3 +93,21 @@ def test_sweep_requires_an_outcome_for_every_planned_tenant(monkeypatch, termina
     args = writes[-1][1]
     assert args[3] == expected
     assert args[5].adapted['unaccounted_tenants'] == sorted({'healthy','failed'}-terminal)
+
+
+def test_company_checkpoints_run_concurrently_and_commit_independently(monkeypatch):
+    barrier = Barrier(2, timeout=3)
+    completed = []
+    def run(tenants, orchestration_run_id, *, apply, source):
+        assert len(tenants) == 1
+        assert source == 'smartrecruiters'
+        barrier.wait()
+        completed.extend(tenants)
+        if tenants == ['failed']:
+            raise subprocess.CalledProcessError(3, ['ingest'])
+    monkeypatch.setattr(resumable, 'run_batch', run)
+    monkeypatch.setenv('SMARTRECRUITERS_CONCURRENCY', '2')
+    with pytest.raises(resumable.TenantBatchFailures):
+        resumable.run_checkpoints(['healthy', 'failed'], 'run', apply=True,
+                                 source='smartrecruiters', batch_size=8, delay=0)
+    assert set(completed) == {'healthy', 'failed'}

@@ -3769,7 +3769,7 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
             source_jobs_fetched = sum(outcome.jobs_fetched for outcome in successful)
             source_status = "source_failure" if isolated_failure else "complete_nonzero" if source_jobs_fetched else "complete_zero"
             with get_conn() as empty_conn, empty_conn.cursor() as empty_cur:
-                empty_cur.execute(Path("sql/ingestion_observability.sql").read_text(encoding="utf-8"))
+                ensure_observability_schema(empty_cur)
                 empty_cur.execute("""INSERT INTO ingestion_crawl_runs
                     (run_id, source, orchestration_run_id, finished_at, status, jobs_fetched, detail)
                     VALUES (%s, %s, %s, now(), %s, %s,

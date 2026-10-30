@@ -130,6 +130,7 @@ def test_empty_failed_batch_persists_outcomes_and_uses_outage_exit(monkeypatch):
     cursor = SimpleNamespace(execute=lambda sql, args=None: statements.append((sql, args)))
     conn = SimpleNamespace(cursor=lambda: nullcontext(cursor))
     monkeypatch.setattr(ingest_jobs, 'get_conn', lambda: nullcontext(conn))
+    monkeypatch.setattr(ingest_jobs, 'ensure_observability_schema', lambda cur: None)
     def fetch():
         ingest_jobs.record_failure('smartrecruiters', 'failed', 'provider unavailable')
         return []
