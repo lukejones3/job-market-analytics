@@ -10,6 +10,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import psycopg2
 import requests
@@ -18,10 +19,12 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
 
 TO_EMAIL = os.getenv("MORNING_REPORT_TO", "jones31luke@gmail.com")
+REPORT_TIMEZONE = ZoneInfo('America/Chicago')
 DB_CONFIG = {
     "host": os.getenv("PGHOST"), "port": int(os.getenv("PGPORT", 5432)),
     "dbname": os.getenv("PGDATABASE"), "user": os.getenv("PGUSER"),
     "password": os.getenv("PGPASSWORD"),
+    "connect_timeout": 5, "options": "-c statement_timeout=30000",
 }
 
 
@@ -31,6 +34,10 @@ def get_conn():
 
 def _n(value) -> str:
     return f"{int(value or 0):,}"
+
+
+def delivery_day(now=None):
+    return (now or datetime.now(timezone.utc)).astimezone(REPORT_TIMEZONE).strftime('%Y-%m-%d')
 
 
 def pipeline_status() -> dict:
@@ -177,7 +184,7 @@ def build_report() -> str:
     <div style='padding:28px 30px;border-bottom:1px solid #292b30'>
       <div style='font-size:12px;letter-spacing:2px;color:#90939a'>LANDER / DAILY SYSTEM BRIEF</div>
       <h1 style='font-size:30px;margin:12px 0 6px'>The market, after the crawl.</h1>
-      <div style='color:#9699a1'>{now:%A, %B %d} · generated {now:%H:%M} UTC</div>
+      <div style='color:#9699a1'>{now.astimezone(REPORT_TIMEZONE):%A, %B %d} · generated {now.astimezone(REPORT_TIMEZONE):%H:%M %Z}</div>
     </div>
     <div style='padding:26px 30px'>
       <div style='display:inline-block;padding:7px 12px;border-radius:999px;background:{accent};color:#111;font-weight:700'>{overall}</div>
@@ -218,11 +225,11 @@ def send_email(report_html: str, delivery_key: str | None = None) -> str:
     response = requests.post(
         "https://api.resend.com/emails",
         headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
-                 "Idempotency-Key": delivery_key or f"lander-daily-{datetime.now(timezone.utc):%Y-%m-%d}"},
+                 "Idempotency-Key": delivery_key or f"lander-daily-{delivery_day()}"},
         json={
             "from": os.getenv("RESEND_FROM", "Lander <onboarding@resend.dev>"),
             "to": [TO_EMAIL],
-            "subject": f"Lander brief · {datetime.now():%b %d}",
+            "subject": f"Lander brief · {datetime.now(timezone.utc).astimezone(REPORT_TIMEZONE):%b %d}",
             "html": report_html,
         }, timeout=15,
     )
@@ -259,7 +266,7 @@ def main():
         if args.dry_run:
             print('Report rendered; dry run did not send')
             return
-        day = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        day = delivery_day()
         ledger = folder/f'morning-report-{day}.json'
         state = json.loads(ledger.read_text()) if ledger.exists() else {'html': report}
         if state.get('delivery_id'):

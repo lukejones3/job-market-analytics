@@ -5,6 +5,11 @@ import pytest
 import morning_report as report
 
 
+def test_late_pipeline_completion_does_not_consume_tomorrows_central_brief():
+    assert report.delivery_day(datetime(2026,10,31,2,tzinfo=timezone.utc)) == '2026-10-30'
+    assert report.delivery_day(datetime(2026,10,31,13,30,tzinfo=timezone.utc)) == '2026-10-31'
+
+
 def test_stale_publication_cannot_be_reported_healthy():
     now = datetime.now(timezone.utc)
     assert report.report_state([], (now-timedelta(days=6),), {'state':'success'}, now) == 'Needs attention'
