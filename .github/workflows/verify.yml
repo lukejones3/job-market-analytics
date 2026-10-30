@@ -9,6 +9,20 @@ jobs:
   python:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          # This credential exists only inside the disposable CI database.
+          POSTGRES_PASSWORD: recovery_test # pragma: allowlist secret
+          POSTGRES_DB: lander_test_recovery
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,3 +34,10 @@ jobs:
       - run: ruff check python tests airflow
       - run: pip-audit -r requirements.lock
       - run: pytest
+      - name: Verify checkpoint expiry against PostgreSQL
+        run: pytest tests/test_ingestion_recovery_database.py
+        env:
+          LANDER_TEST_DB: lander_test_recovery
+          PGHOST: 127.0.0.1
+          PGUSER: postgres
+          PGPASSWORD: recovery_test # pragma: allowlist secret
