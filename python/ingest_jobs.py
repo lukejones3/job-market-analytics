@@ -2834,12 +2834,35 @@ async def _wd_detail(
     return None
 
 
+def _workday_job_from_detail(meta, detail, *, name, tenant, board, base):
+    """Build the same validated row for a full crawl or a timed-out partial crawl."""
+    title, ext_path, job_id, location, workplace_type = meta
+    desc, detail_loc, posted_date, detail_remote = detail or ('', '', None, None)
+    if detail_loc and (not location or 'location' in location.lower()):
+        location = detail_loc
+    if workplace_type is None:
+        workplace_type = detail_remote
+    if _wd_is_obviously_non_us(location):
+        return None
+    if workplace_type is None:
+        if 'remote' in location.lower() or 'virtual' in location.lower():
+            workplace_type = 'remote'
+        elif 'hybrid' in location.lower():
+            workplace_type = 'hybrid'
+    return RawJob(source='workday', source_id=job_id, company=name, title=title,
+        location=location, description=desc,
+        job_url=f"{base}/en-US/{board}/{ext_path.lstrip('/')}",
+        salary_min=None, salary_max=None, salary_period=None,
+        workplace_type=workplace_type, posted_date=posted_date, metadata={'tenant':tenant})
+
+
 async def _fetch_workday_tenant_async(
     session: aiohttp.ClientSession,
     name: str,
     tenant: str,
     board: str,
     wd_server: str,
+    progress: Optional[List[RawJob]] = None,
 ) -> List[RawJob]:
     tenant_partial = False
     base = f"https://{tenant}.{wd_server}.myworkdayjobs.com"
@@ -2987,14 +3010,23 @@ async def _fetch_workday_tenant_async(
                 return ("", "", None, None)
             detail_coros.append(_noop())
 
-    detail_results = await asyncio.gather(*detail_coros, return_exceptions=True)
+    async def track_detail(meta, coro):
+        result = await coro
+        if result is not None and progress is not None:
+            row = _workday_job_from_detail(meta, result, name=name, tenant=tenant, board=board, base=base)
+            if row is not None:
+                progress.append(row)
+        return result
+
+    detail_results = await asyncio.gather(
+        *(track_detail(meta, coro) for meta, coro in zip(posting_meta, detail_coros)),
+        return_exceptions=True)
 
     jobs: List[RawJob] = []
     detail_failures = 0
-    for (title, ext_path, job_id, location, workplace_type), dr in zip(posting_meta, detail_results):
+    for meta, dr in zip(posting_meta, detail_results):
         if isinstance(dr, Exception):
-            log.warning(f"  Workday [{name}] unexpected gather exception for {title!r}: {dr}")
-            detail_failures += 1
+            log.warning(f"  Workday [{name}] unexpected gather exception for {meta[0]!r}: {dr}")
             dr = None
         if dr is None:
             # Detail fetch failed (failure already logged in _wd_detail).
@@ -3004,54 +3036,9 @@ async def _fetch_workday_tenant_async(
             # due to a transient fetch failure.  ingest_job() gates out any new
             # INSERT for empty-description Workday rows.
             detail_failures += 1
-            jobs.append(RawJob(
-                source="workday",
-                source_id=job_id,
-                company=name,
-                title=title,
-                location=location,
-                description="",
-                job_url=f"{base}/en-US/{board}/{ext_path.lstrip('/')}",
-                salary_min=None,
-                salary_max=None,
-                salary_period=None,
-                workplace_type=workplace_type,
-                posted_date=None,
-                metadata={"tenant": tenant},
-            ))
-            continue
-        desc, detail_loc, posted_date, detail_remote = dr
-
-        if detail_loc and (not location or "location" in location.lower()):
-            location = detail_loc
-        if workplace_type is None:
-            workplace_type = detail_remote
-
-        loc_lower = location.lower()
-        if _wd_is_obviously_non_us(location):
-            continue
-
-        if workplace_type is None:
-            if "remote" in loc_lower or "virtual" in loc_lower:
-                workplace_type = "remote"
-            elif "hybrid" in loc_lower:
-                workplace_type = "hybrid"
-
-        jobs.append(RawJob(
-            source="workday",
-            source_id=job_id,
-            company=name,
-            title=title,
-            location=location,
-            description=desc,
-            job_url=f"{base}/en-US/{board}/{ext_path.lstrip('/')}",
-            salary_min=None,
-            salary_max=None,
-            salary_period=None,
-            workplace_type=workplace_type,
-            posted_date=posted_date,
-            metadata={"tenant": tenant},
-        ))
+        row = _workday_job_from_detail(meta, dr, name=name, tenant=tenant, board=board, base=base)
+        if row is not None:
+            jobs.append(row)
 
     if detail_failures:
         log.warning(
@@ -3080,9 +3067,10 @@ async def _fetch_workday_tenant_bounded(
     wd_server: str,
 ) -> List[RawJob]:
     """Keep one throttled tenant from consuming the entire Airflow task window."""
+    progress: List[RawJob] = []
     try:
         return await asyncio.wait_for(
-            _fetch_workday_tenant_async(session, name, tenant, board, wd_server),
+            _fetch_workday_tenant_async(session, name, tenant, board, wd_server, progress=progress),
             timeout=_WD_TENANT_TIMEOUT_SECS,
         )
     except asyncio.TimeoutError:
@@ -3090,8 +3078,9 @@ async def _fetch_workday_tenant_bounded(
             f"Workday [{name}] exceeded {_WD_TENANT_TIMEOUT_SECS}s tenant budget; "
             "deferring it to the next ingest"
         )
-        record_failure("workday", tenant, "tenant crawl timeout")
-        return []
+        record_failure("workday", tenant, "tenant crawl timeout", partial=bool(progress),
+                       completed_details=len(progress))
+        return progress
 
 
 def _load_workday_list() -> List[Tuple[str, str, str, str]]:

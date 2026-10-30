@@ -70,3 +70,31 @@ def test_workday_tenant_timeout_returns_without_failing_source(monkeypatch):
         ingest_jobs._fetch_workday_tenant_bounded(None, "Blocked", "blocked", "Jobs", "wd5")
     )
     assert result == []
+
+
+def test_workday_timeout_keeps_completed_details_without_authorizing_expiry(monkeypatch):
+    postings = [
+        {'title':'Data Engineer','externalPath':'/job/fast','locationsText':'Austin, TX'},
+        {'title':'Data Engineer','externalPath':'/job/slow','locationsText':'Austin, TX'},
+    ]
+    async def listing(*args, **kwargs):
+        return postings, 2, 200
+    async def detail(session, url, headers):
+        if url.endswith('/slow'):
+            await asyncio.sleep(10)
+        return 'Build reliable data pipelines. '*20, 'Austin, TX', '2026-10-30', 'hybrid'
+    async def no_pause():
+        pass
+    monkeypatch.setattr(ingest_jobs, '_wd_fetch_page', listing)
+    monkeypatch.setattr(ingest_jobs, '_wd_detail', detail)
+    monkeypatch.setattr(ingest_jobs, '_wd_check_pause', no_pause)
+    monkeypatch.setattr(ingest_jobs, '_WD_TENANT_TIMEOUT_SECS', .05)
+    ingest_jobs.reset_tenant_outcomes()
+    rows = asyncio.run(ingest_jobs._fetch_workday_tenant_bounded(None, 'Probe', 'probe', 'Jobs', 'wd5'))
+    assert len(rows) == 1
+    assert rows[0].job_url.endswith('/job/fast')
+    assert rows[0].description.startswith('Build reliable')
+    assert rows[0].workplace_type == 'hybrid'
+    outcome = ingest_jobs.tenant_outcomes('workday')[0]
+    assert outcome.status == 'partial_failure'
+    assert outcome.detail['completed_details'] == 1
