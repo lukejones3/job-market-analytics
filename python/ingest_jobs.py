@@ -998,10 +998,10 @@ def _is_target_role(title: str) -> bool:
 def _throttle():
     time.sleep(REQUEST_DELAY_SECONDS)
 
-def _get(url: str, params: dict = None, timeout: int = 12) -> Optional[dict]:
+def _get(url: str, params: dict = None, timeout: int = 12, client=None) -> Optional[dict]:
     """Safe GET with error handling."""
     try:
-        r = requests.get(url, params=params, timeout=timeout,
+        r = (client or requests).get(url, params=params, timeout=timeout,
                          headers={"User-Agent": "JobAnalyticsPipeline/1.0"})
         if r.status_code == 200:
             return r.json()
@@ -3231,7 +3231,7 @@ AMAZON_SEARCH_TERMS = [
 ]
 
 
-def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
+def fetch_smartrecruiters(company_name: str, company_slug: str, client=None) -> List[RawJob]:
     # SR_PATCH_v1_detail_fetch
     """
     Pull all published jobs from a SmartRecruiters company board.
@@ -3258,7 +3258,7 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
         if time.monotonic() >= deadline:
             record_failure('smartrecruiters', company_slug, 'tenant crawl timeout', partial=bool(jobs))
             return jobs
-        data = _get(base_url, params={"limit": limit, "offset": offset})
+        data = _get(base_url, params={"limit": limit, "offset": offset}, client=client)
         _throttle()
         if data is None or not isinstance(data, dict):
             record_failure(
@@ -3305,7 +3305,7 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
             # the detail endpoint: an empty description cannot be scope-checked
             # and must never stand in for the stored one (see ingest_job).
             detail_url = j.get("ref") or f"{base_url}/{posting_id}"
-            detail = _get(detail_url)
+            detail = _get(detail_url, client=client)
             _throttle()
             if not isinstance(detail, dict) or not detail:
                 record_failure('smartrecruiters', company_slug, 'posting detail unavailable', partial=True,
@@ -3390,8 +3390,13 @@ def fetch_all_smartrecruiters() -> List[RawJob]:
     log.info(f"  SmartRecruiters: pulling {len(companies)} companies from DB")
     all_jobs: List[RawJob] = []
     workers = max(1, min(8, int(os.getenv("SMARTRECRUITERS_CONCURRENCY", "4"))))
+    def fetch_company(name, slug):
+        # Each worker owns a connection pool; no mutable Session is shared
+        # between threads or leaked past a company crawl.
+        with requests.Session() as client:
+            return fetch_smartrecruiters(name, slug, client=client)
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        pending = {executor.submit(fetch_smartrecruiters, name, slug): (name, slug) for name, slug in companies}
+        pending = {executor.submit(fetch_company, name, slug): (name, slug) for name, slug in companies}
         for future in as_completed(pending):
             name, slug = pending[future]
             try:

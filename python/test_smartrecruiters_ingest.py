@@ -90,7 +90,7 @@ def test_smartrecruiters_always_fetches_detail():
     }}}
     calls = []
 
-    def fake_get(url, params=None, timeout=12):
+    def fake_get(url, params=None, timeout=12, **kwargs):
         calls.append(url)
         return detail if url.endswith("/42") else listing
 
@@ -112,8 +112,9 @@ def test_smartrecruiters_fetches_companies_concurrently_and_keeps_failures(monke
     monkeypatch.setattr(ingest_jobs, 'get_conn', lambda: conn)
     monkeypatch.setenv('SMARTRECRUITERS_CONCURRENCY', '2')
     barrier = Barrier(2, timeout=3)
-    def fetch(name, slug):
+    def fetch(name, slug, client=None):
         barrier.wait()
+        assert client is not None
         if slug == 'two':
             raise RuntimeError('provider down')
         return [_sr_job('valid')]
