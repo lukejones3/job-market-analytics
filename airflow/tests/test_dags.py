@@ -23,6 +23,7 @@ def test_schedules_are_explicit_central_time():
         "lander_company_radar_research": "0 9 * * *",
         "lander_career_host_engine": "0 10 * * *",
         "lander_resume_embeddings": "*/5 * * * *",
+        "lander_daily_brief": "30 8 * * *",
     }
     bag = dag_bag()
     for dag_id, expression in expected.items():
@@ -156,3 +157,16 @@ def test_terminal_tasks_preserve_upstream_failures():
         assert str(end.trigger_rule).lower().endswith("all_success")
         assert end.upstream_task_ids == set(pipeline.task_ids) - {terminal}
         assert {task.task_id for task in pipeline.leaves} == {terminal}
+
+
+def test_report_survives_pipeline_failure_and_has_an_independent_schedule():
+    nightly = dag('lander_nightly')
+    report = nightly.get_task('morning_report')
+    assert str(report.trigger_rule).lower().endswith('all_done')
+    assert report.upstream_task_ids == set(nightly.task_ids)-{'morning_report', 'nightly_complete'}
+    independent = dag('lander_daily_brief')
+    assert independent.task_ids == ['morning_report']
+    assert independent.get_task('morning_report').upstream_task_ids == set()
+    sr = nightly.get_task('ingest_smartrecruiters')
+    assert 'ingest_workday_resumable.py --source smartrecruiters' in sr.bash_command
+    assert sr.execution_timeout.total_seconds() == 6*3600

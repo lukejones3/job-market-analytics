@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import ingest_workday_resumable as resumable
+import subprocess
+import pytest
+from contextlib import nullcontext
+from types import SimpleNamespace
 
 
 def test_unique_tenants_preserves_order_and_collapses_multiple_boards():
@@ -35,3 +39,56 @@ def test_run_batch_scopes_child_ingestor(monkeypatch):
     assert captured["command"][-1] == "--apply"
     run_id_index = captured["command"].index("--orchestration-run-id")
     assert captured["command"][run_id_index + 1] == "manual__one"
+
+
+def test_failed_provider_batch_does_not_strand_later_tenants(monkeypatch):
+    attempted = []
+    def run(tenants, *args, **kwargs):
+        attempted.extend(tenants)
+        if tenants == ['bad']:
+            raise subprocess.CalledProcessError(3, ['ingest'])
+    monkeypatch.setattr(resumable, 'run_batch', run)
+    with pytest.raises(resumable.TenantBatchFailures):
+        resumable.run_checkpoints(['bad', 'healthy'], 'run', apply=True,
+                                 source='workday', batch_size=1, delay=0)
+    assert attempted == ['bad', 'healthy']
+
+
+def test_program_or_write_failure_stops_sweep(monkeypatch):
+    attempted = []
+    def run(tenants, *args, **kwargs):
+        attempted.extend(tenants)
+        raise subprocess.CalledProcessError(1, ['ingest'])
+    monkeypatch.setattr(resumable, 'run_batch', run)
+    with pytest.raises(subprocess.CalledProcessError):
+        resumable.run_checkpoints(['bad', 'later'], 'run', apply=True,
+                                 source='workday', batch_size=1, delay=0)
+    assert attempted == ['bad']
+
+
+def test_smartrecruiters_checkpoints_scope_the_correct_source(monkeypatch):
+    calls = []
+    monkeypatch.setattr(resumable.subprocess, 'run', lambda command, env, check: calls.append((command, env)))
+    resumable.run_batch(['acme'], 'run', apply=True, source='smartrecruiters')
+    command, env = calls[0]
+    assert command[command.index('--source')+1] == 'smartrecruiters'
+    assert env['SMARTRECRUITERS_TENANT_FILTER'] == 'acme'
+    assert env['WORKDAY_TENANT_TIMEOUT_SECONDS'] == '600'
+
+
+@pytest.mark.parametrize('terminal,clean,expected', [
+    ({'healthy','failed'}, {'healthy'}, 'complete_nonzero'),
+    ({'healthy'}, {'healthy'}, 'source_failure'),
+    ({'failed'}, set(), 'source_failure'),
+])
+def test_sweep_requires_an_outcome_for_every_planned_tenant(monkeypatch, terminal, clean, expected):
+    monkeypatch.setattr(resumable, 'completed_tenants', lambda *a: clean)
+    writes = []
+    cursor = SimpleNamespace(execute=lambda sql, args: writes.append((sql,args)),
+                             fetchall=lambda: [(tenant,) for tenant in terminal])
+    conn = SimpleNamespace(cursor=lambda: nullcontext(cursor))
+    monkeypatch.setattr(resumable.ingest_jobs, 'get_conn', lambda: nullcontext(conn))
+    assert resumable.sweep_record('sweep', 'workday', 'run', ['healthy','failed'], finished=True) == expected
+    args = writes[-1][1]
+    assert args[3] == expected
+    assert args[5].adapted['unaccounted_tenants'] == sorted({'healthy','failed'}-terminal)

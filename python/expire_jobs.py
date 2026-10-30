@@ -10,6 +10,7 @@ import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 import psycopg2
+from airflow_quality_gate import apply_checkpoint_sweeps
 
 INGEST_SOURCES = ("greenhouse", "lever", "ashby", "workday", "eightfold",
     "amazon", "smartrecruiters", "workable", "icims", "taleo", "jobvite", "bamboohr")
@@ -43,12 +44,31 @@ def main():
                 WHERE orchestration_run_id = %s AND source = ANY(%s)
                 GROUP BY source""", (args.since, list(INGEST_SOURCES)))
             outcomes = {source: (succeeded, running) for source, succeeded, running in cur.fetchall()}
+            cur.execute("""SELECT DISTINCT ON(source) source,status,finished_at,errors
+                FROM ingestion_crawl_runs WHERE orchestration_run_id=%s
+                  AND detail->>'checkpoint_sweep'='true'
+                ORDER BY source,started_at DESC,run_id DESC""", (args.since,))
+            apply_checkpoint_sweeps(outcomes, cur.fetchall())
             healthy_sources = [source for source in INGEST_SOURCES
                 if outcomes.get(source, (False, 1))[0] and outcomes[source][1] == 0]
             if not healthy_sources:
                 print("⚠️ No sources completed recently — skipping expiry")
                 return
             print(f"✅ Expiring only healthy sources: {', '.join(healthy_sources)}")
+
+            # The latest tenant attempt wins. An earlier clean checkpoint must
+            # not authorize deletion after a later partial/failed attempt.
+            cur.execute("""CREATE TEMP TABLE expiry_clean_tenants ON COMMIT DROP AS
+                SELECT source,crawl_tenant FROM (
+                    SELECT DISTINCT ON(tr.source,tr.crawl_tenant)
+                        tr.source,tr.crawl_tenant,tr.status,cr.status AS crawl_status,cr.errors
+                    FROM ingestion_tenant_runs tr JOIN ingestion_crawl_runs cr USING(run_id)
+                    WHERE cr.orchestration_run_id=%s AND tr.source=ANY(%s)
+                    ORDER BY tr.source,tr.crawl_tenant,cr.started_at DESC,tr.run_id DESC
+                ) latest WHERE status IN ('complete_nonzero','complete_zero')
+                  AND crawl_status IN ('complete_nonzero','complete_zero') AND errors=0""",
+                (args.since, healthy_sources))
+            cur.execute("CREATE UNIQUE INDEX ON expiry_clean_tenants(source,crawl_tenant)")
 
             # Log disappeared events BEFORE marking expired (so we capture last_seen_at)
             cur.execute("""
@@ -59,14 +79,11 @@ def main():
                   AND jp.status != 'expired'
                   AND jp.ingestion_source = ANY(%s)
                   AND jp.crawl_tenant IS NOT NULL
-                  AND EXISTS (SELECT 1 FROM ingestion_tenant_runs tr
-                      JOIN ingestion_crawl_runs cr ON cr.run_id=tr.run_id
-                      WHERE cr.orchestration_run_id=%s
-                        AND tr.source=jp.ingestion_source AND tr.crawl_tenant=jp.crawl_tenant
-                        AND tr.status IN ('complete_nonzero','complete_zero'))
+                  AND EXISTS (SELECT 1 FROM expiry_clean_tenants tr
+                      WHERE tr.source=jp.ingestion_source AND tr.crawl_tenant=jp.crawl_tenant)
                   AND jp.last_seen_at < now() - interval '1 day'
                 ON CONFLICT DO NOTHING
-            """, (healthy_sources, args.since))
+            """, (healthy_sources,))
             disappeared_events = cur.rowcount
 
             # Mark expired — not seen in today's run (missed last_seen_at update)
@@ -78,13 +95,10 @@ def main():
                 AND jp.status != 'expired'
                 AND jp.ingestion_source = ANY(%s)
                 AND jp.crawl_tenant IS NOT NULL
-                AND EXISTS (SELECT 1 FROM ingestion_tenant_runs tr
-                    JOIN ingestion_crawl_runs cr ON cr.run_id=tr.run_id
-                    WHERE cr.orchestration_run_id=%s
-                      AND tr.source=jp.ingestion_source AND tr.crawl_tenant=jp.crawl_tenant
-                      AND tr.status IN ('complete_nonzero','complete_zero'))
+                AND EXISTS (SELECT 1 FROM expiry_clean_tenants tr
+                    WHERE tr.source=jp.ingestion_source AND tr.crawl_tenant=jp.crawl_tenant)
                 AND jp.last_seen_at < now() - interval '1 day'
-            """, (healthy_sources, args.since))
+            """, (healthy_sources,))
             expired = cur.rowcount
             print(f"Marked expired: {expired}  (logged {disappeared_events} disappeared events)")
 

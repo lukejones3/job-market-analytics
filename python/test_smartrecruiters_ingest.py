@@ -19,6 +19,10 @@ last_seen_at only" for every source.
 import sys
 from pathlib import Path
 from unittest.mock import patch
+from threading import Barrier
+from contextlib import nullcontext
+from types import SimpleNamespace
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -99,6 +103,43 @@ def test_smartrecruiters_always_fetches_detail():
     assert "Build data pipelines" in (jobs[0].description or "")
     assert any(url.endswith("/42") for url in calls), "detail endpoint must be hit"
     assert jobs[0].posted_date == "2026-08-01"
+
+
+def test_smartrecruiters_fetches_companies_concurrently_and_keeps_failures(monkeypatch):
+    cursor = SimpleNamespace(execute=lambda *a: None,
+        fetchall=lambda: [('One', 'one'), ('Two', 'two')], close=lambda: None)
+    conn = SimpleNamespace(cursor=lambda: cursor, close=lambda: None)
+    monkeypatch.setattr(ingest_jobs, 'get_conn', lambda: conn)
+    monkeypatch.setenv('SMARTRECRUITERS_CONCURRENCY', '2')
+    barrier = Barrier(2, timeout=3)
+    def fetch(name, slug):
+        barrier.wait()
+        if slug == 'two':
+            raise RuntimeError('provider down')
+        return [_sr_job('valid')]
+    failures = []
+    monkeypatch.setattr(ingest_jobs, 'fetch_smartrecruiters', fetch)
+    monkeypatch.setattr(ingest_jobs, 'record_failure', lambda *a: failures.append(a))
+    assert len(ingest_jobs.fetch_all_smartrecruiters()) == 1
+    assert failures[0][:2] == ('smartrecruiters', 'two')
+
+
+def test_empty_failed_batch_persists_outcomes_and_uses_outage_exit(monkeypatch):
+    statements = []
+    cursor = SimpleNamespace(execute=lambda sql, args=None: statements.append((sql, args)))
+    conn = SimpleNamespace(cursor=lambda: nullcontext(cursor))
+    monkeypatch.setattr(ingest_jobs, 'get_conn', lambda: nullcontext(conn))
+    def fetch():
+        ingest_jobs.record_failure('smartrecruiters', 'failed', 'provider unavailable')
+        return []
+    monkeypatch.setattr(ingest_jobs, 'fetch_all_smartrecruiters', fetch)
+    with pytest.raises(SystemExit) as exc:
+        ingest_jobs.run_ingestion('smartrecruiters', True, 'run', accept_empty=True)
+    assert exc.value.code == 3
+    crawl = next(args for sql, args in statements if 'INSERT INTO ingestion_crawl_runs' in sql)
+    assert crawl[3] == 'source_failure'
+    tenant = next(args for sql, args in statements if 'INSERT INTO ingestion_tenant_runs' in sql)
+    assert tenant[2:4] == ('failed', 'failed')
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ import re
 import sys
 import argparse
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Tuple
@@ -3373,24 +3374,30 @@ def fetch_all_smartrecruiters() -> List[RawJob]:
     """Fetch all SmartRecruiters companies from discovered_companies table."""
     conn = get_conn()
     cur = conn.cursor()
+    selected = [value.strip().lower() for value in os.getenv("SMARTRECRUITERS_TENANT_FILTER", "").split(",") if value.strip()]
     cur.execute("""
         SELECT company_name, board_token
         FROM discovered_companies
         WHERE ats_source = 'smartrecruiters' AND enabled = true
+          AND (%s::text[] IS NULL OR lower(board_token)=ANY(%s::text[]))
         ORDER BY active_roles DESC NULLS LAST
-    """)
+    """, (selected or None, selected or None))
     companies = cur.fetchall()
     cur.close()
     conn.close()
 
     log.info(f"  SmartRecruiters: pulling {len(companies)} companies from DB")
     all_jobs: List[RawJob] = []
-    for name, slug in companies:
-        try:
-            all_jobs.extend(fetch_smartrecruiters(name, slug))
-        except Exception as e:
-            log.warning(f"SmartRecruiters [{name}] error: {e}")
-            record_failure("smartrecruiters", slug, str(e))
+    workers = max(1, min(8, int(os.getenv("SMARTRECRUITERS_CONCURRENCY", "4"))))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        pending = {executor.submit(fetch_smartrecruiters, name, slug): (name, slug) for name, slug in companies}
+        for future in as_completed(pending):
+            name, slug = pending[future]
+            try:
+                all_jobs.extend(future.result())
+            except Exception as e:
+                log.warning(f"SmartRecruiters [{name}] error: {e}")
+                record_failure("smartrecruiters", slug, str(e))
     return all_jobs
 
 
@@ -3751,18 +3758,20 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
                     (source,),
                 )
                 no_configured_tenants = config_cur.fetchone()[0] == 0
-        if apply and (verified_empty or no_configured_tenants):
+        isolated_failure = bool(outcomes) and not verified_empty
+        if apply and (verified_empty or no_configured_tenants or isolated_failure):
             source_jobs_fetched = sum(outcome.jobs_fetched for outcome in successful)
-            source_status = "complete_nonzero" if source_jobs_fetched else "complete_zero"
+            source_status = "source_failure" if isolated_failure else "complete_nonzero" if source_jobs_fetched else "complete_zero"
             with get_conn() as empty_conn, empty_conn.cursor() as empty_cur:
                 empty_cur.execute(Path("sql/ingestion_observability.sql").read_text(encoding="utf-8"))
                 empty_cur.execute("""INSERT INTO ingestion_crawl_runs
                     (run_id, source, orchestration_run_id, finished_at, status, jobs_fetched, detail)
                     VALUES (%s, %s, %s, now(), %s, %s,
-                        jsonb_build_object('tenant_outcomes', %s, 'accepted_jobs', 0))
+                        jsonb_build_object('tenant_outcomes', %s, 'accepted_jobs', 0,
+                            'isolated_tenant_failure', %s))
                     ON CONFLICT (run_id) DO UPDATE SET finished_at=now(), status=EXCLUDED.status,
                         jobs_fetched=EXCLUDED.jobs_fetched, detail=EXCLUDED.detail""",
-                    (run_id, source, orchestration_run_id, source_status, source_jobs_fetched, len(outcomes)))
+                    (run_id, source, orchestration_run_id, source_status, source_jobs_fetched, len(outcomes), isolated_failure))
                 for outcome in outcomes:
                     empty_cur.execute("""INSERT INTO ingestion_tenant_runs
                         (run_id, source, crawl_tenant, status, jobs_fetched, errors, detail)
@@ -3772,6 +3781,11 @@ def run_ingestion(source: str, apply: bool, orchestration_run_id: Optional[str] 
                             errors=EXCLUDED.errors, detail=EXCLUDED.detail""",
                         (run_id, outcome.source, outcome.crawl_tenant, outcome.status,
                          outcome.jobs_fetched, outcome.errors, Json(outcome.detail)))
+            if isolated_failure:
+                # A checkpoint runner may continue to other tenants. Never
+                # confuse this with a clean zero or a database/program failure.
+                log.error(f"{source}: all {len(outcomes)} attempted tenant outcomes failed")
+                raise SystemExit(3)
             log.info(f"{source} completed with no accepted target jobs ({len(outcomes)} tenant outcomes)")
             return
         raise RuntimeError(f"{source} returned no jobs; refusing to report a successful crawl")

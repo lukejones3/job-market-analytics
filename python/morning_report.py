@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import html
+import argparse
+import fcntl
+import json
 import os
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +33,35 @@ def _n(value) -> str:
     return f"{int(value or 0):,}"
 
 
+def pipeline_status() -> dict:
+    url = os.getenv("AIRFLOW__DATABASE__SQL_ALCHEMY_CONN", "")
+    if not url:
+        return {"state": "unavailable", "failed": []}
+    try:
+        conn = psycopg2.connect(url.replace("postgresql+psycopg2://", "postgresql://"), connect_timeout=5)
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SET statement_timeout='5s'")
+                cur.execute("SELECT run_id,state FROM dag_run WHERE dag_id='lander_nightly' ORDER BY start_date DESC NULLS LAST LIMIT 1")
+                row = cur.fetchone()
+                if not row:
+                    return {"state": "missing", "failed": []}
+                cur.execute("SELECT task_id FROM task_instance WHERE dag_id='lander_nightly' AND run_id=%s AND state='failed' ORDER BY task_id", (row[0],))
+                return {"state": row[1], "run_id": row[0], "failed": [r[0] for r in cur.fetchall()]}
+        finally:
+            conn.close()
+    except psycopg2.Error as exc:
+        return {"state": "unavailable", "failed": [], "error": type(exc).__name__}
+
+
+def report_state(crawl_bad, publication, pipeline, now) -> str:
+    if not publication or (now-publication[0]).total_seconds() > 36*3600:
+        return "Needs attention"
+    if crawl_bad or pipeline["state"] in ("failed", "missing", "unavailable"):
+        return "Needs attention"
+    return "In progress" if pipeline["state"] in ("running", "queued") else "Healthy"
+
+
 def build_report() -> str:
     conn = get_conn()
     cur = conn.cursor()
@@ -38,9 +71,9 @@ def build_report() -> str:
     cur.execute("""
         SELECT COUNT(*),
                COUNT(*) FILTER (WHERE salary_min_annual IS NOT NULL OR salary_max_annual IS NOT NULL),
-               COUNT(*) FILTER (WHERE ingested_at >= now() - interval '24 hours'),
+               COUNT(*) FILTER (WHERE published_at >= now() - interval '24 hours'),
                COUNT(*) FILTER (WHERE experience_level_v3 IS NULL),
-               COUNT(*) FILTER (WHERE workplace_type IS NULL)
+               COUNT(*) FILTER (WHERE workplace_type IS NULL OR lower(workplace_type) IN ('unknown',''))
         FROM job_postings WHERE is_public
     """)
     public_count, salary_count, new_24h, missing_level, missing_workplace = cur.fetchone()
@@ -49,7 +82,7 @@ def build_report() -> str:
     cur.execute("""
         SELECT COALESCE(ingestion_source, source, 'unknown'), COUNT(*),
                COUNT(*) FILTER (WHERE salary_min_annual IS NOT NULL OR salary_max_annual IS NOT NULL),
-               COUNT(*) FILTER (WHERE ingested_at >= now() - interval '24 hours'),
+               COUNT(*) FILTER (WHERE published_at >= now() - interval '24 hours'),
                MAX(last_seen_at)
         FROM job_postings WHERE is_public
         GROUP BY 1 ORDER BY 2 DESC
@@ -67,18 +100,16 @@ def build_report() -> str:
     crawls = []
     if orchestration_id:
         cur.execute("""
-            SELECT source, status, jobs_fetched, jobs_written, errors,
-                   EXTRACT(epoch FROM (finished_at - started_at))::int
+            SELECT source,
+                   CASE WHEN bool_and(status IN ('complete_nonzero','complete_zero'))
+                     THEN 'complete_nonzero' ELSE 'partial_failure' END,
+                   sum(jobs_fetched),sum(jobs_written),sum(errors),
+                   EXTRACT(epoch FROM (max(finished_at) - min(started_at)))::int
             FROM ingestion_crawl_runs
             WHERE orchestration_run_id = %s
-            ORDER BY source, finished_at DESC
+            GROUP BY source ORDER BY source
         """, (orchestration_id,))
-        # A retried source can have two crawl rows; display its final attempt.
-        seen = set()
-        for row in cur.fetchall():
-            if row[0] not in seen:
-                crawls.append(row)
-                seen.add(row[0])
+        crawls = cur.fetchall()
 
     cur.execute("""
         SELECT published_at, prior_count, candidate_count, activated_count, deactivated_count
@@ -109,13 +140,20 @@ def build_report() -> str:
     conn.close()
 
     crawl_bad = [r for r in crawls if r[1] not in ("complete_nonzero", "complete_zero") or (r[4] or 0) > 0]
-    overall = "Needs attention" if crawl_bad else "Healthy"
-    accent = "#ff8c69" if crawl_bad else "#b8f36b"
+    pipeline = pipeline_status()
+    for task in pipeline['failed']:
+        if task.startswith('ingest_') and task != 'ingest_quality_gate':
+            source = task.removeprefix('ingest_')
+            crawls = [row for row in crawls if row[0] != source] + [
+                (source, 'source_failure', 0, 0, 1, 0)]
+    crawl_bad = [r for r in crawls if r[1] not in ('complete_nonzero','complete_zero') or (r[4] or 0) > 0]
+    overall = report_state(crawl_bad, publication, pipeline, now)
+    accent = "#b8f36b" if overall == "Healthy" else "#ff8c69"
 
     source_rows = "".join(
         f"<tr><td><b>{html.escape(str(src))}</b></td><td>{_n(count)}</td>"
         f"<td>{_n(salary)} <span>{round(100*salary/count) if count else 0}%</span></td>"
-        f"<td>+{_n(new)}</td><td>{((now-last_seen).total_seconds()/3600):.1f}h</td></tr>"
+        f"<td>+{_n(new)}</td><td>{f'{(now-last_seen).total_seconds()/3600:.1f}h' if last_seen else 'unknown'}</td></tr>"
         for src, count, salary, new, last_seen in sources
     )
     crawl_rows = "".join(
@@ -128,7 +166,7 @@ def build_report() -> str:
     pub_text = "No publication recorded"
     if publication:
         published_at, prior, candidate, activated, deactivated = publication
-        pub_text = (f"Published {_n(candidate)} jobs at {published_at:%H:%M} UTC · "
+        pub_text = (f"Published {_n(candidate)} jobs at {published_at:%Y-%m-%d %H:%M} UTC · "
                     f"{_n(activated)} activated · {_n(deactivated)} removed · prior {_n(prior)}")
 
     return f"""<!doctype html><html><head><meta name='viewport' content='width=device-width'></head>
@@ -148,7 +186,7 @@ def build_report() -> str:
         <td class='metric'><b>{salary_pct}%</b><span>salary coverage</span></td>
         <td class='metric'><b>+{_n(new_24h)}</b><span>new in 24h</span></td>
       </tr></table>
-      <div class='callout'>{html.escape(pub_text)}</div>
+      <div class='callout'>{html.escape(pub_text)}<br>Nightly run: {html.escape(pipeline['state'])} · Failed tasks: {html.escape(', '.join(pipeline['failed']) or 'none recorded')}</div>
       <h2>Source inventory</h2>
       <table class='data'><thead><tr><th>Source</th><th>Live</th><th>Salary</th><th>New</th><th>Fresh</th></tr></thead><tbody>{source_rows}</tbody></table>
       <h2>Latest ingestion</h2>
@@ -173,14 +211,14 @@ def build_report() -> str:
 </style></body></html>"""
 
 
-def send_email(report_html: str) -> None:
+def send_email(report_html: str, delivery_key: str | None = None) -> str:
     api_key = os.getenv("RESEND_API_KEY", "")
     if not api_key:
-        print("RESEND_API_KEY not set; report generated but not sent")
-        return
+        raise RuntimeError("RESEND_API_KEY not set; report was not delivered")
     response = requests.post(
         "https://api.resend.com/emails",
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json",
+                 "Idempotency-Key": delivery_key or f"lander-daily-{datetime.now(timezone.utc):%Y-%m-%d}"},
         json={
             "from": os.getenv("RESEND_FROM", "Lander <onboarding@resend.dev>"),
             "to": [TO_EMAIL],
@@ -189,13 +227,49 @@ def send_email(report_html: str) -> None:
         }, timeout=15,
     )
     response.raise_for_status()
-    print(f"Morning report sent to {TO_EMAIL}")
+    delivery_id = response.json()["id"]
+    print(f"Morning report accepted by provider: {delivery_id}")
+    return delivery_id
+
+
+def save_delivery_state(path, state):
+    with tempfile.NamedTemporaryFile(mode='w', dir=path.parent, delete=False) as pending:
+        json.dump(state, pending)
+        pending.flush()
+        os.fsync(pending.fileno())
+    os.replace(pending.name, path)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--dry-run', action='store_true')
+    args = parser.parse_args()
+    folder = Path(os.getenv('MORNING_REPORT_OUTPUT_DIR', '/opt/job-market-analytics/logs'))
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder/'.morning-report.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            report = build_report()
+        except Exception as exc:
+            # A broken metrics query must not silence the operational warning.
+            report = ("<h1>Lander daily brief — Needs attention</h1>"
+                      f"<p>Report metrics could not be loaded ({html.escape(type(exc).__name__)}). "
+                      "Check the nightly pipeline and report task logs.</p>")
+        (folder/'latest_report.html').write_text(report)
+        if args.dry_run:
+            print('Report rendered; dry run did not send')
+            return
+        day = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        ledger = folder/f'morning-report-{day}.json'
+        state = json.loads(ledger.read_text()) if ledger.exists() else {'html': report}
+        if state.get('delivery_id'):
+            print(f'Daily report already accepted: {state["delivery_id"]}')
+            return
+        # Retry exactly the same body with the same provider idempotency key.
+        save_delivery_state(ledger, state)
+        state['delivery_id'] = send_email(state['html'], f'lander-daily-{day}')
+        save_delivery_state(ledger, state)
 
 
 if __name__ == "__main__":
-    report = build_report()
-    output = Path("/opt/job-market-analytics/logs/latest_report.html")
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(report)
-    print(f"Report written to {output}")
-    send_email(report)
+    main()

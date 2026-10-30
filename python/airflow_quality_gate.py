@@ -36,6 +36,15 @@ def bad_ingest_sources(crawl_rows):
         or crawl_rows[source][1] > 0
     ]
 
+
+def apply_checkpoint_sweeps(crawl_rows, sweeps):
+    """Use the latest whole-inventory boundary without hiding unfinished sweeps."""
+    for source, status, finished, errors in sweeps:
+        prior = crawl_rows.get(source, (False, 1, 0))
+        crawl_rows[source] = (
+            status in ('complete_nonzero', 'complete_zero') and not errors,
+            int(finished is None or status == 'running'), *prior[2:])
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("gate", choices=("shadow", "ingest", "publish"))
@@ -60,6 +69,15 @@ def main():
                 WHERE orchestration_run_id=%s
                 GROUP BY source""", (args.since,))
             crawl_rows = {row[0]: row[1:] for row in cursor.fetchall()}
+            # A completed checkpoint sweep is the source-level boundary. Its
+            # retry skips only clean committed tenants; a fatal/unfinished
+            # sweep never permits publication. Isolated tenant outages remain
+            # explicit in child rows and cannot authorize expiry for that tenant.
+            cursor.execute("""SELECT DISTINCT ON(source) source,status,finished_at,errors
+                FROM ingestion_crawl_runs WHERE orchestration_run_id=%s
+                  AND detail->>'checkpoint_sweep'='true'
+                ORDER BY source,started_at DESC,run_id DESC""", (args.since,))
+            apply_checkpoint_sweeps(crawl_rows, cursor.fetchall())
             cursor.execute("""WITH ranked AS (
                     SELECT tr.source, tr.crawl_tenant, tr.status,
                            row_number() OVER (

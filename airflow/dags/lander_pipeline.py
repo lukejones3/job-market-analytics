@@ -70,11 +70,14 @@ with DAG(dag_id="lander_nightly",
                 # multi-hour broad-source crawls such as Amazon.
                 "priority_weight": 100,
             }
-            if source == "workday" else {}
+            if source == "workday" else
+            {"execution_timeout": timedelta(hours=6)} if source == "smartrecruiters" else {}
         )
         ingest_entrypoint = (
             f"{PYTHON} python/ingest_workday_resumable.py --apply "
             if source == "workday" else
+            f"{PYTHON} python/ingest_workday_resumable.py --source smartrecruiters --apply "
+            if source == "smartrecruiters" else
             f"{PYTHON} python/ingest_jobs.py --apply --source {source} "
         )
         ingest = command(f"ingest_{source}",
@@ -185,7 +188,7 @@ with DAG(dag_id="lander_nightly",
         f"{PYTHON} python/notify_google_indexing.py --min-interval-seconds 0.20")
     notify_indexnow = command("notify_indexnow",
         f"{PYTHON} python/notify_indexnow.py --limit 10000")
-    report = command("morning_report", f"{PYTHON} python/morning_report.py")
+    report = command("morning_report", f"{PYTHON} python/morning_report.py", trigger_rule="all_done")
     funnel_report = command("ingestion_funnel_report",
         f"{PYTHON} python/ingestion_funnel_report.py")
     ingests >> ingest_gate >> scope_backfill >> reclassify >> blocklist >> annualize >> extract_salaries
@@ -200,12 +203,20 @@ with DAG(dag_id="lander_nightly",
     refresh_seo_index >> [notify_google_indexing, notify_indexnow]
     notify_google_indexing >> [report, funnel_report]
     notify_indexnow >> [report, funnel_report]
+    for stage in list(nightly.tasks):
+        if stage is not report:
+            stage >> report
     # A safe partial publication must not turn upstream failures into a green
     # DAG solely because its final reporting tasks completed successfully.
     nightly_complete = EmptyOperator(task_id="nightly_complete")
     for stage in list(nightly.tasks):
         if stage is not nightly_complete:
             stage >> nightly_complete
+
+with DAG(dag_id="lander_daily_brief", description="Deliver the operations brief even when ingestion fails",
+    schedule="30 8 * * *", start_date=local_start(2026, 10, 24), catchup=False,
+    max_active_runs=1, default_args=DEFAULT_ARGS, tags=["lander", "reporting"]) as daily_brief:
+    command("morning_report", f"{PYTHON} python/morning_report.py")
 
 with DAG(dag_id="lander_ats_discovery",
     description="Discover, validate, and activate new ATS tenants",
