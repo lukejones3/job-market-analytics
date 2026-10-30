@@ -3263,8 +3263,12 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
     limit = 100
     board_total = 0
     crawl_failed = False
+    deadline = time.monotonic() + max(1, int(os.getenv('SMARTRECRUITERS_TENANT_TIMEOUT_SECONDS', '900')))
 
     while True:
+        if time.monotonic() >= deadline:
+            record_failure('smartrecruiters', company_slug, 'tenant crawl timeout', partial=bool(jobs))
+            return jobs
         data = _get(base_url, params={"limit": limit, "offset": offset})
         _throttle()
         if data is None or not isinstance(data, dict):
@@ -3282,6 +3286,9 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
             break
 
         for j in postings:
+            if time.monotonic() >= deadline:
+                record_failure('smartrecruiters', company_slug, 'tenant crawl timeout', partial=bool(jobs))
+                return jobs
             title = _clean(j.get("name", ""))
             if not title or not _is_target_role(title):
                 continue
@@ -3311,6 +3318,11 @@ def fetch_smartrecruiters(company_name: str, company_slug: str) -> List[RawJob]:
             detail_url = j.get("ref") or f"{base_url}/{posting_id}"
             detail = _get(detail_url)
             _throttle()
+            if not isinstance(detail, dict) or not detail:
+                record_failure('smartrecruiters', company_slug, 'posting detail unavailable', partial=True,
+                               posting_id=str(posting_id))
+                crawl_failed = True
+                continue
 
             desc_parts = []
             if detail and isinstance(detail, dict):

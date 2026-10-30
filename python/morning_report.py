@@ -139,13 +139,13 @@ def build_report() -> str:
     active_pro, active_free = cur.fetchone()
     conn.close()
 
-    crawl_bad = [r for r in crawls if r[1] not in ("complete_nonzero", "complete_zero") or (r[4] or 0) > 0]
     pipeline = pipeline_status()
     for task in pipeline['failed']:
         if task.startswith('ingest_') and task != 'ingest_quality_gate':
             source = task.removeprefix('ingest_')
+            prior = next((row for row in crawls if row[0] == source), (source, '', 0, 0, 0, 0))
             crawls = [row for row in crawls if row[0] != source] + [
-                (source, 'source_failure', 0, 0, 1, 0)]
+                (source, 'source_failure', *prior[2:])]
     crawl_bad = [r for r in crawls if r[1] not in ('complete_nonzero','complete_zero') or (r[4] or 0) > 0]
     overall = report_state(crawl_bad, publication, pipeline, now)
     accent = "#b8f36b" if overall == "Healthy" else "#ff8c69"
@@ -198,7 +198,7 @@ def build_report() -> str:
       <h2>Accounts</h2><div class='callout'>+{_n(signups_24h)} signups today · {_n(total_signups)} lifetime · {_n(active_pro)} pro · {_n(active_free)} active free</div>
     </div>
   </div>
-  <div style='color:#686b72;font-size:12px;text-align:center;padding:18px'>datahiringiq.com · frontend-aligned metrics</div>
+  <div style='color:#686b72;font-size:12px;text-align:center;padding:18px'>landerjob.com · frontend-aligned metrics</div>
 </div>
 <style>
   h2{{font-size:15px;margin:28px 0 10px;color:#d7d8d4}} table.data{{width:100%;border-collapse:collapse;font-size:13px}}

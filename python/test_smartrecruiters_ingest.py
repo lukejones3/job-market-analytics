@@ -142,6 +142,32 @@ def test_empty_failed_batch_persists_outcomes_and_uses_outage_exit(monkeypatch):
     assert tenant[2:4] == ('failed', 'failed')
 
 
+def test_unavailable_smartrecruiters_detail_is_not_a_clean_tenant_crawl(monkeypatch):
+    listing = {'totalFound': 1, 'content': [{'id':'42', 'name':'Data Engineer',
+        'location': {'city':'Austin','region':'TX','country':'us'}}]}
+    monkeypatch.setattr(ingest_jobs, '_get', lambda url, **kw: None if url.endswith('/42') else listing)
+    monkeypatch.setattr(ingest_jobs, '_throttle', lambda: None)
+    ingest_jobs.reset_tenant_outcomes()
+    assert ingest_jobs.fetch_smartrecruiters('Probe', 'probe') == []
+    outcome = ingest_jobs.tenant_outcomes('smartrecruiters')[0]
+    assert outcome.status == 'partial_failure'
+
+
+def test_smartrecruiters_tenant_budget_preserves_partial_rows_and_failure(monkeypatch):
+    listing = {'totalFound': 200, 'content': [{'id':'42','name':'Data Engineer',
+        'location': {'city':'Austin','region':'TX','country':'us'}}]}
+    detail = {'jobAd': {'sections': {'jobDescription': {'text':'Build data pipelines. '*20}}}}
+    monkeypatch.setattr(ingest_jobs, '_get', lambda url, **kw: detail if url.endswith('/42') else listing)
+    monkeypatch.setattr(ingest_jobs, '_throttle', lambda: None)
+    ticks = iter([0, 0, 0, 2])
+    monkeypatch.setattr(ingest_jobs.time, 'monotonic', lambda: next(ticks))
+    monkeypatch.setenv('SMARTRECRUITERS_TENANT_TIMEOUT_SECONDS', '1')
+    ingest_jobs.reset_tenant_outcomes()
+    jobs = ingest_jobs.fetch_smartrecruiters('Probe', 'probe')
+    assert len(jobs) == 1
+    assert ingest_jobs.tenant_outcomes('smartrecruiters')[0].status == 'partial_failure'
+
+
 if __name__ == "__main__":
     test_empty_description_preserves_existing_row()
     test_empty_description_new_row_is_not_inserted()
