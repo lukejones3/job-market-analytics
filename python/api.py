@@ -621,8 +621,7 @@ def public_market(request: Request, response: Response, conn=Depends(get_conn)):
                 0
             )::double precision AS salary_disclosure_rate,
             COUNT(*) FILTER (
-                WHERE COALESCE(jp.posted_date::timestamptz, jp.date_found::timestamptz)
-                    >= NOW() - INTERVAL '24 hours'
+                WHERE jp.published_at >= NOW() - INTERVAL '24 hours'
             )::int AS fresh_today,
             MAX(jp.date_found) AS indexed_at,
             (SELECT MAX(pr.published_at) FROM publication_runs pr) AS publication_at
