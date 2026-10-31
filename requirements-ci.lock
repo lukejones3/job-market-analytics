@@ -500,8 +500,10 @@ py-serializable==2.1.0
     # via cyclonedx-python-lib
 pyarrow==24.0.0
     # via streamlit
-pyasn1==0.6.4
-    # via pyasn1-modules
+pyasn1==0.6.5
+    # via
+    #   -r requirements.txt
+    #   pyasn1-modules
 pyasn1-modules==0.4.2
     # via google-auth
 pycparser==3.0
@@ -539,7 +541,7 @@ pyjwt==2.15.1
     #   apache-airflow-core
 pyparsing==3.3.2
     # via pip-requirements-parser
-pypdf==6.21.2
+pypdf==6.21.4
     # via -r requirements.txt
 pypdfium2==5.14.0
     # via pdfplumber
