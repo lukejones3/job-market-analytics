@@ -9,7 +9,7 @@ import json
 import socket
 import sys
 
-SOCKET = "/tmp/human-repo-airflow/jobs.sock"
+SOCKET = "/run/human-repo-airflow/jobs.sock"
 
 
 def main() -> None:
