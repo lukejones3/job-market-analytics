@@ -23,23 +23,36 @@ layer. The Next.js frontend is a separate repo (`lander`).
 ## To run a psql query on the droplet
 ssh root@208.68.38.249 "cd /opt/job-market-analytics && set -a && . .env && set +a && psql -c \"<SQL>\""
 
-## Daily cron pipeline (UTC)
-- 05:00  pg_dump backup + prune backups older than 7 days
-- 06:00  ingest — 9 ATS sources launch simultaneously (greenhouse, lever,
-         ashby, workday, eightfold, amazon, smartrecruiters, workable, icims)
-- 06:15  reclassify_domains.py (--since-hours 24)
-- 06:20  enforce_blocklist.py
-- 06:30  annualize salaries (SQL) + enrich_job_postings.py (regex/heuristics,
-         --no-llm, limit 5000) + extract_skills_sql.py
-- 06:45  embed_jobs.py — embeddings for new jobs
-- 06:55  classify_exp_level_v2.py --apply — writes experience_level_v2
-- 07:20  refresh_job_honesty() + discover_companies.py
-- 07:30  dedup_sources.py
-- 07:40  expire_jobs.py
-- 07:50  sync_discovered.sql
-- 08:00  dbt run — 18 models
-- 08:30  morning_report.py
-- every 5 min: embed_resumes.py
+## Production orchestration
+- Airflow 3.3.2 owns the pipeline. The historical cron sequence is retired;
+  do not re-enable independent ingestion, enrichment, expiry or publication cron jobs.
+- DAG source: `airflow/dags/lander_pipeline.py`; scheduler environment:
+  `/etc/airflow/airflow.env`; runtime: `/opt/airflow/venv/bin/airflow`.
+- `lander_nightly` starts at midnight America/Chicago, with three active
+  tasks and an 18-hour run window. Backup and schema maintenance precede 12
+  ATS ingests, optional coverage feeds, ingestion gate, enrichment, stored
+  embedding reuse, quality repairs, tenant-safe expiry, source URL validation,
+  dbt, publication gate, atomic publication, SEO refresh and notifications.
+- Workday uses durable tenant batches through `ingest_workday_resumable.py`.
+  SmartRecruiters uses the same runner with `--source smartrecruiters`, four
+  concurrent company checkpoints, individual HTTP sessions and bounded crawls.
+  Retries skip only clean, committed tenants for the same orchestration ID.
+- A completed checkpoint manifest proves every planned tenant has an outcome.
+  Provider failures stay visible; failed/partial tenants cannot authorize expiry.
+  Database/program failures and unfinished sweeps block publication.
+- Enrichment is `--only-missing --no-llm --limit 40000`; job embeddings are
+  generated only for rows with missing embeddings. Resume embeddings run every
+  five minutes through `lander_resume_embeddings`.
+- `lander_daily_brief` runs independently at 08:30 America/Chicago. The nightly
+  report also runs after all stages finish, including failures. Central-date
+  delivery ledgers and provider idempotency prevent duplicate daily emails.
+  A metrics outage produces a warning email rather than suppressing delivery.
+- Verify recovery with `publication_runs`, the public `/v1/public/market`
+  response, and the report delivery ledger. A healthy API process or passing
+  unit tests alone do not establish that ingestion/publication completed.
+- October 30 recovery published 54,325 jobs at 2026-10-31 00:37 UTC (October 30
+  19:37 Central), including 12,169 activated listings. Isolated Workday tenant
+  failures remained visible; the full DAG was deliberately not marked green.
 
 ## ML infrastructure (already built — do not rebuild)
 - sentence-transformers model: all-MiniLM-L6-v2, 384-dim. Loaded globally in
