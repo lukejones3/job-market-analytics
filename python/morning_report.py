@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 import psycopg2
 import requests
 from dotenv import load_dotenv
+from airflow_quality_gate import latest_crawl_boundaries, tenant_failure_counts
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=True)
 
@@ -117,6 +118,19 @@ def build_report() -> str:
             GROUP BY source ORDER BY source
         """, (orchestration_id,))
         crawls = cur.fetchall()
+        boundaries = {r[0]: r[1:] for r in latest_crawl_boundaries(cur, orchestration_id)}
+        failures = tenant_failure_counts(cur, orchestration_id)
+        current = []
+        for source, old_status, fetched, written, errors, elapsed in crawls:
+            status, finished, boundary_errors, degraded = boundaries[source]
+            if finished is None:
+                status = 'running'
+            elif boundary_errors or status not in ('complete_nonzero','complete_zero'):
+                status = 'source_failure'
+            elif degraded or failures.get(source, 0):
+                status = 'partial_failure'
+            current.append((source, status, fetched, written, boundary_errors, elapsed))
+        crawls = current
 
     cur.execute("""
         SELECT published_at, prior_count, candidate_count, activated_count, deactivated_count

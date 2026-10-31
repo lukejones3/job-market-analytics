@@ -39,11 +39,32 @@ def bad_ingest_sources(crawl_rows):
 
 def apply_checkpoint_sweeps(crawl_rows, sweeps):
     """Use the latest whole-inventory boundary without hiding unfinished sweeps."""
-    for source, status, finished, errors in sweeps:
+    for source, status, finished, errors, *_ in sweeps:
         prior = crawl_rows.get(source, (False, 1, 0))
         crawl_rows[source] = (
             status in ('complete_nonzero', 'complete_zero') and not errors,
             int(finished is None or status == 'running'), *prior[2:])
+
+
+def latest_crawl_boundaries(cursor, orchestration_run_id):
+    """A checkpoint manifest owns its source; otherwise the latest full attempt does."""
+    cursor.execute("""SELECT DISTINCT ON(source) source,status,finished_at,errors,
+            COALESCE((detail->>'degraded')::boolean,false)
+        FROM ingestion_crawl_runs WHERE orchestration_run_id=%s
+        ORDER BY source,COALESCE(detail->>'checkpoint_sweep'='true',false) DESC,
+                 started_at DESC,run_id DESC""", (orchestration_run_id,))
+    return cursor.fetchall()
+
+
+def tenant_failure_counts(cursor, orchestration_run_id):
+    cursor.execute("""WITH latest AS (
+        SELECT DISTINCT ON(tr.source,tr.crawl_tenant) tr.source,tr.crawl_tenant,tr.status
+        FROM ingestion_tenant_runs tr JOIN ingestion_crawl_runs cr USING(run_id)
+        WHERE cr.orchestration_run_id=%s
+        ORDER BY tr.source,tr.crawl_tenant,cr.started_at DESC,tr.run_id DESC)
+        SELECT source,count(*) FILTER(WHERE status NOT IN ('complete_nonzero','complete_zero'))::integer
+        FROM latest GROUP BY source""", (orchestration_run_id,))
+    return dict(cursor.fetchall())
 
 def main():
     parser = argparse.ArgumentParser()
@@ -73,26 +94,8 @@ def main():
             # retry skips only clean committed tenants; a fatal/unfinished
             # sweep never permits publication. Isolated tenant outages remain
             # explicit in child rows and cannot authorize expiry for that tenant.
-            cursor.execute("""SELECT DISTINCT ON(source) source,status,finished_at,errors
-                FROM ingestion_crawl_runs WHERE orchestration_run_id=%s
-                  AND detail->>'checkpoint_sweep'='true'
-                ORDER BY source,started_at DESC,run_id DESC""", (args.since,))
-            apply_checkpoint_sweeps(crawl_rows, cursor.fetchall())
-            cursor.execute("""WITH ranked AS (
-                    SELECT tr.source, tr.crawl_tenant, tr.status,
-                           row_number() OVER (
-                               PARTITION BY tr.source, tr.crawl_tenant
-                               ORDER BY cr.started_at DESC, tr.run_id DESC
-                           ) AS rn
-                    FROM ingestion_tenant_runs tr
-                    JOIN ingestion_crawl_runs cr ON cr.run_id=tr.run_id
-                    WHERE cr.orchestration_run_id=%s
-                )
-                SELECT source, count(*) FILTER (
-                    WHERE status NOT IN ('complete_nonzero', 'complete_zero')
-                )::integer AS failed_tenants
-                FROM ranked WHERE rn=1 GROUP BY source""", (args.since,))
-            tenant_failures = dict(cursor.fetchall())
+            apply_checkpoint_sweeps(crawl_rows, latest_crawl_boundaries(cursor, args.since))
+            tenant_failures = tenant_failure_counts(cursor, args.since)
             bad = bad_ingest_sources(crawl_rows)
             if bad:
                 raise RuntimeError(f"ingest gate failed; incomplete source orchestration for: {', '.join(bad)}")

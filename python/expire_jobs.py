@@ -10,7 +10,7 @@ import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 import psycopg2
-from airflow_quality_gate import apply_checkpoint_sweeps
+from airflow_quality_gate import apply_checkpoint_sweeps, latest_crawl_boundaries
 
 INGEST_SOURCES = ("greenhouse", "lever", "ashby", "workday", "eightfold",
     "amazon", "smartrecruiters", "workable", "icims", "taleo", "jobvite", "bamboohr")
@@ -44,11 +44,7 @@ def main():
                 WHERE orchestration_run_id = %s AND source = ANY(%s)
                 GROUP BY source""", (args.since, list(INGEST_SOURCES)))
             outcomes = {source: (succeeded, running) for source, succeeded, running in cur.fetchall()}
-            cur.execute("""SELECT DISTINCT ON(source) source,status,finished_at,errors
-                FROM ingestion_crawl_runs WHERE orchestration_run_id=%s
-                  AND detail->>'checkpoint_sweep'='true'
-                ORDER BY source,started_at DESC,run_id DESC""", (args.since,))
-            apply_checkpoint_sweeps(outcomes, cur.fetchall())
+            apply_checkpoint_sweeps(outcomes, latest_crawl_boundaries(cur, args.since))
             healthy_sources = [source for source in INGEST_SOURCES
                 if outcomes.get(source, (False, 1))[0] and outcomes[source][1] == 0]
             if not healthy_sources:
